@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type InferSchema } from "xmcp";
+import { type ToolMetadata, type InferSchema } from "xmcp";
 
 // Define the schema for tool parameters
 export const schema = {
@@ -7,7 +7,7 @@ export const schema = {
 };
 
 // Define tool metadata
-export const metadata = {
+export const metadata: ToolMetadata = {
   name: "greet",
   description: "Greet the user",
   annotations: {
