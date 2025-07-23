@@ -43,6 +43,37 @@ After installation, make sure the 'localstack' command is available in your PATH
   }
 }
 
+export interface LocalStackStatusResult {
+  isRunning: boolean;
+  statusOutput?: string;
+  errorMessage?: string;
+  isReady?: boolean;
+}
+
+/**
+ * Get LocalStack status information
+ * @returns Promise with status details including running state and raw output
+ */
+export async function getLocalStackStatus(): Promise<LocalStackStatusResult> {
+  try {
+    const { stdout } = await execAsync("localstack status");
+    
+    const isRunning = stdout.includes("running");
+    const isReady = stdout.includes("Ready") || stdout.includes("ready");
+    
+    return {
+      isRunning,
+      isReady,
+      statusOutput: stdout.trim(),
+    };
+  } catch (error) {
+    return {
+      isRunning: false,
+      errorMessage: `Failed to get LocalStack status: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
 /**
  * Validate LocalStack CLI availability and return early if not available
  * This is a helper function for tools that require LocalStack CLI
