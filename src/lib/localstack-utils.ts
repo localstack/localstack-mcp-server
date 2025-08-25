@@ -15,10 +15,7 @@ export interface LocalStackCliCheckResult {
  */
 export async function checkLocalStackCli(): Promise<LocalStackCliCheckResult> {
   try {
-    // Try to execute 'localstack --help' to check if CLI is available
     await execAsync("localstack --help");
-    
-    // Get version information
     const { stdout: version } = await execAsync("localstack --version");
     
     return {

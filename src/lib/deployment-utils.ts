@@ -23,7 +23,6 @@ export async function checkDependencies(projectType: 'cdk' | 'terraform'): Promi
   const tool = projectType === 'cdk' ? 'cdklocal' : 'tflocal';
   
   try {
-    // Try to execute version command to check if tool is available
     const { stdout } = await execAsync(`${tool} --version`, { timeout: 10000 });
     
     return {
@@ -67,16 +66,13 @@ After installation, make sure the 'tflocal' command is available in your PATH.`;
  */
 export async function inferProjectType(directory: string): Promise<ProjectType> {
   try {
-    // Check if directory exists
     const stats = await fs.promises.stat(directory);
     if (!stats.isDirectory()) {
       throw new Error(`Path ${directory} is not a directory`);
     }
 
-    // Read directory contents
     const files = await fs.promises.readdir(directory);
     
-    // Check for CDK indicators
     const hasCdkJson = files.includes('cdk.json');
     const hasCdkFiles = files.some(file => 
       file.startsWith('cdk.') || 
@@ -85,13 +81,11 @@ export async function inferProjectType(directory: string): Promise<ProjectType> 
       file === 'app.ts'
     );
     
-    // Check for Terraform indicators
     const hasTerraformFiles = files.some(file => 
       file.endsWith('.tf') || 
       file.endsWith('.tf.json')
     );
     
-    // Determine project type based on findings
     const isCdk = hasCdkJson || hasCdkFiles;
     const isTerraform = hasTerraformFiles;
     
@@ -106,7 +100,6 @@ export async function inferProjectType(directory: string): Promise<ProjectType> 
     }
     
   } catch (error) {
-    // If we can't read the directory, treat as unknown
     return 'unknown';
   }
 }
@@ -117,7 +110,6 @@ export async function inferProjectType(directory: string): Promise<ProjectType> 
  * @returns Cleaned text without ANSI codes
  */
 export function stripAnsiCodes(text: string): string {
-  // Remove ANSI escape sequences (colors, cursor movements, etc.)
   return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
 }
 
@@ -148,7 +140,6 @@ export function validateVariables(variables?: Record<string, string>): string[] 
   const errors: string[] = [];
 
   for (const [key, value] of Object.entries(variables)) {
-    // Check key for dangerous patterns
     for (const pattern of dangerousPatterns) {
       if (key.includes(pattern)) {
         errors.push(`Variable key "${key}" contains forbidden character: ${pattern}`);
@@ -158,7 +149,6 @@ export function validateVariables(variables?: Record<string, string>): string[] 
       }
     }
     
-    // Additional validation: keys should be valid identifiers
     if (!/^[a-zA-Z_][a-zA-Z0-9_-]*$/.test(key)) {
       errors.push(`Variable key "${key}" is not a valid identifier`);
     }
@@ -215,12 +205,10 @@ export function parseCdkOutputs(stdout: string): string {
       }
       
       if (inOutputsSection) {
-        // Stop if we hit another section or empty line
         if (line.trim() === '' || line.match(/^[A-Z].*:$/)) {
           break;
         }
         
-        // Parse output line (format: "StackName.OutputName = value")
         const outputMatch = line.match(/^([^=]+)\s*=\s*(.+)$/);
         if (outputMatch) {
           outputLines.push(line.trim());

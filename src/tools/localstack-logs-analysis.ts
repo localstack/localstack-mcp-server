@@ -3,7 +3,6 @@ import { type ToolMetadata, type InferSchema } from "xmcp";
 import { ensureLocalStackCli } from "../lib/localstack-utils";
 import { LocalStackLogRetriever, type LogEntry } from "../lib/log-retriever";
 
-// Define the schema for tool parameters
 export const schema = {
   analysisType: z.enum(['summary', 'errors', 'requests', 'logs'])
     .default('summary')
@@ -18,7 +17,6 @@ export const schema = {
     .describe("Raw keyword filter. Only used with 'logs' mode."),
 };
 
-// Define tool metadata
 export const metadata: ToolMetadata = {
   name: "localstack-logs-analysis",
   description: "LocalStack log analyzer that helps developers quickly diagnose issues and understand their LocalStack interactions",
@@ -30,15 +28,11 @@ export const metadata: ToolMetadata = {
   },
 };
 
-// Tool implementation
 export default async function localstackLogsAnalysis({ analysisType, lines, service, operation, filter }: InferSchema<typeof schema>) {
-  // Check if LocalStack CLI is available
   const cliError = await ensureLocalStackCli();
   if (cliError) return cliError;
 
   const retriever = new LocalStackLogRetriever();
-  
-  // For logs mode, apply filter during retrieval
   const retrievalFilter = analysisType === 'logs' ? filter : undefined;
   const logResult = await retriever.retrieveLogs(lines, retrievalFilter);
   

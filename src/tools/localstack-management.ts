@@ -6,16 +6,13 @@ import { ensureLocalStackCli, getLocalStackStatus } from "../lib/localstack-util
 
 const execAsync = promisify(exec);
 
-// Define the schema for tool parameters
 export const schema = {
   action: z.enum(["start", "stop", "restart", "status"]).describe("The LocalStack management action to perform"),
-  // Optional parameters for start action
   enablePro: z.boolean().optional().default(false).describe("Enable LocalStack Pro services (only for start action)"),
   authToken: z.string().optional().describe("LocalStack Pro auth token (only for start action)"),
   envVars: z.record(z.string()).optional().describe("Additional environment variables as key-value pairs (only for start action)"),
 };
 
-// Define tool metadata
 export const metadata: ToolMetadata = {
   name: "localstack-management",
   description: "Manage LocalStack lifecycle: start, stop, restart, or check status",
@@ -27,9 +24,7 @@ export const metadata: ToolMetadata = {
   },
 };
 
-// Tool implementation
 export default async function localstackManagement({ action, enablePro, authToken, envVars }: InferSchema<typeof schema>) {
-  // Check if LocalStack CLI is available for all actions
   const cliError = await ensureLocalStackCli();
   if (cliError) return cliError;
 
