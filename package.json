@@ -1,5 +1,5 @@
 {
-  "name": "localstack-mcp-server",
+  "name": "@localstack/localstack-mcp-server",
   "version": "0.1.0",
   "description": "A LocalStack MCP Server for managing LocalStack containers with Pro support",
   "engines": {
@@ -23,5 +23,17 @@
   ],
   "bin": {
     "localstack-mcp-server": "./dist/stdio.js"
-  }
+  },
+  "author": "@localstack",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/localstack/localstack-mcp-server"
+  },
+  "keywords": [
+    "localstack",
+    "aws",
+    "local-development",
+    "local-testing"
+  ]
 }
