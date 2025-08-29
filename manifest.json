@@ -1,0 +1,109 @@
+{
+  "dxt_version": "0.1",
+  "name": "localstack-mcp-server",
+  "display_name": "LocalStack MCP Server",
+  "version": "0.1.0",
+  "description": "A LocalStack MCP Server providing essential tools for local cloud development & testing",
+  "author": {
+    "name": "LocalStack Team",
+    "email": "info@localstack.cloud",
+    "url": "https://localstack.cloud"
+  },
+  "homepage": "https://localstack.cloud",
+  "documentation": "https://docs.localstack.cloud",
+  "support": "https://github.com/localstack/localstack-mcp-server/issues",
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "./dist/stdio.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/./dist/stdio.js"
+      ],
+      "env": {}
+    }
+  },
+  "tools": [
+    {
+      "name": "localstack-management",
+      "description": "Manage LocalStack lifecycle: start, stop, restart, or check status"
+    },
+    {
+      "name": "localstack-logs-analysis",
+      "description": "LocalStack log analyzer that helps developers quickly diagnose issues and understand their LocalStack interactions"
+    },
+    {
+      "name": "localstack-iam-policy-analyzer",
+      "description": "Configures LocalStack's IAM enforcement and analyzes logs to automatically generate missing IAM policies"
+    },
+    {
+      "name": "localstack-deployer",
+      "description": "Deploys or destroys AWS infrastructure on LocalStack using CDK or Terraform"
+    }
+  ],
+  "prompts": [
+    {
+      "name": "localstack-start",
+      "description": "Start LocalStack",
+      "arguments": ["auth_token"],
+      "text": "Start my LocalStack container with the auth token ${arguments.auth_token}."
+    },
+    {
+      "name": "localstack-stop",
+      "description": "Stop LocalStack",
+      "text": "Stop my LocalStack container."
+    },
+    {
+      "name": "localstack-restart",
+      "description": "Restart LocalStack",
+      "text": "Restart my LocalStack container."
+    },
+    {
+      "name": "localstack-status",
+      "description": "Check the status of LocalStack",
+      "text": "Check the status of my LocalStack container."
+    },
+    {
+      "name": "localstack-logs",
+      "description": "Get the logs of LocalStack",
+      "text": "Get the logs of my LocalStack container and analyze them for any issues or errors."
+    },
+    {
+      "name": "localstack-service-logs",
+      "description": "Get the logs of a specific service in LocalStack",
+      "arguments": ["service_name"],
+      "text": "Get the logs of the ${arguments.service_name} service in my LocalStack container and analyze them for any issues or errors."
+    },
+    {
+      "name": "cdk-deployment",
+      "description": "Deploy a CDK project to LocalStack",
+        "arguments": ["project_path"],
+        "text": "Please help me deploy my CDK project located at ${arguments.project_path} on my LocalStack container."
+    },
+    {
+      "name": "terraform-deployment", 
+      "description": "Deploy a Terraform project to LocalStack",
+      "arguments": ["project_path"],
+      "text": "Please help me deploy my Terraform project located at ${arguments.project_path} on my LocalStack container."
+    },
+    {
+      "name": "iam-troubleshooting",
+      "description": "Troubleshoot IAM policy issues with LocalStack",
+      "arguments": ["test_description"],
+      "text": "Please help me enable IAM enforcement on LocalStack and run ${arguments.test_description} to analyze any policy issues or violations."
+    }
+  ],
+  "keywords": [
+    "localstack",
+    "aws",
+    "cloud",
+    "cloud-dev",
+    "cloud-testing"
+  ],
+  "license": "Apache License 2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/localstack/localstack-mcp-server"
+  }
+}
