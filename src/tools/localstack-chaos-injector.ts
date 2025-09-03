@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
+import { checkProFeature, ProFeature } from "../lib/license-checker";
 
 // Define the fault rule schema
 const faultRuleSchema = z.object({
@@ -161,6 +162,12 @@ Once you are done, ask me to "**analyze the logs for errors**" to see the impact
 }
 
 export default async function localstackChaosInjector({ action, rules, latency_ms }: InferSchema<typeof schema>) {
+  // Check if Chaos Engineering feature is supported
+  const licenseCheck = await checkProFeature(ProFeature.CHAOS_ENGINEERING);
+  if (!licenseCheck.isSupported) {
+    return { content: [{ type: "text", text: licenseCheck.errorMessage! }] };
+  }
+
   const client = new ChaosApiClient();
 
   switch (action) {

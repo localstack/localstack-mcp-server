@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
+import { checkProFeature, ProFeature } from "../lib/license-checker";
 
 // Define the schema for tool parameters
 export const schema = {
@@ -26,24 +27,7 @@ export const metadata: ToolMetadata = {
 class CloudPodsApiClient {
   private baseUrl = "http://localhost:4566";
 
-  // Pre-flight check to ensure LocalStack is running
-  async performPreflightCheck(): Promise<{ success: boolean; error?: string }> {
-    try {
-      const response = await fetch(`${this.baseUrl}/_localstack/info`);
-      if (!response.ok) {
-        return {
-          success: false,
-          error: "❌ **Error:** Cannot connect to LocalStack. Please ensure the container is running and accessible."
-        };
-      }
-      return { success: true };
-    } catch (error: any) {
-      return {
-        success: false,
-        error: "❌ **Error:** Cannot connect to LocalStack. Please ensure the container is running and accessible."
-      };
-    }
-  }
+
 
   // Get authentication headers
   getAuthHeaders(): { headers: Record<string, string>; error?: string } {
@@ -181,13 +165,13 @@ class CloudPodsApiClient {
 
 
 export default async function localstackCloudPods({ action, pod_name }: InferSchema<typeof schema>) {
-  const client = new CloudPodsApiClient();
-
-  // Pre-flight check for all actions
-  const preflightResult = await client.performPreflightCheck();
-  if (!preflightResult.success) {
-    return { content: [{ type: "text", text: preflightResult.error! }] };
+  // Check if Cloud Pods feature is supported
+  const licenseCheck = await checkProFeature(ProFeature.CLOUD_PODS);
+  if (!licenseCheck.isSupported) {
+    return { content: [{ type: "text", text: licenseCheck.errorMessage! }] };
   }
+
+  const client = new CloudPodsApiClient();
 
   switch (action) {
     case 'save': {

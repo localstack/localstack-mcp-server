@@ -2,6 +2,7 @@ import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { ensureLocalStackCli } from "../lib/localstack-utils";
 import { LocalStackLogRetriever, type LogEntry } from "../lib/log-retriever";
+import { checkProFeature, ProFeature } from "../lib/license-checker";
 
 export const schema = {
   action: z.enum(['set-mode', 'analyze-policies', 'get-status'])
@@ -37,6 +38,12 @@ interface UniquePermission {
 export default async function localstackIamPolicyAnalyzer({ action, mode }: InferSchema<typeof schema>) {
   const cliError = await ensureLocalStackCli();
   if (cliError) return cliError;
+
+  // Check if IAM enforcement feature is supported
+  const licenseCheck = await checkProFeature(ProFeature.IAM_ENFORCEMENT);
+  if (!licenseCheck.isSupported) {
+    return { content: [{ type: "text", text: licenseCheck.errorMessage! }] };
+  }
 
   switch (action) {
     case 'get-status':
