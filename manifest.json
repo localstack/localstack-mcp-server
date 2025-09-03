@@ -40,6 +40,10 @@
     {
       "name": "localstack-deployer",
       "description": "Deploys or destroys AWS infrastructure on LocalStack using CDK or Terraform"
+    },
+    {
+      "name": "localstack-chaos-injector",
+      "description": "Injects, manages, and clears chaos faults and network effects in LocalStack to test system resilience"
     }
   ],
   "prompts": [
@@ -92,6 +96,12 @@
       "description": "Troubleshoot IAM policy issues with LocalStack",
       "arguments": ["test_description"],
       "text": "Please help me enable IAM enforcement on LocalStack and run ${arguments.test_description} to analyze any policy issues or violations."
+    },
+    {
+      "name": "chaos-injection",
+      "description": "Inject chaos faults and network effects into LocalStack",
+      "arguments": ["services", "regions", "operations", "probability", "error"],
+      "text": "Create chaos faults for ${arguments.services} in ${arguments.regions} for ${arguments.operations} with a probability of ${arguments.probability} and an error of ${arguments.error}."
     }
   ],
   "keywords": [
