@@ -8,13 +8,16 @@
   "scripts": {
     "build": "xmcp build",
     "dev": "xmcp dev",
-    "start": "node dist/stdio.js"
+    "start": "node dist/stdio.js",
+    "format": "prettier --write ."
   },
   "dependencies": {
     "xmcp": "^0.1.7",
     "zod": "3.24.4"
   },
   "devDependencies": {
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.6.2",
     "swc-loader": "^0.2.6"
   },
   "main": "./dist/stdio.js",

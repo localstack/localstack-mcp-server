@@ -7,8 +7,13 @@ import { ensureLocalStackCli, getLocalStackStatus } from "../lib/localstack-util
 const execAsync = promisify(exec);
 
 export const schema = {
-  action: z.enum(["start", "stop", "restart", "status"]).describe("The LocalStack management action to perform"),
-  envVars: z.record(z.string()).optional().describe("Additional environment variables as key-value pairs (only for start action)"),
+  action: z
+    .enum(["start", "stop", "restart", "status"])
+    .describe("The LocalStack management action to perform"),
+  envVars: z
+    .record(z.string())
+    .optional()
+    .describe("Additional environment variables as key-value pairs (only for start action)"),
 };
 
 export const metadata: ToolMetadata = {
@@ -22,7 +27,10 @@ export const metadata: ToolMetadata = {
   },
 };
 
-export default async function localstackManagement({ action, envVars }: InferSchema<typeof schema>) {
+export default async function localstackManagement({
+  action,
+  envVars,
+}: InferSchema<typeof schema>) {
   const cliError = await ensureLocalStackCli();
   if (cliError) return cliError;
 
@@ -37,7 +45,12 @@ export default async function localstackManagement({ action, envVars }: InferSch
       return await handleStatus();
     default:
       return {
-        content: [{ type: "text", text: `❌ Unknown action: ${action}. Supported actions: start, stop, restart, status` }],
+        content: [
+          {
+            type: "text",
+            text: `❌ Unknown action: ${action}. Supported actions: start, stop, restart, status`,
+          },
+        ],
       };
   }
 }
@@ -48,15 +61,20 @@ async function handleStart({ envVars }: { envVars?: Record<string, string> }) {
   const statusCheck = await getLocalStackStatus();
   if (statusCheck.isRunning) {
     return {
-      content: [{ type: "text", text: "⚠️  LocalStack is already running. Use the restart action if you want to restart it with new configuration." }],
+      content: [
+        {
+          type: "text",
+          text: "⚠️  LocalStack is already running. Use the restart action if you want to restart it with new configuration.",
+        },
+      ],
     };
   }
 
   // Prepare environment variables
   const environment = { ...process.env };
-  
+
   const hasAuthToken = !!process.env.LOCALSTACK_AUTH_TOKEN;
-  
+
   if (hasAuthToken) {
     environment.LOCALSTACK_AUTH_TOKEN = process.env.LOCALSTACK_AUTH_TOKEN;
   }
@@ -72,48 +90,49 @@ async function handleStart({ envVars }: { envVars?: Record<string, string> }) {
     // Start LocalStack using spawn for better control
     const localstackProcess = spawn("localstack", ["start"], {
       env: environment,
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ["pipe", "pipe", "pipe"],
     });
 
     let output = "";
     let errorOutput = "";
 
-    localstackProcess.stdout?.on('data', (data) => {
+    localstackProcess.stdout?.on("data", (data) => {
       output += data.toString();
     });
 
-    localstackProcess.stderr?.on('data', (data) => {
+    localstackProcess.stderr?.on("data", (data) => {
       errorOutput += data.toString();
     });
 
     // Give LocalStack some time to start and then check status
     setTimeout(async () => {
       const statusResult = await getLocalStackStatus();
-      
+
       let resultMessage = "🚀 LocalStack start command executed!\n\n";
       resultMessage += "✅ LocalStack services enabled\n";
-      
+
       if (envVars && Object.keys(envVars).length > 0) {
-        resultMessage += `✅ Custom environment variables applied: ${Object.keys(envVars).join(', ')}\n`;
+        resultMessage += `✅ Custom environment variables applied: ${Object.keys(envVars).join(", ")}\n`;
       }
-      
+
       if (statusResult.statusOutput) {
         resultMessage += `\nStatus check:\n${statusResult.statusOutput}`;
       } else if (statusResult.errorMessage) {
         resultMessage += `\nStatus check failed: ${statusResult.errorMessage}`;
-        resultMessage += "\nLocalStack may still be starting up. You can check the status manually using the status action.";
+        resultMessage +=
+          "\nLocalStack may still be starting up. You can check the status manually using the status action.";
       }
-      
+
       if (output) {
         resultMessage += `\n\nOutput:\n${output}`;
       }
-      
+
       resolve({
         content: [{ type: "text", text: resultMessage }],
       });
     }, 10000); // Wait 10 seconds for LocalStack to start
 
-    localstackProcess.on('error', (error) => {
+    localstackProcess.on("error", (error) => {
       const errorMessage = error instanceof Error ? error.message : String(error);
       resolve({
         content: [{ type: "text", text: `❌ Failed to start LocalStack: ${errorMessage}` }],
@@ -127,17 +146,17 @@ async function handleStop() {
   try {
     // Execute localstack stop command
     const { stdout, stderr } = await execAsync("localstack stop");
-    
+
     let result = "🛑 LocalStack stop command executed successfully!\n";
-    
+
     if (stdout.trim()) {
       result += `\nOutput:\n${stdout}`;
     }
-    
+
     if (stderr.trim()) {
       result += `\nMessages:\n${stderr}`;
     }
-    
+
     // Verify that LocalStack has stopped
     const statusResult = await getLocalStackStatus();
     if (!statusResult.isRunning) {
@@ -148,7 +167,7 @@ async function handleStop() {
     } else {
       result += "\n\n⚠️  LocalStack may still be running. Check the status manually if needed.";
     }
-    
+
     return {
       content: [{ type: "text", text: result }],
     };
@@ -162,7 +181,7 @@ This could happen if:
 - Permission issues
 
 You can try checking the LocalStack status first to see if it's running.`;
-    
+
     return {
       content: [{ type: "text", text: result }],
     };
@@ -174,33 +193,36 @@ async function handleRestart() {
   try {
     // Execute localstack restart command
     const { stdout, stderr } = await execAsync("localstack restart", { timeout: 30000 });
-    
+
     let result = "🔄 LocalStack restart command executed!\n\n";
-    
+
     if (stdout.trim()) {
       result += `Output:\n${stdout}\n`;
     }
-    
+
     if (stderr.trim()) {
       result += `Messages:\n${stderr}\n`;
     }
-    
+
     // Wait a moment and check status
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
     const statusResult = await getLocalStackStatus();
     if (statusResult.statusOutput) {
       result += `\nStatus after restart:\n${statusResult.statusOutput}`;
-      
+
       if (statusResult.isRunning) {
-        result += "\n\n✅ LocalStack has been restarted successfully and is now running with a fresh state.";
+        result +=
+          "\n\n✅ LocalStack has been restarted successfully and is now running with a fresh state.";
       } else {
-        result += "\n\n⚠️  LocalStack restart completed but may still be starting up. Check status again in a few moments.";
+        result +=
+          "\n\n⚠️  LocalStack restart completed but may still be starting up. Check status again in a few moments.";
       }
     } else {
-      result += "\n\n⚠️  Restart completed but unable to verify status. LocalStack may still be starting up.";
+      result +=
+        "\n\n⚠️  Restart completed but unable to verify status. LocalStack may still be starting up.";
     }
-    
+
     return {
       content: [{ type: "text", text: result }],
     };
@@ -215,7 +237,7 @@ This could happen if:
 - Permission issues
 
 You can try stopping and starting LocalStack manually using separate actions if the restart action continues to fail.`;
-    
+
     return {
       content: [{ type: "text", text: result }],
     };
@@ -225,18 +247,18 @@ You can try stopping and starting LocalStack manually using separate actions if 
 // Handle status action
 async function handleStatus() {
   const statusResult = await getLocalStackStatus();
-  
+
   if (statusResult.statusOutput) {
     let result = "📊 LocalStack Status:\n\n";
     result += statusResult.statusOutput;
-    
+
     // Add helpful information based on the status
     if (statusResult.isRunning) {
       result += "\n\n✅ LocalStack is currently running and ready to accept requests.";
     } else {
       result += "\n\n⚠️  LocalStack is not currently running. Use the start action to start it.";
     }
-    
+
     return {
       content: [{ type: "text", text: result }],
     };
@@ -249,9 +271,9 @@ This could happen if:
 - LocalStack services are not accessible
 
 Try running the CLI check first to verify your LocalStack installation.`;
-    
+
     return {
       content: [{ type: "text", text: result }],
     };
   }
-} 
+}

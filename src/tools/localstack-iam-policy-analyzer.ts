@@ -5,15 +5,21 @@ import { LocalStackLogRetriever, type LogEntry } from "../lib/log-retriever";
 import { checkProFeature, ProFeature } from "../lib/license-checker";
 
 export const schema = {
-  action: z.enum(['set-mode', 'analyze-policies', 'get-status'])
-    .describe("The action to perform: 'set-mode' to configure enforcement, 'analyze-policies' to generate a policy from logs, or 'get-status' to check the current mode."),
-  mode: z.enum(['ENFORCED', 'SOFT_MODE', 'DISABLED']).optional()
+  action: z
+    .enum(["set-mode", "analyze-policies", "get-status"])
+    .describe(
+      "The action to perform: 'set-mode' to configure enforcement, 'analyze-policies' to generate a policy from logs, or 'get-status' to check the current mode."
+    ),
+  mode: z
+    .enum(["ENFORCED", "SOFT_MODE", "DISABLED"])
+    .optional()
     .describe("The enforcement mode to set. This is required only when the action is 'set-mode'."),
 };
 
 export const metadata: ToolMetadata = {
   name: "localstack-iam-policy-analyzer",
-  description: "Configures LocalStack's IAM enforcement and analyzes logs to automatically generate missing IAM policies.",
+  description:
+    "Configures LocalStack's IAM enforcement and analyzes logs to automatically generate missing IAM policies.",
   annotations: {
     title: "LocalStack IAM Policy Analyzer",
     readOnlyHint: false,
@@ -22,7 +28,7 @@ export const metadata: ToolMetadata = {
   },
 };
 
-const IAM_CONFIG_URL = 'http://localhost:4566/_aws/iam/config';
+const IAM_CONFIG_URL = "http://localhost:4566/_aws/iam/config";
 
 interface IamConfigResponse {
   state: string;
@@ -35,7 +41,10 @@ interface UniquePermission {
   resource: string;
 }
 
-export default async function localstackIamPolicyAnalyzer({ action, mode }: InferSchema<typeof schema>) {
+export default async function localstackIamPolicyAnalyzer({
+  action,
+  mode,
+}: InferSchema<typeof schema>) {
   const cliError = await ensureLocalStackCli();
   if (cliError) return cliError;
 
@@ -46,87 +55,96 @@ export default async function localstackIamPolicyAnalyzer({ action, mode }: Infe
   }
 
   switch (action) {
-    case 'get-status':
+    case "get-status":
       return await handleGetStatus();
-    case 'set-mode':
+    case "set-mode":
       if (!mode) {
         return {
-          content: [{ 
-            type: "text", 
-            text: `❌ **Missing Required Parameter**
+          content: [
+            {
+              type: "text",
+              text: `❌ **Missing Required Parameter**
 
 The 'mode' parameter is required when using 'set-mode' action.
 
 Valid modes:
 - **ENFORCED**: Strict IAM enforcement (blocks unauthorized actions)
 - **SOFT_MODE**: Log IAM violations without blocking
-- **DISABLED**: Turn off IAM enforcement completely` 
-          }],
+- **DISABLED**: Turn off IAM enforcement completely`,
+            },
+          ],
         };
       }
       return await handleSetMode(mode);
-    case 'analyze-policies':
+    case "analyze-policies":
       return await handleAnalyzePolicies();
     default:
       return {
-        content: [{ 
-          type: "text", 
-          text: `❌ Unknown action: ${action}. Supported actions: get-status, set-mode, analyze-policies` 
-        }],
+        content: [
+          {
+            type: "text",
+            text: `❌ Unknown action: ${action}. Supported actions: get-status, set-mode, analyze-policies`,
+          },
+        ],
       };
   }
 }
 
 async function handleGetStatus() {
   try {
-    const response = await fetch(IAM_CONFIG_URL, { method: 'GET' });
-    
+    const response = await fetch(IAM_CONFIG_URL, { method: "GET" });
+
     if (!response.ok) {
       if (response.status === 404) {
         return {
-          content: [{ 
-            type: "text", 
-            text: `⚠️ **LocalStack IAM Configuration Not Available**
+          content: [
+            {
+              type: "text",
+              text: `⚠️ **LocalStack IAM Configuration Not Available**
 
 This could mean:
 - LocalStack is not running
 - LocalStack version doesn't support IAM configuration
 - IAM enforcement is not available in your LocalStack version
 
-Please ensure LocalStack is running and supports IAM enforcement.` 
-          }],
+Please ensure LocalStack is running and supports IAM enforcement.`,
+            },
+          ],
         };
       }
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
     const config: IamConfigResponse = await response.json();
-    const currentState = config.state || 'UNKNOWN';
-    
-    let statusEmoji = '⚠️';
-    let statusDescription = '';
-    
+    const currentState = config.state || "UNKNOWN";
+
+    let statusEmoji = "⚠️";
+    let statusDescription = "";
+
     switch (currentState) {
-      case 'ENFORCED':
-        statusEmoji = '🔒';
-        statusDescription = 'Strict IAM enforcement is active. Unauthorized actions will be blocked.';
+      case "ENFORCED":
+        statusEmoji = "🔒";
+        statusDescription =
+          "Strict IAM enforcement is active. Unauthorized actions will be blocked.";
         break;
-      case 'SOFT_MODE':
-        statusEmoji = '📝';
-        statusDescription = 'IAM violations are logged but not blocked. Good for testing and policy development.';
+      case "SOFT_MODE":
+        statusEmoji = "📝";
+        statusDescription =
+          "IAM violations are logged but not blocked. Good for testing and policy development.";
         break;
-      case 'DISABLED':
-        statusEmoji = '🔓';
-        statusDescription = 'IAM enforcement is disabled. All actions are permitted.';
+      case "DISABLED":
+        statusEmoji = "🔓";
+        statusDescription = "IAM enforcement is disabled. All actions are permitted.";
         break;
       default:
         statusDescription = `Unknown state: ${currentState}`;
     }
 
     return {
-      content: [{ 
-        type: "text", 
-        text: `${statusEmoji} **LocalStack IAM Enforcement Status**
+      content: [
+        {
+          type: "text",
+          text: `${statusEmoji} **LocalStack IAM Enforcement Status**
 
 **Current Mode:** \`${currentState}\`
 
@@ -134,36 +152,38 @@ ${statusDescription}
 
 **Available Actions:**
 - Use \`set-mode\` to change enforcement mode
-- Use \`analyze-policies\` to generate policies from recent IAM denials` 
-      }],
+- Use \`analyze-policies\` to generate policies from recent IAM denials`,
+        },
+      ],
     };
-
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     return {
-      content: [{ 
-        type: "text", 
-        text: `❌ **Failed to Get IAM Status**
+      content: [
+        {
+          type: "text",
+          text: `❌ **Failed to Get IAM Status**
 
 Error: ${errorMessage}
 
 **Troubleshooting:**
 - Ensure LocalStack is running on port 4566
 - Check if your LocalStack version supports IAM enforcement
-- Verify network connectivity to LocalStack` 
-      }],
+- Verify network connectivity to LocalStack`,
+        },
+      ],
     };
   }
 }
 
-async function handleSetMode(mode: 'ENFORCED' | 'SOFT_MODE' | 'DISABLED') {
+async function handleSetMode(mode: "ENFORCED" | "SOFT_MODE" | "DISABLED") {
   try {
     const payload = { state: mode };
-    
+
     const response = await fetch(IAM_CONFIG_URL, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
     });
@@ -172,12 +192,12 @@ async function handleSetMode(mode: 'ENFORCED' | 'SOFT_MODE' | 'DISABLED') {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    let nextStepGuidance = '';
-    let modeEmoji = '⚙️';
-    
+    let nextStepGuidance = "";
+    let modeEmoji = "⚙️";
+
     switch (mode) {
-      case 'ENFORCED':
-        modeEmoji = '🔒';
+      case "ENFORCED":
+        modeEmoji = "🔒";
         nextStepGuidance = `
 **🎯 Next Step:** Now, run your application, deployment, or tests that are failing due to permissions.
 
@@ -188,8 +208,8 @@ Once you have triggered the errors, ask me to "**analyze the IAM policies**" to 
 2. Run your application tests
 3. Use \`analyze-policies\` action to generate missing IAM policies`;
         break;
-      case 'SOFT_MODE':
-        modeEmoji = '📝';
+      case "SOFT_MODE":
+        modeEmoji = "📝";
         nextStepGuidance = `
 **🎯 Next Step:** Run your application to log IAM violations without blocking them.
 
@@ -198,38 +218,41 @@ This mode is perfect for:
 - Testing policy changes safely
 - Gradual migration to stricter IAM enforcement`;
         break;
-      case 'DISABLED':
-        modeEmoji = '🔓';
+      case "DISABLED":
+        modeEmoji = "🔓";
         nextStepGuidance = `
 **Note:** IAM enforcement is now disabled. All AWS actions will be permitted regardless of policies.`;
         break;
     }
 
     return {
-      content: [{ 
-        type: "text", 
-        text: `${modeEmoji} **IAM Enforcement Mode Updated**
+      content: [
+        {
+          type: "text",
+          text: `${modeEmoji} **IAM Enforcement Mode Updated**
 
 ✅ IAM enforcement mode has been set to \`${mode}\`.
 
-${nextStepGuidance}` 
-      }],
+${nextStepGuidance}`,
+        },
+      ],
     };
-
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     return {
-      content: [{ 
-        type: "text", 
-        text: `❌ **Failed to Set IAM Mode**
+      content: [
+        {
+          type: "text",
+          text: `❌ **Failed to Set IAM Mode**
 
 Error: ${errorMessage}
 
 **Troubleshooting:**
 - Ensure LocalStack is running on port 4566
 - Check if your LocalStack version supports IAM configuration
-- Verify you have permission to modify LocalStack settings` 
-      }],
+- Verify you have permission to modify LocalStack settings`,
+        },
+      ],
     };
   }
 }
@@ -241,24 +264,27 @@ async function handleAnalyzePolicies() {
 
     if (!logResult.success) {
       return {
-        content: [{ 
-          type: "text", 
-          text: `❌ **Failed to Retrieve Logs**
+        content: [
+          {
+            type: "text",
+            text: `❌ **Failed to Retrieve Logs**
 
 ${logResult.errorMessage}
 
-Please ensure LocalStack is running and generating logs.` 
-        }],
+Please ensure LocalStack is running and generating logs.`,
+          },
+        ],
       };
     }
 
-    const iamDenials = logResult.logs.filter(log => log.isIamDenial === true);
+    const iamDenials = logResult.logs.filter((log) => log.isIamDenial === true);
 
     if (iamDenials.length === 0) {
       return {
-        content: [{ 
-          type: "text", 
-          text: `✅ **Analysis Complete - No IAM Denials Found**
+        content: [
+          {
+            type: "text",
+            text: `✅ **Analysis Complete - No IAM Denials Found**
 
 No IAM permission errors were found in the recent logs.
 
@@ -271,33 +297,38 @@ No IAM permission errors were found in the recent logs.
 **Next steps:**
 - If you expected to see denials, ensure IAM enforcement is in \`ENFORCED\` or \`SOFT_MODE\`
 - Try running your application again to generate fresh logs
-- Increase the log analysis window if needed` 
-        }],
+- Increase the log analysis window if needed`,
+          },
+        ],
       };
     }
 
     const enrichedDenials = await enrichWithResourceData(iamDenials, logResult.logs);
     const uniquePermissions = deduplicatePermissions(enrichedDenials);
     const iamPolicy = generateIamPolicy(uniquePermissions);
-    
-    return formatPolicyReport(enrichedDenials, uniquePermissions, iamPolicy);
 
+    return formatPolicyReport(enrichedDenials, uniquePermissions, iamPolicy);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     return {
-      content: [{ 
-        type: "text", 
-        text: `❌ **Policy Analysis Failed**
+      content: [
+        {
+          type: "text",
+          text: `❌ **Policy Analysis Failed**
 
 Error: ${errorMessage}
 
-Please ensure LocalStack is running and check the logs for more details.` 
-      }],
+Please ensure LocalStack is running and check the logs for more details.`,
+        },
+      ],
     };
   }
 }
 
-async function enrichWithResourceData(denials: LogEntry[], allLogs: LogEntry[]): Promise<LogEntry[]> {
+async function enrichWithResourceData(
+  denials: LogEntry[],
+  allLogs: LogEntry[]
+): Promise<LogEntry[]> {
   const enriched: LogEntry[] = [];
 
   for (const denial of denials) {
@@ -305,13 +336,13 @@ async function enrichWithResourceData(denials: LogEntry[], allLogs: LogEntry[]):
 
     if (denial.timestamp && denial.iamAction) {
       const denialTime = new Date(denial.timestamp);
-      
-      const nearbyResourceLogs = allLogs.filter(log => {
+
+      const nearbyResourceLogs = allLogs.filter((log) => {
         if (!log.timestamp || !log.iamResource) return false;
-        
+
         const logTime = new Date(log.timestamp);
         const timeDiff = Math.abs(logTime.getTime() - denialTime.getTime());
-        
+
         return log.iamAction === denial.iamAction && timeDiff <= 5000;
       });
 
@@ -332,7 +363,7 @@ function deduplicatePermissions(denials: LogEntry[]): Map<string, UniquePermissi
   for (const denial of denials) {
     if (!denial.iamPrincipal || !denial.iamAction) continue;
 
-    const resource = denial.iamResource || '*';
+    const resource = denial.iamResource || "*";
     const key = `${denial.iamPrincipal}|${denial.iamAction}|${resource}`;
 
     if (!permissionMap.has(key)) {
@@ -354,13 +385,13 @@ function generateIamPolicy(permissions: Map<string, UniquePermission>) {
     if (!principalMap.has(permission.principal)) {
       principalMap.set(permission.principal, new Map());
     }
-    
+
     const principalPerms = principalMap.get(permission.principal)!;
-    
+
     if (!principalPerms.has(permission.resource)) {
       principalPerms.set(permission.resource, new Set());
     }
-    
+
     principalPerms.get(permission.resource)!.add(permission.action);
   }
 
@@ -373,10 +404,10 @@ function generateIamPolicy(permissions: Map<string, UniquePermission>) {
         Sid: `AllowPrincipal${statementId}`,
         Effect: "Allow",
         Principal: {
-          Service: principal
+          Service: principal,
         },
         Action: Array.from(actions).sort(),
-        Resource: resource === '*' ? '*' : resource
+        Resource: resource === "*" ? "*" : resource,
       });
       statementId++;
     }
@@ -384,17 +415,17 @@ function generateIamPolicy(permissions: Map<string, UniquePermission>) {
 
   return {
     Version: "2012-10-17",
-    Statement: statements
+    Statement: statements,
   };
 }
 
 function formatPolicyReport(
-  denials: LogEntry[], 
-  permissions: Map<string, UniquePermission>, 
+  denials: LogEntry[],
+  permissions: Map<string, UniquePermission>,
   policy: any
 ) {
-  const uniquePrincipals = new Set(Array.from(permissions.values()).map(p => p.principal));
-  
+  const uniquePrincipals = new Set(Array.from(permissions.values()).map((p) => p.principal));
+
   let result = `# 🔍 IAM Policy Analysis Report\n\n`;
   result += `**Analysis Summary:**\n`;
   result += `- Found **${denials.length}** IAM permission errors\n`;
@@ -402,9 +433,10 @@ function formatPolicyReport(
   result += `- Affects **${uniquePrincipals.size}** principal(s)\n\n`;
 
   result += `## 📋 Missing Permissions\n\n`;
-  
+
   for (const permission of permissions.values()) {
-    const resourceDisplay = permission.resource === '*' ? 'any resource' : `resource \`${permission.resource}\``;
+    const resourceDisplay =
+      permission.resource === "*" ? "any resource" : `resource \`${permission.resource}\``;
     result += `- **Principal** \`${permission.principal}\` is missing action \`${permission.action}\` on ${resourceDisplay}\n`;
   }
 

@@ -17,7 +17,7 @@ export async function checkLocalStackCli(): Promise<LocalStackCliCheckResult> {
   try {
     await execAsync("localstack --help");
     const { stdout: version } = await execAsync("localstack --version");
-    
+
     return {
       isAvailable: true,
       version: version.trim(),
@@ -54,10 +54,10 @@ export interface LocalStackStatusResult {
 export async function getLocalStackStatus(): Promise<LocalStackStatusResult> {
   try {
     const { stdout } = await execAsync("localstack status");
-    
+
     const isRunning = stdout.includes("running");
     const isReady = stdout.includes("Ready") || stdout.includes("ready");
-    
+
     return {
       isRunning,
       isReady,
@@ -77,12 +77,12 @@ export async function getLocalStackStatus(): Promise<LocalStackStatusResult> {
  */
 export async function ensureLocalStackCli() {
   const cliCheck = await checkLocalStackCli();
-  
+
   if (!cliCheck.isAvailable) {
     return {
       content: [{ type: "text", text: cliCheck.errorMessage! }],
     };
   }
-  
+
   return null; // CLI is available, continue with tool execution
-} 
+}

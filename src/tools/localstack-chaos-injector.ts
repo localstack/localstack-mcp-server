@@ -3,41 +3,75 @@ import { type ToolMetadata, type InferSchema } from "xmcp";
 import { checkProFeature, ProFeature } from "../lib/license-checker";
 
 // Define the fault rule schema
-const faultRuleSchema = z.object({
-  service: z.string().optional()
-    .describe("Name of the AWS service to affect (e.g., 's3', 'lambda')."),
-  region: z.string().optional()
-    .describe("Name of the AWS region to affect (e.g., 'us-east-1')."),
-  operation: z.string().optional()
-    .describe("Name of the specific service operation to affect (e.g., 'CreateBucket')."),
-  probability: z.number().min(0).max(1).optional()
-    .describe("The probability (0.0 to 1.0) of the fault occurring."),
-  error: z.object({
-    statusCode: z.number().int().optional()
-      .describe("The HTTP status code to return (e.g., 503)."),
-    code: z.string().optional()
-      .describe("The AWS error code to return (e.g., 'ServiceUnavailable').")
-  }).optional().describe("The custom error to return.")
-}).describe("A single rule defining a chaos fault.");
+const faultRuleSchema = z
+  .object({
+    service: z
+      .string()
+      .optional()
+      .describe("Name of the AWS service to affect (e.g., 's3', 'lambda')."),
+    region: z.string().optional().describe("Name of the AWS region to affect (e.g., 'us-east-1')."),
+    operation: z
+      .string()
+      .optional()
+      .describe("Name of the specific service operation to affect (e.g., 'CreateBucket')."),
+    probability: z
+      .number()
+      .min(0)
+      .max(1)
+      .optional()
+      .describe("The probability (0.0 to 1.0) of the fault occurring."),
+    error: z
+      .object({
+        statusCode: z
+          .number()
+          .int()
+          .optional()
+          .describe("The HTTP status code to return (e.g., 503)."),
+        code: z
+          .string()
+          .optional()
+          .describe("The AWS error code to return (e.g., 'ServiceUnavailable')."),
+      })
+      .optional()
+      .describe("The custom error to return."),
+  })
+  .describe("A single rule defining a chaos fault.");
 
 // Define the schema for tool parameters
 export const schema = {
-  action: z.enum([
-    'inject-faults', 'add-fault-rule', 'remove-fault-rule', 'get-faults', 'clear-all-faults',
-    'inject-latency', 'get-latency', 'clear-latency'
-  ]).describe("The specific chaos engineering action to perform."),
+  action: z
+    .enum([
+      "inject-faults",
+      "add-fault-rule",
+      "remove-fault-rule",
+      "get-faults",
+      "clear-all-faults",
+      "inject-latency",
+      "get-latency",
+      "clear-latency",
+    ])
+    .describe("The specific chaos engineering action to perform."),
 
-  rules: z.array(faultRuleSchema).optional()
-    .describe("An array of fault rules. Required for 'inject-faults', 'add-fault-rule', and 'remove-fault-rule' actions."),
+  rules: z
+    .array(faultRuleSchema)
+    .optional()
+    .describe(
+      "An array of fault rules. Required for 'inject-faults', 'add-fault-rule', and 'remove-fault-rule' actions."
+    ),
 
-  latency_ms: z.number().int().min(0).optional()
-    .describe("Network latency in milliseconds. Required for the 'inject-latency' action.")
+  latency_ms: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe("Network latency in milliseconds. Required for the 'inject-latency' action."),
 };
 
 // Define tool metadata
 export const metadata: ToolMetadata = {
   name: "localstack-chaos-injector",
-  description: "Injects, manages, and clears chaos faults and network effects in LocalStack to test system resilience.",
+  description:
+    "Injects, manages, and clears chaos faults and network effects in LocalStack to test system resilience.",
   annotations: {
     title: "LocalStack Chaos Injector",
     readOnlyHint: false,
@@ -50,13 +84,17 @@ export const metadata: ToolMetadata = {
 class ChaosApiClient {
   private baseUrl = "http://localhost:4566/_localstack/chaos";
 
-  async makeRequest(endpoint: string, method: 'GET' | 'POST' | 'PATCH' | 'DELETE', body?: any): Promise<any> {
+  async makeRequest(
+    endpoint: string,
+    method: "GET" | "POST" | "PATCH" | "DELETE",
+    body?: any
+  ): Promise<any> {
     try {
       const url = `${this.baseUrl}${endpoint}`;
       const options: RequestInit = {
         method,
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
       };
 
@@ -76,51 +114,52 @@ class ChaosApiClient {
         } catch {
           // If we can't read the error body, just use the status
         }
-        
+
         return {
           error: true,
-          message: `❌ **Error:** The LocalStack Chaos API returned an error (${errorMessage})`
+          message: `❌ **Error:** The LocalStack Chaos API returned an error (${errorMessage})`,
         };
       }
 
       return await response.json();
     } catch (error: any) {
-      if (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED')) {
+      if (error.code === "ECONNREFUSED" || error.message?.includes("ECONNREFUSED")) {
         return {
           error: true,
-          message: "❌ **Error:** Cannot connect to LocalStack at `http://localhost:4566`. Please ensure the LocalStack container is running and accessible."
+          message:
+            "❌ **Error:** Cannot connect to LocalStack at `http://localhost:4566`. Please ensure the LocalStack container is running and accessible.",
         };
       }
-      
+
       return {
         error: true,
-        message: `❌ **Error:** Failed to communicate with LocalStack Chaos API: ${error.message || 'Unknown error'}`
+        message: `❌ **Error:** Failed to communicate with LocalStack Chaos API: ${error.message || "Unknown error"}`,
       };
     }
   }
 
   async getFaults() {
-    return this.makeRequest('/faults', 'GET');
+    return this.makeRequest("/faults", "GET");
   }
 
   async setFaults(rules: any[]) {
-    return this.makeRequest('/faults', 'POST', rules);
+    return this.makeRequest("/faults", "POST", rules);
   }
 
   async addFaultRules(rules: any[]) {
-    return this.makeRequest('/faults', 'PATCH', rules);
+    return this.makeRequest("/faults", "PATCH", rules);
   }
 
   async removeFaultRules(rules: any[]) {
-    return this.makeRequest('/faults', 'DELETE', rules);
+    return this.makeRequest("/faults", "DELETE", rules);
   }
 
   async getEffects() {
-    return this.makeRequest('/effects', 'GET');
+    return this.makeRequest("/effects", "GET");
   }
 
   async setEffects(effects: any) {
-    return this.makeRequest('/effects', 'POST', effects);
+    return this.makeRequest("/effects", "POST", effects);
   }
 }
 
@@ -128,18 +167,18 @@ class ChaosApiClient {
 function rulesMatch(rule1: any, rule2: any): boolean {
   const keys1 = Object.keys(rule1).sort();
   const keys2 = Object.keys(rule2).sort();
-  
+
   if (keys1.length !== keys2.length) return false;
-  if (keys1.join(',') !== keys2.join(',')) return false;
-  
+  if (keys1.join(",") !== keys2.join(",")) return false;
+
   for (const key of keys1) {
-    if (typeof rule1[key] === 'object' && typeof rule2[key] === 'object') {
+    if (typeof rule1[key] === "object" && typeof rule2[key] === "object") {
       if (!rulesMatch(rule1[key], rule2[key])) return false;
     } else if (rule1[key] !== rule2[key]) {
       return false;
     }
   }
-  
+
   return true;
 }
 
@@ -148,7 +187,7 @@ function formatFaultRules(rules: any[]): string {
   if (!rules || rules.length === 0) {
     return "✅ No chaos faults are currently active.";
   }
-  
+
   return `\`\`\`json\n${JSON.stringify(rules, null, 2)}\n\`\`\``;
 }
 
@@ -161,7 +200,11 @@ function addWorkflowGuidance(message: string): string {
 Once you are done, ask me to "**analyze the logs for errors**" to see the impact of this chaos experiment.`;
 }
 
-export default async function localstackChaosInjector({ action, rules, latency_ms }: InferSchema<typeof schema>) {
+export default async function localstackChaosInjector({
+  action,
+  rules,
+  latency_ms,
+}: InferSchema<typeof schema>) {
   // Check if Chaos Engineering feature is supported
   const licenseCheck = await checkProFeature(ProFeature.CHAOS_ENGINEERING);
   if (!licenseCheck.isSupported) {
@@ -171,37 +214,41 @@ export default async function localstackChaosInjector({ action, rules, latency_m
   const client = new ChaosApiClient();
 
   switch (action) {
-    case 'get-faults': {
+    case "get-faults": {
       const result = await client.getFaults();
       if (result.error) {
         return { content: [{ type: "text", text: result.message }] };
       }
-      
+
       const formattedRules = formatFaultRules(result);
       return { content: [{ type: "text", text: formattedRules }] };
     }
 
-    case 'clear-all-faults': {
+    case "clear-all-faults": {
       const result = await client.setFaults([]);
       if (result.error) {
         return { content: [{ type: "text", text: result.message }] };
       }
-      
-      return { 
-        content: [{ 
-          type: "text", 
-          text: "✅ All chaos faults have been cleared. The system is now operating normally." 
-        }] 
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: "✅ All chaos faults have been cleared. The system is now operating normally.",
+          },
+        ],
       };
     }
 
-    case 'inject-faults': {
+    case "inject-faults": {
       if (!rules || rules.length === 0) {
-        return { 
-          content: [{ 
-            type: "text", 
-            text: "❌ **Error:** The `inject-faults` action requires the `rules` parameter to be specified." 
-          }] 
+        return {
+          content: [
+            {
+              type: "text",
+              text: "❌ **Error:** The `inject-faults` action requires the `rules` parameter to be specified.",
+            },
+          ],
         };
       }
 
@@ -220,21 +267,25 @@ export default async function localstackChaosInjector({ action, rules, latency_m
 
 ${formatFaultRules(getCurrentResult)}`;
 
-      return { 
-        content: [{ 
-          type: "text", 
-          text: addWorkflowGuidance(message)
-        }] 
+      return {
+        content: [
+          {
+            type: "text",
+            text: addWorkflowGuidance(message),
+          },
+        ],
       };
     }
 
-    case 'add-fault-rule': {
+    case "add-fault-rule": {
       if (!rules || rules.length === 0) {
-        return { 
-          content: [{ 
-            type: "text", 
-            text: "❌ **Error:** The `add-fault-rule` action requires the `rules` parameter to be specified." 
-          }] 
+        return {
+          content: [
+            {
+              type: "text",
+              text: "❌ **Error:** The `add-fault-rule` action requires the `rules` parameter to be specified.",
+            },
+          ],
         };
       }
 
@@ -253,21 +304,25 @@ ${formatFaultRules(getCurrentResult)}`;
 
 ${formatFaultRules(getCurrentResult)}`;
 
-      return { 
-        content: [{ 
-          type: "text", 
-          text: addWorkflowGuidance(message)
-        }] 
+      return {
+        content: [
+          {
+            type: "text",
+            text: addWorkflowGuidance(message),
+          },
+        ],
       };
     }
 
-    case 'remove-fault-rule': {
+    case "remove-fault-rule": {
       if (!rules || rules.length === 0) {
-        return { 
-          content: [{ 
-            type: "text", 
-            text: "❌ **Error:** The `remove-fault-rule` action requires the `rules` parameter to be specified." 
-          }] 
+        return {
+          content: [
+            {
+              type: "text",
+              text: "❌ **Error:** The `remove-fault-rule` action requires the `rules` parameter to be specified.",
+            },
+          ],
         };
       }
 
@@ -280,18 +335,22 @@ ${formatFaultRules(getCurrentResult)}`;
       // Check if all rules to remove exist in current configuration
       const currentRules = getCurrentResult || [];
       const rulesToRemove = rules;
-      
+
       for (const ruleToRemove of rulesToRemove) {
-        const ruleExists = currentRules.some((currentRule: any) => rulesMatch(currentRule, ruleToRemove));
+        const ruleExists = currentRules.some((currentRule: any) =>
+          rulesMatch(currentRule, ruleToRemove)
+        );
         if (!ruleExists) {
-          return { 
-            content: [{ 
-              type: "text", 
-              text: `⚠️ The specified rule was not found in the current configuration. No changes were made.
+          return {
+            content: [
+              {
+                type: "text",
+                text: `⚠️ The specified rule was not found in the current configuration. No changes were made.
 
 Current configuration:
-${formatFaultRules(currentRules)}`
-            }] 
+${formatFaultRules(currentRules)}`,
+              },
+            ],
           };
         }
       }
@@ -315,22 +374,24 @@ ${formatFaultRules(getUpdatedResult)}`;
       return { content: [{ type: "text", text: message }] };
     }
 
-    case 'get-latency': {
+    case "get-latency": {
       const result = await client.getEffects();
       if (result.error) {
         return { content: [{ type: "text", text: result.message }] };
       }
-      
+
       const latency = result?.latency || 0;
-      return { 
-        content: [{ 
-          type: "text", 
-          text: `The current network latency is ${latency}ms.` 
-        }] 
+      return {
+        content: [
+          {
+            type: "text",
+            text: `The current network latency is ${latency}ms.`,
+          },
+        ],
       };
     }
 
-    case 'clear-latency': {
+    case "clear-latency": {
       const result = await client.setEffects({ latency: 0 });
       if (result.error) {
         return { content: [{ type: "text", text: result.message }] };
@@ -351,13 +412,15 @@ ${JSON.stringify(getCurrentResult, null, 2)}
       return { content: [{ type: "text", text: message }] };
     }
 
-    case 'inject-latency': {
+    case "inject-latency": {
       if (latency_ms === undefined || latency_ms === null) {
-        return { 
-          content: [{ 
-            type: "text", 
-            text: "❌ **Error:** The `inject-latency` action requires the `latency_ms` parameter to be specified." 
-          }] 
+        return {
+          content: [
+            {
+              type: "text",
+              text: "❌ **Error:** The `inject-latency` action requires the `latency_ms` parameter to be specified.",
+            },
+          ],
         };
       }
 
@@ -378,20 +441,24 @@ ${JSON.stringify(getCurrentResult, null, 2)}
 ${JSON.stringify(getCurrentResult, null, 2)}
 \`\`\``;
 
-      return { 
-        content: [{ 
-          type: "text", 
-          text: addWorkflowGuidance(message)
-        }] 
+      return {
+        content: [
+          {
+            type: "text",
+            text: addWorkflowGuidance(message),
+          },
+        ],
       };
     }
 
     default:
       return {
-        content: [{ 
-          type: "text", 
-          text: `❌ Unknown action: ${action}. Supported actions: inject-faults, add-fault-rule, remove-fault-rule, get-faults, clear-all-faults, inject-latency, get-latency, clear-latency` 
-        }],
+        content: [
+          {
+            type: "text",
+            text: `❌ Unknown action: ${action}. Supported actions: inject-faults, add-fault-rule, remove-fault-rule, get-faults, clear-all-faults, inject-latency, get-latency, clear-latency`,
+          },
+        ],
       };
   }
 }

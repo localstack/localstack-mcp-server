@@ -18,9 +18,7 @@
     "entry_point": "./dist/stdio.js",
     "mcp_config": {
       "command": "node",
-      "args": [
-        "${__dirname}/./dist/stdio.js"
-      ],
+      "args": ["${__dirname}/./dist/stdio.js"],
       "env": {}
     }
   },
@@ -86,11 +84,11 @@
     {
       "name": "cdk-deployment",
       "description": "Deploy a CDK project to LocalStack",
-        "arguments": ["project_path"],
-        "text": "Please help me deploy my CDK project located at ${arguments.project_path} on my LocalStack container."
+      "arguments": ["project_path"],
+      "text": "Please help me deploy my CDK project located at ${arguments.project_path} on my LocalStack container."
     },
     {
-      "name": "terraform-deployment", 
+      "name": "terraform-deployment",
       "description": "Deploy a Terraform project to LocalStack",
       "arguments": ["project_path"],
       "text": "Please help me deploy my Terraform project located at ${arguments.project_path} on my LocalStack container."
@@ -108,13 +106,7 @@
       "text": "Create chaos faults for ${arguments.services} in ${arguments.regions} for ${arguments.operations} with a probability of ${arguments.probability} and an error of ${arguments.error}."
     }
   ],
-  "keywords": [
-    "localstack",
-    "aws",
-    "cloud",
-    "cloud-dev",
-    "cloud-testing"
-  ],
+  "keywords": ["localstack", "aws", "cloud", "cloud-dev", "cloud-testing"],
   "license": "Apache License 2.0",
   "repository": {
     "type": "git",

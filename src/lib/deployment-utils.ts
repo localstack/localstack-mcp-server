@@ -12,27 +12,30 @@ export interface DependencyCheckResult {
   errorMessage?: string;
 }
 
-export type ProjectType = 'cdk' | 'terraform' | 'ambiguous' | 'unknown';
+export type ProjectType = "cdk" | "terraform" | "ambiguous" | "unknown";
 
 /**
  * Check if the required deployment tool (cdklocal or tflocal) is available in the system PATH
  * @param projectType The type of project requiring either 'cdk' or 'terraform' tooling
  * @returns Promise with availability status and tool information
  */
-export async function checkDependencies(projectType: 'cdk' | 'terraform'): Promise<DependencyCheckResult> {
-  const tool = projectType === 'cdk' ? 'cdklocal' : 'tflocal';
-  
+export async function checkDependencies(
+  projectType: "cdk" | "terraform"
+): Promise<DependencyCheckResult> {
+  const tool = projectType === "cdk" ? "cdklocal" : "tflocal";
+
   try {
     const { stdout } = await execAsync(`${tool} --version`, { timeout: 10000 });
-    
+
     return {
       isAvailable: true,
       tool,
       version: stdout.trim(),
     };
   } catch (error) {
-    const errorMessage = projectType === 'cdk' 
-      ? `❌ cdklocal is not installed or not available in PATH.
+    const errorMessage =
+      projectType === "cdk"
+        ? `❌ cdklocal is not installed or not available in PATH.
 
 Please install aws-cdk-local by following the official documentation:
 https://github.com/localstack/aws-cdk-local
@@ -41,7 +44,7 @@ Installation:
 npm install -g aws-cdk-local aws-cdk
 
 After installation, make sure the 'cdklocal' command is available in your PATH.`
-      : `❌ tflocal is not installed or not available in PATH.
+        : `❌ tflocal is not installed or not available in PATH.
 
 Please install terraform-local by following the official documentation:
 https://github.com/localstack/terraform-local
@@ -72,35 +75,31 @@ export async function inferProjectType(directory: string): Promise<ProjectType> 
     }
 
     const files = await fs.promises.readdir(directory);
-    
-    const hasCdkJson = files.includes('cdk.json');
-    const hasCdkFiles = files.some(file => 
-      file.startsWith('cdk.') || 
-      file === 'app.py' ||
-      file === 'app.js' ||
-      file === 'app.ts'
+
+    const hasCdkJson = files.includes("cdk.json");
+    const hasCdkFiles = files.some(
+      (file) =>
+        file.startsWith("cdk.") || file === "app.py" || file === "app.js" || file === "app.ts"
     );
-    
-    const hasTerraformFiles = files.some(file => 
-      file.endsWith('.tf') || 
-      file.endsWith('.tf.json')
+
+    const hasTerraformFiles = files.some(
+      (file) => file.endsWith(".tf") || file.endsWith(".tf.json")
     );
-    
+
     const isCdk = hasCdkJson || hasCdkFiles;
     const isTerraform = hasTerraformFiles;
-    
+
     if (isCdk && isTerraform) {
-      return 'ambiguous';
+      return "ambiguous";
     } else if (isCdk) {
-      return 'cdk';
+      return "cdk";
     } else if (isTerraform) {
-      return 'terraform';
+      return "terraform";
     } else {
-      return 'unknown';
+      return "unknown";
     }
-    
   } catch (error) {
-    return 'unknown';
+    return "unknown";
   }
 }
 
@@ -110,7 +109,7 @@ export async function inferProjectType(directory: string): Promise<ProjectType> 
  * @returns Cleaned text without ANSI codes
  */
 export function stripAnsiCodes(text: string): string {
-  return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+  return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
 }
 
 /**
@@ -124,17 +123,17 @@ export function validateVariables(variables?: Record<string, string>): string[] 
   }
 
   const dangerousPatterns = [
-    ';',     // Command separator
-    '&&',    // Command chaining
-    '||',    // Command chaining
-    '$(',    // Command substitution
-    '`',     // Command substitution (backticks)
-    '|',     // Pipe operator
-    '>',     // Output redirection
-    '<',     // Input redirection
-    '&',     // Background execution
-    '\n',    // Newline
-    '\r',    // Carriage return
+    ";", // Command separator
+    "&&", // Command chaining
+    "||", // Command chaining
+    "$(", // Command substitution
+    "`", // Command substitution (backticks)
+    "|", // Pipe operator
+    ">", // Output redirection
+    "<", // Input redirection
+    "&", // Background execution
+    "\n", // Newline
+    "\r", // Carriage return
   ];
 
   const errors: string[] = [];
@@ -148,7 +147,7 @@ export function validateVariables(variables?: Record<string, string>): string[] 
         errors.push(`Variable value for "${key}" contains forbidden character: ${pattern}`);
       }
     }
-    
+
     if (!/^[a-zA-Z_][a-zA-Z0-9_-]*$/.test(key)) {
       errors.push(`Variable key "${key}" is not a valid identifier`);
     }
@@ -165,7 +164,7 @@ export function validateVariables(variables?: Record<string, string>): string[] 
 export function parseTerraformOutputs(outputJson: string): string {
   try {
     const outputs = JSON.parse(outputJson);
-    
+
     if (!outputs || Object.keys(outputs).length === 0) {
       return "No outputs defined in this Terraform configuration.";
     }
@@ -175,9 +174,9 @@ export function parseTerraformOutputs(outputJson: string): string {
     result += "|------|-------|-------------|\n";
 
     for (const [name, config] of Object.entries(outputs as Record<string, any>)) {
-      const value = config.value ?? 'N/A';
-      const description = config.description ?? '';
-      const displayValue = typeof value === 'string' ? value : JSON.stringify(value);
+      const value = config.value ?? "N/A";
+      const description = config.description ?? "";
+      const displayValue = typeof value === "string" ? value : JSON.stringify(value);
       result += `| **${name}** | \`${displayValue}\` | ${description} |\n`;
     }
 
@@ -194,21 +193,21 @@ export function parseTerraformOutputs(outputJson: string): string {
  */
 export function parseCdkOutputs(stdout: string): string {
   try {
-    const lines = stdout.split('\n');
+    const lines = stdout.split("\n");
     const outputLines: string[] = [];
     let inOutputsSection = false;
 
     for (const line of lines) {
-      if (line.trim().startsWith('Outputs:')) {
+      if (line.trim().startsWith("Outputs:")) {
         inOutputsSection = true;
         continue;
       }
-      
+
       if (inOutputsSection) {
-        if (line.trim() === '' || line.match(/^[A-Z].*:$/)) {
+        if (line.trim() === "" || line.match(/^[A-Z].*:$/)) {
           break;
         }
-        
+
         const outputMatch = line.match(/^([^=]+)\s*=\s*(.+)$/);
         if (outputMatch) {
           outputLines.push(line.trim());
@@ -225,7 +224,7 @@ export function parseCdkOutputs(stdout: string): string {
     result += "|--------|-------|\n";
 
     for (const line of outputLines) {
-      const [name, value] = line.split(' = ').map(s => s.trim());
+      const [name, value] = line.split(" = ").map((s) => s.trim());
       result += `| **${name}** | \`${value}\` |\n`;
     }
 
