@@ -91,8 +91,8 @@ Pull requests are welcomed on GitHub! To get started:
 
 - Install Git and Node.js
 - Clone the repository
-- Install dependencies with `npm install`
-- Build with `npm run build`
+- Install dependencies with `yarn`
+- Build with `yarn build`
 
 Built on the [XMCP](https://github.com/basementstudio/xmcp) framework, you can add new tools by adding a new file to the `src/tools` directory and documenting it in the `manifest.json` file.
 
