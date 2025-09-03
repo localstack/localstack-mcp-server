@@ -8,8 +8,6 @@ const execAsync = promisify(exec);
 
 export const schema = {
   action: z.enum(["start", "stop", "restart", "status"]).describe("The LocalStack management action to perform"),
-  enablePro: z.boolean().optional().default(false).describe("Enable LocalStack Pro services (only for start action)"),
-  authToken: z.string().optional().describe("LocalStack Pro auth token (only for start action)"),
   envVars: z.record(z.string()).optional().describe("Additional environment variables as key-value pairs (only for start action)"),
 };
 
@@ -24,13 +22,13 @@ export const metadata: ToolMetadata = {
   },
 };
 
-export default async function localstackManagement({ action, enablePro, authToken, envVars }: InferSchema<typeof schema>) {
+export default async function localstackManagement({ action, envVars }: InferSchema<typeof schema>) {
   const cliError = await ensureLocalStackCli();
   if (cliError) return cliError;
 
   switch (action) {
     case "start":
-      return await handleStart({ enablePro, authToken, envVars });
+      return await handleStart({ envVars });
     case "stop":
       return await handleStop();
     case "restart":
@@ -45,7 +43,7 @@ export default async function localstackManagement({ action, enablePro, authToke
 }
 
 // Handle start action
-async function handleStart({ enablePro, authToken, envVars }: { enablePro?: boolean, authToken?: string, envVars?: Record<string, string> }) {
+async function handleStart({ envVars }: { envVars?: Record<string, string> }) {
   // Check if LocalStack is already running
   const statusCheck = await getLocalStackStatus();
   if (statusCheck.isRunning) {
@@ -57,15 +55,10 @@ async function handleStart({ enablePro, authToken, envVars }: { enablePro?: bool
   // Prepare environment variables
   const environment = { ...process.env };
   
-  // Handle LocalStack Pro auth token
-  if (enablePro || authToken) {
-    const tokenToUse = authToken || process.env.LOCALSTACK_AUTH_TOKEN;
-    if (!tokenToUse) {
-      return {
-        content: [{ type: "text", text: "❌ LocalStack Pro was requested but no auth token provided. Please provide an auth token or set LOCALSTACK_AUTH_TOKEN environment variable." }],
-      };
-    }
-    environment.LOCALSTACK_AUTH_TOKEN = tokenToUse;
+  const hasAuthToken = !!process.env.LOCALSTACK_AUTH_TOKEN;
+  
+  if (hasAuthToken) {
+    environment.LOCALSTACK_AUTH_TOKEN = process.env.LOCALSTACK_AUTH_TOKEN;
   }
 
   // Add custom environment variables
@@ -98,10 +91,7 @@ async function handleStart({ enablePro, authToken, envVars }: { enablePro?: bool
       const statusResult = await getLocalStackStatus();
       
       let resultMessage = "🚀 LocalStack start command executed!\n\n";
-      
-      if (enablePro || authToken) {
-        resultMessage += "✅ LocalStack Pro services enabled\n";
-      }
+      resultMessage += "✅ LocalStack services enabled\n";
       
       if (envVars && Object.keys(envVars).length > 0) {
         resultMessage += `✅ Custom environment variables applied: ${Object.keys(envVars).join(', ')}\n`;

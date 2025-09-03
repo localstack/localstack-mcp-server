@@ -63,6 +63,26 @@ If you installed from source, change `command` and `args` to point to your local
 }
 ```
 
+#### Enabling Licensed Features
+
+To activate LocalStack licensed features, you need to add your LocalStack Auth Token to the environment variables. You can get your LocalStack Auth Token by following the official [documentation](https://docs.localstack.cloud/aws/getting-started/auth-token/).
+
+Here's how to add your LocalStack Auth Token to the environment variables:
+
+```json
+{
+    "mcpServers": {
+      "localstack-mcp-server": {
+        "command": "npx",
+        "args": ["-y", "@localstack/localstack-mcp-server"],
+        "env": {
+          "LOCALSTACK_AUTH_TOKEN": "<YOUR_TOKEN>"
+        }
+      }
+    }
+}
+```
+
 ## Contributing
 
 Pull requests are welcomed on GitHub! To get started:
