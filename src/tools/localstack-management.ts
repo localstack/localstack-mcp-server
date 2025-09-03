@@ -1,10 +1,8 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
-import { exec, spawn } from "child_process";
-import { promisify } from "util";
-import { ensureLocalStackCli, getLocalStackStatus } from "../lib/localstack-utils";
-
-const execAsync = promisify(exec);
+import { spawn } from "child_process";
+import { ensureLocalStackCli, getLocalStackStatus } from "../lib/localstack/localstack.utils";
+import { runCommand } from "../core/command-runner";
 
 export const schema = {
   action: z
@@ -143,105 +141,55 @@ async function handleStart({ envVars }: { envVars?: Record<string, string> }) {
 
 // Handle stop action
 async function handleStop() {
-  try {
-    // Execute localstack stop command
-    const { stdout, stderr } = await execAsync("localstack stop");
+  const cmd = await runCommand("localstack", ["stop"]);
+  let result = "🛑 LocalStack stop command executed successfully!\n";
+  if (cmd.stdout.trim()) result += `\nOutput:\n${cmd.stdout}`;
+  if (cmd.stderr.trim()) result += `\nMessages:\n${cmd.stderr}`;
 
-    let result = "🛑 LocalStack stop command executed successfully!\n";
-
-    if (stdout.trim()) {
-      result += `\nOutput:\n${stdout}`;
-    }
-
-    if (stderr.trim()) {
-      result += `\nMessages:\n${stderr}`;
-    }
-
-    // Verify that LocalStack has stopped
-    const statusResult = await getLocalStackStatus();
-    if (!statusResult.isRunning) {
-      result += "\n\n✅ LocalStack has been stopped successfully.";
-    } else if (statusResult.errorMessage) {
-      // If status command fails, LocalStack is likely stopped
-      result += "\n\n✅ LocalStack appears to be stopped.";
-    } else {
-      result += "\n\n⚠️  LocalStack may still be running. Check the status manually if needed.";
-    }
-
-    return {
-      content: [{ type: "text", text: result }],
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const result = `❌ Failed to stop LocalStack: ${errorMessage}
-
-This could happen if:
-- LocalStack is not currently running
-- There was an error executing the stop command
-- Permission issues
-
-You can try checking the LocalStack status first to see if it's running.`;
-
-    return {
-      content: [{ type: "text", text: result }],
-    };
+  const statusResult = await getLocalStackStatus();
+  if (!statusResult.isRunning) {
+    result += "\n\n✅ LocalStack has been stopped successfully.";
+  } else if (statusResult.errorMessage) {
+    result += "\n\n✅ LocalStack appears to be stopped.";
+  } else {
+    result += "\n\n⚠️  LocalStack may still be running. Check the status manually if needed.";
   }
+
+  if (cmd.error) {
+    result = `❌ Failed to stop LocalStack: ${cmd.error.message}\n\nThis could happen if:\n- LocalStack is not currently running\n- There was an error executing the stop command\n- Permission issues\n\nYou can try checking the LocalStack status first to see if it's running.`;
+  }
+
+  return { content: [{ type: "text", text: result }] };
 }
 
 // Handle restart action
 async function handleRestart() {
-  try {
-    // Execute localstack restart command
-    const { stdout, stderr } = await execAsync("localstack restart", { timeout: 30000 });
+  const cmd = await runCommand("localstack", ["restart"], { timeout: 30000 });
+  let result = "🔄 LocalStack restart command executed!\n\n";
+  if (cmd.stdout.trim()) result += `Output:\n${cmd.stdout}\n`;
+  if (cmd.stderr.trim()) result += `Messages:\n${cmd.stderr}\n`;
 
-    let result = "🔄 LocalStack restart command executed!\n\n";
-
-    if (stdout.trim()) {
-      result += `Output:\n${stdout}\n`;
-    }
-
-    if (stderr.trim()) {
-      result += `Messages:\n${stderr}\n`;
-    }
-
-    // Wait a moment and check status
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
-    const statusResult = await getLocalStackStatus();
-    if (statusResult.statusOutput) {
-      result += `\nStatus after restart:\n${statusResult.statusOutput}`;
-
-      if (statusResult.isRunning) {
-        result +=
-          "\n\n✅ LocalStack has been restarted successfully and is now running with a fresh state.";
-      } else {
-        result +=
-          "\n\n⚠️  LocalStack restart completed but may still be starting up. Check status again in a few moments.";
-      }
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  const statusResult = await getLocalStackStatus();
+  if (statusResult.statusOutput) {
+    result += `\nStatus after restart:\n${statusResult.statusOutput}`;
+    if (statusResult.isRunning) {
+      result +=
+        "\n\n✅ LocalStack has been restarted successfully and is now running with a fresh state.";
     } else {
       result +=
-        "\n\n⚠️  Restart completed but unable to verify status. LocalStack may still be starting up.";
+        "\n\n⚠️  LocalStack restart completed but may still be starting up. Check status again in a few moments.";
     }
-
-    return {
-      content: [{ type: "text", text: result }],
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const result = `❌ Failed to restart LocalStack: ${errorMessage}
-
-This could happen if:
-- LocalStack is not currently installed properly
-- There was an error executing the restart command
-- The restart process timed out (LocalStack can take time to restart)
-- Permission issues
-
-You can try stopping and starting LocalStack manually using separate actions if the restart action continues to fail.`;
-
-    return {
-      content: [{ type: "text", text: result }],
-    };
+  } else {
+    result +=
+      "\n\n⚠️  Restart completed but unable to verify status. LocalStack may still be starting up.";
   }
+
+  if (cmd.error) {
+    result = `❌ Failed to restart LocalStack: ${cmd.error.message}\n\nThis could happen if:\n- LocalStack is not currently installed properly\n- There was an error executing the restart command\n- The restart process timed out (LocalStack can take time to restart)\n- Permission issues\n\nYou can try stopping and starting LocalStack manually using separate actions if the restart action continues to fail.`;
+  }
+
+  return { content: [{ type: "text", text: result }] };
 }
 
 // Handle status action

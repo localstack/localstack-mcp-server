@@ -1,20 +1,16 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
-import { exec } from "child_process";
-import { promisify } from "util";
+import { runCommand, stripAnsiCodes } from "../core/command-runner";
 import path from "path";
-import { ensureLocalStackCli } from "../lib/localstack-utils";
+import { ensureLocalStackCli } from "../lib/localstack/localstack.utils";
 import {
   checkDependencies,
   inferProjectType,
-  stripAnsiCodes,
   validateVariables,
   parseTerraformOutputs,
   parseCdkOutputs,
   type ProjectType,
-} from "../lib/deployment-utils";
-
-const execAsync = promisify(exec);
+} from "../lib/deployment/deployment-utils";
 
 // Define the schema for tool parameters
 export const schema = {
@@ -112,7 +108,7 @@ Please check the directory path or specify the project type explicitly.`,
       resolvedProjectType = projectType as "cdk" | "terraform";
     }
 
-    // Step 2: Check Dependencies
+    // Check Dependencies
     const dependencyCheck = await checkDependencies(resolvedProjectType);
     if (!dependencyCheck.isAvailable) {
       return {
@@ -120,7 +116,7 @@ Please check the directory path or specify the project type explicitly.`,
       };
     }
 
-    // Step 3: Security Validation
+    // Security Validation
     const validationErrors = validateVariables(variables);
     if (validationErrors.length > 0) {
       return {
@@ -139,7 +135,7 @@ Please review your variables and ensure they don't contain shell metacharacters 
       };
     }
 
-    // Step 4: Execute Commands Based on Project Type and Action
+    // Execute Commands Based on Project Type and Action
     return await executeDeploymentCommands(resolvedProjectType, action, directory, variables);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -200,27 +196,24 @@ async function executeTerraformCommands(
 ) {
   const baseCommand = "tflocal";
   const varArgs = variables
-    ? Object.entries(variables)
-        .map(([key, value]) => `-var="${key}=${value}"`)
-        .join(" ")
-    : "";
+    ? Object.entries(variables).map(([key, value]) => `-var=${key}=${value}`)
+    : [];
 
   if (action === "deploy") {
     result += `## 📦 Initializing Terraform\n\n`;
     try {
-      const { stdout: initStdout, stderr: initStderr } = await execAsync(`${baseCommand} init`, {
-        cwd: directory,
-        timeout: 300000,
-        maxBuffer: 1024 * 1024 * 10,
-      });
+      const initRes = await runCommand(baseCommand, ["init"], { cwd: directory });
 
-      const cleanInitOutput = stripAnsiCodes(initStdout);
+      const cleanInitOutput = stripAnsiCodes(initRes.stdout);
       if (cleanInitOutput.trim()) {
         result += `\`\`\`\n${cleanInitOutput}\n\`\`\`\n\n`;
       }
 
-      if (initStderr && !initStderr.includes("Terraform has been successfully initialized")) {
-        const cleanInitError = stripAnsiCodes(initStderr);
+      if (
+        initRes.stderr &&
+        !initRes.stderr.includes("Terraform has been successfully initialized")
+      ) {
+        const cleanInitError = stripAnsiCodes(initRes.stderr);
         result += `**Messages:**\n\`\`\`\n${cleanInitError}\n\`\`\`\n\n`;
       }
     } catch (error) {
@@ -238,35 +231,25 @@ async function executeTerraformCommands(
 
     result += `## 🔨 Applying Terraform Configuration\n\n`;
     try {
-      const applyCommand = varArgs
-        ? `${baseCommand} apply -auto-approve ${varArgs}`
-        : `${baseCommand} apply -auto-approve`;
-
-      const { stdout: applyStdout, stderr: applyStderr } = await execAsync(applyCommand, {
+      const applyRes = await runCommand(baseCommand, ["apply", "-auto-approve", ...varArgs], {
         cwd: directory,
-        timeout: 300000,
-        maxBuffer: 1024 * 1024 * 10,
       });
 
-      const cleanApplyOutput = stripAnsiCodes(applyStdout);
+      const cleanApplyOutput = stripAnsiCodes(applyRes.stdout);
       if (cleanApplyOutput.trim()) {
         result += `\`\`\`\n${cleanApplyOutput}\n\`\`\`\n\n`;
       }
 
-      if (applyStderr) {
-        const cleanApplyError = stripAnsiCodes(applyStderr);
+      if (applyRes.stderr) {
+        const cleanApplyError = stripAnsiCodes(applyRes.stderr);
         result += `**Messages:**\n\`\`\`\n${cleanApplyError}\n\`\`\`\n\n`;
       }
 
       try {
-        const { stdout: outputStdout } = await execAsync(`${baseCommand} output -json`, {
-          cwd: directory,
-          timeout: 15000,
-          maxBuffer: 1024 * 1024 * 5,
-        });
+        const outputRes = await runCommand(baseCommand, ["output", "-json"], { cwd: directory });
 
-        if (outputStdout.trim()) {
-          const parsedOutputs = parseTerraformOutputs(outputStdout);
+        if (outputRes.stdout.trim()) {
+          const parsedOutputs = parseTerraformOutputs(outputRes.stdout);
           result += parsedOutputs + "\n\n";
         }
       } catch (outputError) {
@@ -289,23 +272,17 @@ async function executeTerraformCommands(
   } else {
     result += `## 💥 Destroying Terraform Resources\n\n`;
     try {
-      const destroyCommand = varArgs
-        ? `${baseCommand} destroy -auto-approve ${varArgs}`
-        : `${baseCommand} destroy -auto-approve`;
-
-      const { stdout: destroyStdout, stderr: destroyStderr } = await execAsync(destroyCommand, {
+      const destroyRes = await runCommand(baseCommand, ["destroy", "-auto-approve", ...varArgs], {
         cwd: directory,
-        timeout: 300000,
-        maxBuffer: 1024 * 1024 * 10,
       });
 
-      const cleanDestroyOutput = stripAnsiCodes(destroyStdout);
+      const cleanDestroyOutput = stripAnsiCodes(destroyRes.stdout);
       if (cleanDestroyOutput.trim()) {
         result += `\`\`\`\n${cleanDestroyOutput}\n\`\`\`\n\n`;
       }
 
-      if (destroyStderr) {
-        const cleanDestroyError = stripAnsiCodes(destroyStderr);
+      if (destroyRes.stderr) {
+        const cleanDestroyError = stripAnsiCodes(destroyRes.stderr);
         result += `**Messages:**\n\`\`\`\n${cleanDestroyError}\n\`\`\`\n\n`;
       }
 
@@ -340,31 +317,24 @@ async function executeCdkCommands(
 ) {
   const baseCommand = "cdklocal";
   const contextArgs = variables
-    ? Object.entries(variables)
-        .map(([key, value]) => `--context ${key}=${value}`)
-        .join(" ")
-    : "";
+    ? Object.entries(variables).flatMap(([key, value]) => ["--context", `${key}=${value}`])
+    : [];
 
   if (action === "deploy") {
     result += `## 🥾 Bootstrapping CDK for LocalStack\n\n`;
     try {
-      const { stdout: bootstrapStdout, stderr: bootstrapStderr } = await execAsync(
-        `${baseCommand} bootstrap`,
-        {
-          cwd: directory,
-          timeout: 120000,
-          maxBuffer: 1024 * 1024 * 10,
-          env: { ...process.env, CI: "true" },
-        }
-      );
+      const bootstrapRes = await runCommand(baseCommand, ["bootstrap"], {
+        cwd: directory,
+        env: { ...process.env, CI: "true" },
+      });
 
-      const cleanBootstrapOutput = stripAnsiCodes(bootstrapStdout);
+      const cleanBootstrapOutput = stripAnsiCodes(bootstrapRes.stdout);
       if (cleanBootstrapOutput.trim()) {
         result += `\`\`\`\n${cleanBootstrapOutput}\n\`\`\`\n\n`;
       }
 
-      if (bootstrapStderr) {
-        const cleanBootstrapError = stripAnsiCodes(bootstrapStderr);
+      if (bootstrapRes.stderr) {
+        const cleanBootstrapError = stripAnsiCodes(bootstrapRes.stderr);
         result += `**Messages:**\n\`\`\`\n${cleanBootstrapError}\n\`\`\`\n\n`;
       }
     } catch (error) {
@@ -382,24 +352,19 @@ async function executeCdkCommands(
 
     result += `## 🚀 Deploying CDK Stack\n\n`;
     try {
-      const deployCommand = contextArgs
-        ? `${baseCommand} deploy --require-approval never --all ${contextArgs}`
-        : `${baseCommand} deploy --require-approval never --all`;
+      const deployRes = await runCommand(
+        baseCommand,
+        ["deploy", "--require-approval", "never", "--all", ...contextArgs],
+        { cwd: directory, env: { ...process.env, CI: "true" } }
+      );
 
-      const { stdout: deployStdout, stderr: deployStderr } = await execAsync(deployCommand, {
-        cwd: directory,
-        timeout: 300000,
-        maxBuffer: 1024 * 1024 * 10,
-        env: { ...process.env, CI: "true" },
-      });
-
-      const cleanDeployOutput = stripAnsiCodes(deployStdout);
+      const cleanDeployOutput = stripAnsiCodes(deployRes.stdout);
       if (cleanDeployOutput.trim()) {
         result += `\`\`\`\n${cleanDeployOutput}\n\`\`\`\n\n`;
       }
 
-      if (deployStderr) {
-        const cleanDeployError = stripAnsiCodes(deployStderr);
+      if (deployRes.stderr) {
+        const cleanDeployError = stripAnsiCodes(deployRes.stderr);
         result += `**Messages:**\n\`\`\`\n${cleanDeployError}\n\`\`\`\n\n`;
       }
 
@@ -428,24 +393,19 @@ async function executeCdkCommands(
   } else {
     result += `## 💥 Destroying CDK Stack\n\n`;
     try {
-      const destroyCommand = contextArgs
-        ? `${baseCommand} destroy --force --all ${contextArgs}`
-        : `${baseCommand} destroy --force --all`;
+      const destroyRes = await runCommand(
+        baseCommand,
+        ["destroy", "--force", "--all", ...contextArgs],
+        { cwd: directory, env: { ...process.env, CI: "true" } }
+      );
 
-      const { stdout: destroyStdout, stderr: destroyStderr } = await execAsync(destroyCommand, {
-        cwd: directory,
-        timeout: 300000,
-        maxBuffer: 1024 * 1024 * 10,
-        env: { ...process.env, CI: "true" },
-      });
-
-      const cleanDestroyOutput = stripAnsiCodes(destroyStdout);
+      const cleanDestroyOutput = stripAnsiCodes(destroyRes.stdout);
       if (cleanDestroyOutput.trim()) {
         result += `\`\`\`\n${cleanDestroyOutput}\n\`\`\`\n\n`;
       }
 
-      if (destroyStderr) {
-        const cleanDestroyError = stripAnsiCodes(destroyStderr);
+      if (destroyRes.stderr) {
+        const cleanDestroyError = stripAnsiCodes(destroyRes.stderr);
         result += `**Messages:**\n\`\`\`\n${cleanDestroyError}\n\`\`\`\n\n`;
       }
 

@@ -24,21 +24,14 @@ interface LicenseInfoResponse {
  * @param feature The licensed feature to check for
  * @returns Promise<LicenseCheckResult> indicating if the feature is supported
  */
+import { httpClient, HttpError } from "../../core/http-client";
+
 export async function checkProFeature(feature: ProFeature): Promise<LicenseCheckResult> {
   try {
-    const response = await fetch("http://localhost:4566/_localstack/licenseinfo");
+    const licenseInfo: LicenseInfoResponse = await httpClient.request("/_localstack/licenseinfo", {
+      method: "GET",
+    });
 
-    if (!response.ok) {
-      // 404 or other error, likely running Community Edition
-      return {
-        isSupported: false,
-        errorMessage: `❌ **Feature Not Available:** The '${feature}' feature requires a LocalStack license, but the license endpoint was not found. Please ensure you are running LocalStack with a valid Auth Token.`,
-      };
-    }
-
-    const licenseInfo: LicenseInfoResponse = await response.json();
-
-    // Check if available_plugins exists and is an array
     if (!licenseInfo.available_plugins || !Array.isArray(licenseInfo.available_plugins)) {
       return {
         isSupported: false,
@@ -46,27 +39,26 @@ export async function checkProFeature(feature: ProFeature): Promise<LicenseCheck
       };
     }
 
-    // Check if the specific feature plugin is available
     const isFeatureAvailable = licenseInfo.available_plugins.includes(feature);
-
-    if (isFeatureAvailable) {
-      return { isSupported: true };
-    } else {
+    return isFeatureAvailable
+      ? { isSupported: true }
+      : {
+          isSupported: false,
+          errorMessage: `❌ **Feature Not Available:** Your LocalStack license does not seem to include the '${feature}' feature. Please check your license details.`,
+        };
+  } catch (error: any) {
+    if (error instanceof HttpError && error.status === 404) {
       return {
         isSupported: false,
-        errorMessage: `❌ **Feature Not Available:** Your LocalStack license does not seem to include the '${feature}' feature. Please check your license details.`,
+        errorMessage: `❌ **Feature Not Available:** The '${feature}' feature requires a LocalStack license, but the license endpoint was not found. Please ensure you are running LocalStack with a valid Auth Token.`,
       };
     }
-  } catch (error: any) {
-    // Handle network errors, connection refused, etc.
     if (error.code === "ECONNREFUSED" || error.message?.includes("ECONNREFUSED")) {
       return {
         isSupported: false,
         errorMessage: `❌ **Connection Error:** Cannot connect to LocalStack. Please ensure LocalStack is running and accessible at http://localhost:4566.`,
       };
     }
-
-    // Handle JSON parsing errors or other unexpected errors
     return {
       isSupported: false,
       errorMessage: `❌ **License Check Failed:** Unable to verify feature availability due to an unexpected error: ${error.message || "Unknown error"}`,

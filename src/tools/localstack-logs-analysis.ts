@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
-import { ensureLocalStackCli } from "../lib/localstack-utils";
-import { LocalStackLogRetriever, type LogEntry } from "../lib/log-retriever";
+import { ensureLocalStackCli } from "../lib/localstack/localstack.utils";
+import { LocalStackLogRetriever, type LogEntry } from "../lib/logs/log-retriever";
 
 export const schema = {
   analysisType: z

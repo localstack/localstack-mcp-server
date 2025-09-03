@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
-import { checkProFeature, ProFeature } from "../lib/license-checker";
+import { checkProFeature, ProFeature } from "../lib/localstack/license-checker";
+import { ChaosApiClient } from "../lib/localstack/localstack.client";
 
 // Define the fault rule schema
 const faultRuleSchema = z
@@ -79,89 +80,6 @@ export const metadata: ToolMetadata = {
     idempotentHint: false,
   },
 };
-
-// HTTP client helper for Chaos API requests
-class ChaosApiClient {
-  private baseUrl = "http://localhost:4566/_localstack/chaos";
-
-  async makeRequest(
-    endpoint: string,
-    method: "GET" | "POST" | "PATCH" | "DELETE",
-    body?: any
-  ): Promise<any> {
-    try {
-      const url = `${this.baseUrl}${endpoint}`;
-      const options: RequestInit = {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      };
-
-      if (body !== undefined) {
-        options.body = JSON.stringify(body);
-      }
-
-      const response = await fetch(url, options);
-
-      if (!response.ok) {
-        let errorMessage = `Status ${response.status}`;
-        try {
-          const errorBody = await response.text();
-          if (errorBody) {
-            errorMessage += `:\n\`\`\`\n${errorBody}\n\`\`\``;
-          }
-        } catch {
-          // If we can't read the error body, just use the status
-        }
-
-        return {
-          error: true,
-          message: `❌ **Error:** The LocalStack Chaos API returned an error (${errorMessage})`,
-        };
-      }
-
-      return await response.json();
-    } catch (error: any) {
-      if (error.code === "ECONNREFUSED" || error.message?.includes("ECONNREFUSED")) {
-        return {
-          error: true,
-          message:
-            "❌ **Error:** Cannot connect to LocalStack at `http://localhost:4566`. Please ensure the LocalStack container is running and accessible.",
-        };
-      }
-
-      return {
-        error: true,
-        message: `❌ **Error:** Failed to communicate with LocalStack Chaos API: ${error.message || "Unknown error"}`,
-      };
-    }
-  }
-
-  async getFaults() {
-    return this.makeRequest("/faults", "GET");
-  }
-
-  async setFaults(rules: any[]) {
-    return this.makeRequest("/faults", "POST", rules);
-  }
-
-  async addFaultRules(rules: any[]) {
-    return this.makeRequest("/faults", "PATCH", rules);
-  }
-
-  async removeFaultRules(rules: any[]) {
-    return this.makeRequest("/faults", "DELETE", rules);
-  }
-
-  async getEffects() {
-    return this.makeRequest("/effects", "GET");
-  }
-
-  async setEffects(effects: any) {
-    return this.makeRequest("/effects", "POST", effects);
-  }
-}
 
 // Check if two fault rules match exactly
 function rulesMatch(rule1: any, rule2: any): boolean {

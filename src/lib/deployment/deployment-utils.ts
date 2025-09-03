@@ -1,9 +1,6 @@
-import { exec } from "child_process";
-import { promisify } from "util";
+import { runCommand } from "../../core/command-runner";
 import fs from "fs";
 import path from "path";
-
-const execAsync = promisify(exec);
 
 export interface DependencyCheckResult {
   isAvailable: boolean;
@@ -25,7 +22,8 @@ export async function checkDependencies(
   const tool = projectType === "cdk" ? "cdklocal" : "tflocal";
 
   try {
-    const { stdout } = await execAsync(`${tool} --version`, { timeout: 10000 });
+    const { stdout, error } = await runCommand(tool, ["--version"], { timeout: 10000 });
+    if (error) throw error;
 
     return {
       isAvailable: true,
@@ -101,15 +99,6 @@ export async function inferProjectType(directory: string): Promise<ProjectType> 
   } catch (error) {
     return "unknown";
   }
-}
-
-/**
- * Strip ANSI escape codes from command output for clean display
- * @param text The text containing ANSI escape codes
- * @returns Cleaned text without ANSI codes
- */
-export function stripAnsiCodes(text: string): string {
-  return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
 }
 
 /**

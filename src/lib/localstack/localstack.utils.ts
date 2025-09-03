@@ -1,7 +1,4 @@
-import { exec } from "child_process";
-import { promisify } from "util";
-
-const execAsync = promisify(exec);
+import { runCommand } from "../../core/command-runner";
 
 export interface LocalStackCliCheckResult {
   isAvailable: boolean;
@@ -15,8 +12,8 @@ export interface LocalStackCliCheckResult {
  */
 export async function checkLocalStackCli(): Promise<LocalStackCliCheckResult> {
   try {
-    await execAsync("localstack --help");
-    const { stdout: version } = await execAsync("localstack --version");
+    await runCommand("localstack", ["--help"]);
+    const { stdout: version } = await runCommand("localstack", ["--version"]);
 
     return {
       isAvailable: true,
@@ -53,7 +50,7 @@ export interface LocalStackStatusResult {
  */
 export async function getLocalStackStatus(): Promise<LocalStackStatusResult> {
   try {
-    const { stdout } = await execAsync("localstack status");
+    const { stdout } = await runCommand("localstack", ["status"]);
 
     const isRunning = stdout.includes("running");
     const isReady = stdout.includes("Ready") || stdout.includes("ready");
