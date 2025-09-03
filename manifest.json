@@ -2,7 +2,7 @@
   "dxt_version": "0.1",
   "name": "localstack-mcp-server",
   "display_name": "LocalStack MCP Server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A LocalStack MCP Server providing essential tools for local cloud development & testing",
   "author": {
     "name": "LocalStack Team",

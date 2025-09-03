@@ -1,6 +1,6 @@
 {
   "name": "@localstack/localstack-mcp-server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A LocalStack MCP Server for managing LocalStack containers with Pro support",
   "engines": {
     "node": ">=20.0.0"
