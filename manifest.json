@@ -44,6 +44,10 @@
     {
       "name": "localstack-chaos-injector",
       "description": "Injects, manages, and clears chaos faults and network effects in LocalStack to test system resilience"
+    },
+    {
+      "name": "localstack-cloud-pods",
+      "description": "Manages LocalStack state snapshots (Cloud Pods) for saving, loading, deleting, and resetting"
     }
   ],
   "prompts": [

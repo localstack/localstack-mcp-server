@@ -20,6 +20,7 @@ This server provides your AI with dedicated tools for managing your LocalStack e
 | [`localstack-logs-analysis`](./src/tools/localstack-logs-analysis.ts) | Analyzes LocalStack logs for troubleshooting and insights | - Offer multiple analysis options including summaries, errors, requests, and raw data<br/>- Filter by specific services and operations<br/>- Generate API call metrics and failure breakdowns<br/>- Group errors intelligently and identify patterns |
 | [`localstack-iam-policy-analyzer`](./src/tools/localstack-iam-policy-analyzer.ts) | Handles IAM policy management and violation remediation | - Set IAM enforcement levels including `enforced`, `soft`, and `disabled` modes<br/>- Search logs for permission-related violations<br/>- Generate IAM policies automatically from detected access failures<br/>- Requires a valid LocalStack Auth Token |
 | [`localstack-chaos-injector`](./src/tools/localstack-chaos-injector.ts) | Injects and manages chaos engineering faults for system resilience testing | - Inject, add, remove, and clear service fault rules<br/>- Configure network latency effects<br/>- Comprehensive fault targeting by service, region, and operation<br/>- Built-in workflow guidance for chaos experiments |
+| [`localstack-cloud-pods`](./src/tools/localstack-cloud-pods.ts) | Manages LocalStack state snapshots for development workflows | - Save current state as Cloud Pods<br/>- Load previously saved Cloud Pods instantly<br/>- Delete Cloud Pods or reset to a clean state<br/>- Requires a valid LocalStack Auth Token |
 
 ## Installation
 
