@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
-import { ensureLocalStackCli } from "../lib/localstack-utils";
-import { LocalStackLogRetriever, type LogEntry } from "../lib/log-retriever";
+import { ensureLocalStackCli } from "../lib/localstack/localstack.utils";
+import { LocalStackLogRetriever, type LogEntry } from "../lib/logs/log-retriever";
+import { runPreflights, requireLocalStackCli } from "../core/preflight";
+import { ResponseBuilder } from "../core/response-builder";
 
 export const schema = {
   analysisType: z
@@ -50,17 +52,15 @@ export default async function localstackLogsAnalysis({
   operation,
   filter,
 }: InferSchema<typeof schema>) {
-  const cliError = await ensureLocalStackCli();
-  if (cliError) return cliError;
+  const preflightError = await runPreflights([requireLocalStackCli()]);
+  if (preflightError) return preflightError;
 
   const retriever = new LocalStackLogRetriever();
   const retrievalFilter = analysisType === "logs" ? filter : undefined;
   const logResult = await retriever.retrieveLogs(lines, retrievalFilter);
 
   if (!logResult.success) {
-    return {
-      content: [{ type: "text", text: `❌ ${logResult.errorMessage}` }],
-    };
+    return ResponseBuilder.error("Log Retrieval Failed", logResult.errorMessage || "Unknown error");
   }
 
   switch (analysisType) {
@@ -78,9 +78,10 @@ export default async function localstackLogsAnalysis({
         filter
       );
     default:
-      return {
-        content: [{ type: "text", text: `❌ Unknown analysis type: ${analysisType}` }],
-      };
+      return ResponseBuilder.error(
+        "Unknown analysis type",
+        `❌ Unknown analysis type: ${analysisType}`
+      );
   }
 }
 
@@ -135,9 +136,7 @@ async function handleSummaryAnalysis(logs: LogEntry[], totalLines: number) {
 
   result += `**Drill down:** \`errors\` | \`requests\` | \`logs\`\n`;
 
-  return {
-    content: [{ type: "text", text: result }],
-  };
+  return ResponseBuilder.markdown(result);
 }
 
 /**
@@ -159,9 +158,7 @@ async function handleErrorAnalysis(
 
   if (errorLogs.length === 0) {
     const filterMsg = serviceFilter ? ` for ${serviceFilter}` : "";
-    return {
-      content: [{ type: "text", text: `✅ No errors found${filterMsg} in the analyzed logs.` }],
-    };
+    return ResponseBuilder.markdown(`✅ No errors found${filterMsg} in the analyzed logs.`);
   }
 
   const errorGroups = retriever.groupLogsByError(errorLogs);
@@ -201,9 +198,7 @@ async function handleErrorAnalysis(
     result += `💡 **Next:** Use \`requests\` mode to analyze API call patterns\n`;
   }
 
-  return {
-    content: [{ type: "text", text: result }],
-  };
+  return ResponseBuilder.markdown(result);
 }
 
 /**
@@ -218,9 +213,7 @@ async function handleRequestAnalysis(
   const apiStats = retriever.analyzeApiCalls(logs);
 
   if (apiStats.totalCalls === 0) {
-    return {
-      content: [{ type: "text", text: `🔍 No API calls detected in the analyzed logs.` }],
-    };
+    return ResponseBuilder.markdown(`🔍 No API calls detected in the analyzed logs.`);
   }
 
   // Case 1: Both service and operation specified - show detailed call traces
@@ -233,11 +226,7 @@ async function handleRequestAnalysis(
     );
 
     if (matchingCalls.length === 0) {
-      return {
-        content: [
-          { type: "text", text: `🔍 No calls found for ${serviceFilter}.${operationFilter}` },
-        ],
-      };
+      return ResponseBuilder.markdown(`🔍 No calls found for ${serviceFilter}.${operationFilter}`);
     }
 
     let result = `# 🔍 ${serviceFilter}.${operationFilter} Calls\n\n`;
@@ -258,9 +247,7 @@ async function handleRequestAnalysis(
       result += `*... and ${matchingCalls.length - 10} more calls*\n`;
     }
 
-    return {
-      content: [{ type: "text", text: result }],
-    };
+    return ResponseBuilder.markdown(result);
   }
 
   // Case 2: Only service specified - show operations for that service
@@ -270,9 +257,7 @@ async function handleRequestAnalysis(
     );
 
     if (serviceCalls.length === 0) {
-      return {
-        content: [{ type: "text", text: `🔍 No ${serviceFilter} API calls found.` }],
-      };
+      return ResponseBuilder.markdown(`🔍 No ${serviceFilter} API calls found.`);
     }
 
     const operationStats = new Map<string, { total: number; failed: number }>();
@@ -304,9 +289,7 @@ async function handleRequestAnalysis(
 
     result += `\n💡 Add \`operation\` parameter to see detailed traces\n`;
 
-    return {
-      content: [{ type: "text", text: result }],
-    };
+    return ResponseBuilder.markdown(result);
   }
 
   // Case 3: No filters - show service overview
@@ -335,9 +318,7 @@ async function handleRequestAnalysis(
     result += `\n💡 Add \`service\` parameter to focus on specific service\n`;
   }
 
-  return {
-    content: [{ type: "text", text: result }],
-  };
+  return ResponseBuilder.markdown(result);
 }
 
 /**
@@ -361,9 +342,7 @@ async function handleRawLogsAnalysis(
 
   if (logs.length === 0) {
     result += `No matching logs found.\n`;
-    return {
-      content: [{ type: "text", text: result }],
-    };
+    return ResponseBuilder.markdown(result);
   }
 
   result += `\`\`\`\n`;

@@ -1,7 +1,4 @@
-import { exec } from "child_process";
-import { promisify } from "util";
-
-const execAsync = promisify(exec);
+import { runCommand } from "../../core/command-runner";
 
 export interface LogEntry {
   timestamp?: string;
@@ -38,23 +35,20 @@ export class LocalStackLogRetriever {
    */
   async retrieveLogs(lines: number = 10000, filter?: string): Promise<LogRetrievalResult> {
     try {
-      let command = `localstack logs --tail ${lines}`;
-
-      const { stdout, stderr } = await execAsync(command, {
-        maxBuffer: 1024 * 1024 * 50,
+      const cmd = await runCommand("localstack", ["logs", "--tail", String(lines)], {
         timeout: 30000,
       });
 
-      if (!stdout && stderr) {
+      if (!cmd.stdout && cmd.stderr) {
         return {
           success: false,
           logs: [],
           totalLines: 0,
-          errorMessage: `Failed to retrieve logs: ${stderr}`,
+          errorMessage: `Failed to retrieve logs: ${cmd.stderr}`,
         };
       }
 
-      const rawLines = stdout.split("\n").filter((line) => line.trim());
+      const rawLines = (cmd.stdout || "").split("\n").filter((line) => line.trim());
       let filteredLines = rawLines;
 
       if (filter) {

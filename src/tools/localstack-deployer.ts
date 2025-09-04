@@ -1,20 +1,19 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
-import { exec } from "child_process";
-import { promisify } from "util";
+import { runCommand, stripAnsiCodes } from "../core/command-runner";
 import path from "path";
-import { ensureLocalStackCli } from "../lib/localstack-utils";
+import { ensureLocalStackCli } from "../lib/localstack/localstack.utils";
 import {
   checkDependencies,
   inferProjectType,
-  stripAnsiCodes,
   validateVariables,
   parseTerraformOutputs,
   parseCdkOutputs,
   type ProjectType,
-} from "../lib/deployment-utils";
-
-const execAsync = promisify(exec);
+} from "../lib/deployment/deployment-utils";
+import { type DeploymentEvent } from "../lib/deployment/deployment-utils";
+import { formatDeploymentReport } from "../lib/deployment/deployment-reporter";
+import { ResponseBuilder } from "../core/response-builder";
 
 // Define the schema for tool parameters
 export const schema = {
@@ -73,38 +72,26 @@ export default async function localstackDeployer({
       const inferredType = await inferProjectType(directory);
 
       if (inferredType === "ambiguous") {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `❌ **Ambiguous Project Type**
-
-The directory "${directory}" contains both CDK and Terraform files. Please specify the project type explicitly:
+        return ResponseBuilder.error(
+          "Ambiguous Project Type",
+          `The directory "${directory}" contains both CDK and Terraform files. Please specify the project type explicitly:
 
 - Use \`projectType: 'cdk'\` to deploy as a CDK project
-- Use \`projectType: 'terraform'\` to deploy as a Terraform project`,
-            },
-          ],
-        };
+- Use \`projectType: 'terraform'\` to deploy as a Terraform project`
+        );
       }
 
       if (inferredType === "unknown") {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `❌ **Unknown Project Type**
-
-The directory "${directory}" does not appear to contain recognizable infrastructure-as-code files.
+        return ResponseBuilder.error(
+          "Unknown Project Type",
+          `The directory "${directory}" does not appear to contain recognizable infrastructure-as-code files.
 
 Expected files:
 - **CDK**: \`cdk.json\`, \`app.py\`, \`app.js\`, or \`app.ts\`
 - **Terraform**: \`*.tf\` or \`*.tf.json\` files
 
-Please check the directory path or specify the project type explicitly.`,
-            },
-          ],
-        };
+Please check the directory path or specify the project type explicitly.`
+        );
       }
 
       resolvedProjectType = inferredType as "cdk" | "terraform";
@@ -112,49 +99,37 @@ Please check the directory path or specify the project type explicitly.`,
       resolvedProjectType = projectType as "cdk" | "terraform";
     }
 
-    // Step 2: Check Dependencies
+    // Check Dependencies
     const dependencyCheck = await checkDependencies(resolvedProjectType);
     if (!dependencyCheck.isAvailable) {
-      return {
-        content: [{ type: "text", text: dependencyCheck.errorMessage! }],
-      };
+      return ResponseBuilder.error("Dependency Not Available", dependencyCheck.errorMessage!);
     }
 
-    // Step 3: Security Validation
+    // Security Validation
     const validationErrors = validateVariables(variables);
     if (validationErrors.length > 0) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `🛡️ **Security Violation Detected**
+      return ResponseBuilder.error(
+        "Security Violation Detected",
+        `🛡️ **Security Violation Detected**
 
 Command injection attempt prevented. The following issues were found:
 
 ${validationErrors.map((error) => `- ${error}`).join("\n")}
 
-Please review your variables and ensure they don't contain shell metacharacters or invalid identifiers.`,
-          },
-        ],
-      };
+Please review your variables and ensure they don't contain shell metacharacters or invalid identifiers.`
+      );
     }
 
-    // Step 4: Execute Commands Based on Project Type and Action
+    // Execute Commands Based on Project Type and Action
     return await executeDeploymentCommands(resolvedProjectType, action, directory, variables);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    return {
-      content: [
-        {
-          type: "text",
-          text: `❌ **Deployment Error**
+    return ResponseBuilder.error(
+      "Deployment Error",
+      `An unexpected error occurred: ${errorMessage}
 
-An unexpected error occurred: ${errorMessage}
-
-Please check the directory path and ensure all prerequisites are met.`,
-        },
-      ],
-    };
+Please check the directory path and ensure all prerequisites are met.`
+    );
   }
 }
 
@@ -168,25 +143,13 @@ async function executeDeploymentCommands(
   variables?: Record<string, string>
 ) {
   const absoluteDirectory = path.resolve(directory);
-  let result = `# 🚀 LocalStack ${projectType.toUpperCase()} ${action === "deploy" ? "Deployment" : "Destruction"}\n\n`;
-  result += `**Project Type:** ${projectType}\n`;
-  result += `**Directory:** ${absoluteDirectory}\n`;
-  result += `**Action:** ${action}\n\n`;
-
-  try {
-    if (projectType === "terraform") {
-      return await executeTerraformCommands(action, absoluteDirectory, variables, result);
-    } else {
-      return await executeCdkCommands(action, absoluteDirectory, variables, result);
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    result += `❌ **Command Execution Failed**\n\n${errorMessage}`;
-
-    return {
-      content: [{ type: "text", text: result }],
-    };
-  }
+  const baseTitle = `🚀 LocalStack ${projectType.toUpperCase()} ${action === "deploy" ? "Deployment" : "Destruction"}`;
+  const events =
+    projectType === "terraform"
+      ? await executeTerraformCommands(action, absoluteDirectory, variables)
+      : await executeCdkCommands(action, absoluteDirectory, variables);
+  const report = formatDeploymentReport(baseTitle, events);
+  return ResponseBuilder.markdown(report);
 }
 
 /**
@@ -195,138 +158,69 @@ async function executeDeploymentCommands(
 async function executeTerraformCommands(
   action: "deploy" | "destroy",
   directory: string,
-  variables?: Record<string, string>,
-  result: string = ""
-) {
+  variables?: Record<string, string>
+): Promise<DeploymentEvent[]> {
+  const events: DeploymentEvent[] = [];
   const baseCommand = "tflocal";
   const varArgs = variables
-    ? Object.entries(variables)
-        .map(([key, value]) => `-var="${key}=${value}"`)
-        .join(" ")
-    : "";
+    ? Object.entries(variables).flatMap(([k, v]) => ["-var", `${k}=${v}`])
+    : [];
 
   if (action === "deploy") {
-    result += `## 📦 Initializing Terraform\n\n`;
-    try {
-      const { stdout: initStdout, stderr: initStderr } = await execAsync(`${baseCommand} init`, {
-        cwd: directory,
-        timeout: 300000,
-        maxBuffer: 1024 * 1024 * 10,
+    events.push({ type: "header", title: "📦 Initializing Terraform", content: "" });
+    const initRes = await runCommand(baseCommand, ["init"], { cwd: directory });
+    events.push({ type: "output", content: stripAnsiCodes(initRes.stdout) });
+    if (initRes.stderr) events.push({ type: "warning", content: stripAnsiCodes(initRes.stderr) });
+    if (initRes.error) {
+      events.push({
+        type: "error",
+        title: "Error during `tflocal init`",
+        content: initRes.error.message,
       });
-
-      const cleanInitOutput = stripAnsiCodes(initStdout);
-      if (cleanInitOutput.trim()) {
-        result += `\`\`\`\n${cleanInitOutput}\n\`\`\`\n\n`;
-      }
-
-      if (initStderr && !initStderr.includes("Terraform has been successfully initialized")) {
-        const cleanInitError = stripAnsiCodes(initStderr);
-        result += `**Messages:**\n\`\`\`\n${cleanInitError}\n\`\`\`\n\n`;
-      }
-    } catch (error) {
-      result += `❌ **Error during \`tflocal init\`**\n\n`;
-      const errorOutput =
-        error instanceof Error && "stderr" in error
-          ? stripAnsiCodes(String((error as any).stderr))
-          : String(error);
-      result += `\`\`\`\n${errorOutput}\n\`\`\`\n`;
-
-      return {
-        content: [{ type: "text", text: result }],
-      };
+      return events;
     }
 
-    result += `## 🔨 Applying Terraform Configuration\n\n`;
-    try {
-      const applyCommand = varArgs
-        ? `${baseCommand} apply -auto-approve ${varArgs}`
-        : `${baseCommand} apply -auto-approve`;
-
-      const { stdout: applyStdout, stderr: applyStderr } = await execAsync(applyCommand, {
-        cwd: directory,
-        timeout: 300000,
-        maxBuffer: 1024 * 1024 * 10,
+    events.push({ type: "header", title: "🔨 Applying Terraform Configuration", content: "" });
+    const applyArgs = ["apply", "-auto-approve", ...varArgs];
+    const applyRes = await runCommand(baseCommand, applyArgs, { cwd: directory });
+    events.push({ type: "output", content: stripAnsiCodes(applyRes.stdout) });
+    if (applyRes.stderr) events.push({ type: "warning", content: stripAnsiCodes(applyRes.stderr) });
+    if (applyRes.error) {
+      events.push({
+        type: "error",
+        title: "Error during `tflocal apply`",
+        content: applyRes.error.message,
       });
-
-      const cleanApplyOutput = stripAnsiCodes(applyStdout);
-      if (cleanApplyOutput.trim()) {
-        result += `\`\`\`\n${cleanApplyOutput}\n\`\`\`\n\n`;
-      }
-
-      if (applyStderr) {
-        const cleanApplyError = stripAnsiCodes(applyStderr);
-        result += `**Messages:**\n\`\`\`\n${cleanApplyError}\n\`\`\`\n\n`;
-      }
-
-      try {
-        const { stdout: outputStdout } = await execAsync(`${baseCommand} output -json`, {
-          cwd: directory,
-          timeout: 15000,
-          maxBuffer: 1024 * 1024 * 5,
-        });
-
-        if (outputStdout.trim()) {
-          const parsedOutputs = parseTerraformOutputs(outputStdout);
-          result += parsedOutputs + "\n\n";
-        }
-      } catch (outputError) {
-        result += `**Note:** Outputs not retrieved (deployment successful, but output parsing skipped)\n\n`;
-      }
-
-      result += `✅ **Terraform deployment completed successfully!**\n`;
-    } catch (error) {
-      result += `❌ **Error during \`tflocal apply\`**\n\n`;
-      const errorOutput =
-        error instanceof Error && "stderr" in error
-          ? stripAnsiCodes(String((error as any).stderr))
-          : String(error);
-      result += `\`\`\`\n${errorOutput}\n\`\`\`\n`;
-
-      return {
-        content: [{ type: "text", text: result }],
-      };
+      return events;
     }
+
+    const outputRes = await runCommand(baseCommand, ["output", "-json"], { cwd: directory });
+    if (outputRes.stdout.trim()) {
+      const parsed = parseTerraformOutputs(outputRes.stdout);
+      events.push({ type: "output", content: parsed });
+    }
+    events.push({ type: "success", content: "Terraform deployment completed successfully!" });
   } else {
-    result += `## 💥 Destroying Terraform Resources\n\n`;
-    try {
-      const destroyCommand = varArgs
-        ? `${baseCommand} destroy -auto-approve ${varArgs}`
-        : `${baseCommand} destroy -auto-approve`;
-
-      const { stdout: destroyStdout, stderr: destroyStderr } = await execAsync(destroyCommand, {
-        cwd: directory,
-        timeout: 300000,
-        maxBuffer: 1024 * 1024 * 10,
+    events.push({ type: "header", title: "💥 Destroying Terraform Resources", content: "" });
+    const destroyArgs = ["destroy", "-auto-approve", ...varArgs];
+    const destroyRes = await runCommand(baseCommand, destroyArgs, { cwd: directory });
+    events.push({ type: "output", content: stripAnsiCodes(destroyRes.stdout) });
+    if (destroyRes.stderr)
+      events.push({ type: "warning", content: stripAnsiCodes(destroyRes.stderr) });
+    if (destroyRes.error) {
+      events.push({
+        type: "error",
+        title: "Error during `tflocal destroy`",
+        content: destroyRes.error.message,
       });
-
-      const cleanDestroyOutput = stripAnsiCodes(destroyStdout);
-      if (cleanDestroyOutput.trim()) {
-        result += `\`\`\`\n${cleanDestroyOutput}\n\`\`\`\n\n`;
-      }
-
-      if (destroyStderr) {
-        const cleanDestroyError = stripAnsiCodes(destroyStderr);
-        result += `**Messages:**\n\`\`\`\n${cleanDestroyError}\n\`\`\`\n\n`;
-      }
-
-      result += `✅ **Terraform resources in ${directory} have been destroyed.**\n`;
-    } catch (error) {
-      result += `❌ **Error during \`tflocal destroy\`**\n\n`;
-      const errorOutput =
-        error instanceof Error && "stderr" in error
-          ? stripAnsiCodes(String((error as any).stderr))
-          : String(error);
-      result += `\`\`\`\n${errorOutput}\n\`\`\`\n`;
-
-      return {
-        content: [{ type: "text", text: result }],
-      };
+      return events;
     }
+    events.push({
+      type: "success",
+      content: `Terraform resources in ${directory} have been destroyed.`,
+    });
   }
-
-  return {
-    content: [{ type: "text", text: result }],
-  };
+  return events;
 }
 
 /**
@@ -335,136 +229,76 @@ async function executeTerraformCommands(
 async function executeCdkCommands(
   action: "deploy" | "destroy",
   directory: string,
-  variables?: Record<string, string>,
-  result: string = ""
-) {
+  variables?: Record<string, string>
+): Promise<DeploymentEvent[]> {
+  const events: DeploymentEvent[] = [];
   const baseCommand = "cdklocal";
   const contextArgs = variables
-    ? Object.entries(variables)
-        .map(([key, value]) => `--context ${key}=${value}`)
-        .join(" ")
-    : "";
+    ? Object.entries(variables).flatMap(([key, value]) => ["--context", `${key}=${value}`])
+    : [];
 
   if (action === "deploy") {
-    result += `## 🥾 Bootstrapping CDK for LocalStack\n\n`;
-    try {
-      const { stdout: bootstrapStdout, stderr: bootstrapStderr } = await execAsync(
-        `${baseCommand} bootstrap`,
-        {
-          cwd: directory,
-          timeout: 120000,
-          maxBuffer: 1024 * 1024 * 10,
-          env: { ...process.env, CI: "true" },
-        }
-      );
-
-      const cleanBootstrapOutput = stripAnsiCodes(bootstrapStdout);
-      if (cleanBootstrapOutput.trim()) {
-        result += `\`\`\`\n${cleanBootstrapOutput}\n\`\`\`\n\n`;
-      }
-
-      if (bootstrapStderr) {
-        const cleanBootstrapError = stripAnsiCodes(bootstrapStderr);
-        result += `**Messages:**\n\`\`\`\n${cleanBootstrapError}\n\`\`\`\n\n`;
-      }
-    } catch (error) {
-      result += `❌ **Error during \`cdklocal bootstrap\`**\n\n`;
-      const errorOutput =
-        error instanceof Error && "stderr" in error
-          ? stripAnsiCodes(String((error as any).stderr))
-          : String(error);
-      result += `\`\`\`\n${errorOutput}\n\`\`\`\n`;
-
-      return {
-        content: [{ type: "text", text: result }],
-      };
-    }
-
-    result += `## 🚀 Deploying CDK Stack\n\n`;
-    try {
-      const deployCommand = contextArgs
-        ? `${baseCommand} deploy --require-approval never --all ${contextArgs}`
-        : `${baseCommand} deploy --require-approval never --all`;
-
-      const { stdout: deployStdout, stderr: deployStderr } = await execAsync(deployCommand, {
-        cwd: directory,
-        timeout: 300000,
-        maxBuffer: 1024 * 1024 * 10,
-        env: { ...process.env, CI: "true" },
+    events.push({ type: "header", title: "🥾 Bootstrapping CDK for LocalStack", content: "" });
+    const bootstrapRes = await runCommand(baseCommand, ["bootstrap"], {
+      cwd: directory,
+      env: { ...process.env, CI: "true" },
+    });
+    events.push({ type: "output", content: stripAnsiCodes(bootstrapRes.stdout) });
+    if (bootstrapRes.stderr)
+      events.push({ type: "warning", content: stripAnsiCodes(bootstrapRes.stderr) });
+    if (bootstrapRes.error) {
+      events.push({
+        type: "error",
+        title: "Error during `cdklocal bootstrap`",
+        content: bootstrapRes.error.message,
       });
-
-      const cleanDeployOutput = stripAnsiCodes(deployStdout);
-      if (cleanDeployOutput.trim()) {
-        result += `\`\`\`\n${cleanDeployOutput}\n\`\`\`\n\n`;
-      }
-
-      if (deployStderr) {
-        const cleanDeployError = stripAnsiCodes(deployStderr);
-        result += `**Messages:**\n\`\`\`\n${cleanDeployError}\n\`\`\`\n\n`;
-      }
-
-      try {
-        const parsedOutputs = parseCdkOutputs(cleanDeployOutput);
-        if (parsedOutputs && !parsedOutputs.includes("No outputs defined")) {
-          result += parsedOutputs + "\n\n";
-        }
-      } catch (outputError) {
-        result += `**Note:** Outputs parsing skipped (check if the deployment is successful)\n\n`;
-      }
-
-      result += `✅ **CDK stack deployed successfully!**\n`;
-    } catch (error) {
-      result += `❌ **Error during \`cdklocal deploy\`**\n\n`;
-      const errorOutput =
-        error instanceof Error && "stderr" in error
-          ? stripAnsiCodes(String((error as any).stderr))
-          : String(error);
-      result += `\`\`\`\n${errorOutput}\n\`\`\`\n`;
-
-      return {
-        content: [{ type: "text", text: result }],
-      };
+      return events;
     }
+
+    events.push({ type: "header", title: "🚀 Deploying CDK Stack", content: "" });
+    const deployRes = await runCommand(
+      baseCommand,
+      ["deploy", "--require-approval", "never", "--all", ...contextArgs],
+      { cwd: directory, env: { ...process.env, CI: "true" } }
+    );
+    const cleanDeployOutput = stripAnsiCodes(deployRes.stdout);
+    events.push({ type: "output", content: cleanDeployOutput });
+    if (deployRes.stderr)
+      events.push({ type: "warning", content: stripAnsiCodes(deployRes.stderr) });
+    try {
+      const parsedOutputs = parseCdkOutputs(cleanDeployOutput);
+      if (parsedOutputs && !parsedOutputs.includes("No outputs defined")) {
+        events.push({ type: "output", content: parsedOutputs });
+      }
+    } catch {}
+    if (deployRes.error) {
+      events.push({
+        type: "error",
+        title: "Error during `cdklocal deploy`",
+        content: deployRes.error.message,
+      });
+      return events;
+    }
+    events.push({ type: "success", content: "CDK stack deployed successfully!" });
   } else {
-    result += `## 💥 Destroying CDK Stack\n\n`;
-    try {
-      const destroyCommand = contextArgs
-        ? `${baseCommand} destroy --force --all ${contextArgs}`
-        : `${baseCommand} destroy --force --all`;
-
-      const { stdout: destroyStdout, stderr: destroyStderr } = await execAsync(destroyCommand, {
-        cwd: directory,
-        timeout: 300000,
-        maxBuffer: 1024 * 1024 * 10,
-        env: { ...process.env, CI: "true" },
+    events.push({ type: "header", title: "💥 Destroying CDK Stack", content: "" });
+    const destroyRes = await runCommand(
+      baseCommand,
+      ["destroy", "--force", "--all", ...contextArgs],
+      { cwd: directory, env: { ...process.env, CI: "true" } }
+    );
+    events.push({ type: "output", content: stripAnsiCodes(destroyRes.stdout) });
+    if (destroyRes.stderr)
+      events.push({ type: "warning", content: stripAnsiCodes(destroyRes.stderr) });
+    if (destroyRes.error) {
+      events.push({
+        type: "error",
+        title: "Error during `cdklocal destroy`",
+        content: destroyRes.error.message,
       });
-
-      const cleanDestroyOutput = stripAnsiCodes(destroyStdout);
-      if (cleanDestroyOutput.trim()) {
-        result += `\`\`\`\n${cleanDestroyOutput}\n\`\`\`\n\n`;
-      }
-
-      if (destroyStderr) {
-        const cleanDestroyError = stripAnsiCodes(destroyStderr);
-        result += `**Messages:**\n\`\`\`\n${cleanDestroyError}\n\`\`\`\n\n`;
-      }
-
-      result += `✅ **CDK stack in ${directory} has been destroyed.**\n`;
-    } catch (error) {
-      result += `❌ **Error during \`cdklocal destroy\`**\n\n`;
-      const errorOutput =
-        error instanceof Error && "stderr" in error
-          ? stripAnsiCodes(String((error as any).stderr))
-          : String(error);
-      result += `\`\`\`\n${errorOutput}\n\`\`\`\n`;
-
-      return {
-        content: [{ type: "text", text: result }],
-      };
+      return events;
     }
+    events.push({ type: "success", content: `CDK stack in ${directory} has been destroyed.` });
   }
-
-  return {
-    content: [{ type: "text", text: result }],
-  };
+  return events;
 }
