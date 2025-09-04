@@ -7,6 +7,8 @@ This server eliminates custom scripts and manual LocalStack management with dire
 - Start, stop, restart, and monitor LocalStack container status with built-in auth.
 - Deploy CDK and Terraform projects with automatic configuration detection.
 - Parse logs, catch errors, and auto-generate IAM policies from violations.
+- Inject chaos faults and network effects into LocalStack to test system resilience.
+- Manage LocalStack state snapshots via Cloud Pods for development workflows.
 - Connect AI assistants and dev tools for automated cloud testing workflows.
 
 ## Tools Reference
@@ -27,14 +29,13 @@ This server provides your AI with dedicated tools for managing your LocalStack e
 |        Editor        | Installation                                                                                                                                                                                                                                                                                                                                                                          |
 | :------------------: | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 |      **Cursor**      | [![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=localstack-mcp-server&config=eyJjb21tYW5kIjoibnB4IC15IEBsb2NhbHN0YWNrL2xvY2Fsc3RhY2stbWNwLXNlcnZlciJ9)                                                                                                                                                               |
-|     **VS Code**      | [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_LocalStack_MCP-0098FF?style=flat-square&logo=visualstudiocode&logoColor=ffffff)](vscode:mcp/install?%7B%22name%22%3A%22localstack-mcp-server%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40localstack%2Flocalstack-mcp-server%22%5D%7D)                            |
-| **VS Code Insiders** | [![Install in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Install_LocalStack_MCP-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=ffffff)](vscode-insiders:mcp/install?%7B%22name%22%3A%22localstack-mcp-server%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40localstack%2Flocalstack-mcp-server%22%5D%7D) |
+For other MCP Clients, refer to the [configuration guide](#configuration).
 
 ### Prerequisites
 
-- [LocalStack CLI](https://docs.localstack.cloud/getting-started/installation/#localstack-cli) and Docker installed in your system path.
-- [`cdklocal`](https://github.com/localstack/aws-cdk-local) or [`tflocal`](https://github.com/localstack/terraform-local) installed in your system path for running infrastructure deployment tooling.
-- A [valid LocalStack Auth Token](https://docs.localstack.cloud/aws/getting-started/auth-token/) to enable Pro services and IAM Policy Analyzer tool. (**optional**)
+- [LocalStack CLI](https://docs.localstack.cloud/getting-started/installation/#localstack-cli) and Docker installed in your system path
+- [`cdklocal`](https://github.com/localstack/aws-cdk-local) or [`tflocal`](https://github.com/localstack/terraform-local) installed in your system path for running infrastructure deployment tooling
+- A [valid LocalStack Auth Token](https://docs.localstack.cloud/aws/getting-started/auth-token/) to enable Pro services IAM Policy Analyzer, Cloud Pods, and Chaos Injector tools (**optional**)
 - [Node.js v22.x](https://nodejs.org/en/download/) installed in your system path
 
 ### Configuration
