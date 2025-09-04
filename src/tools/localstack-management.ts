@@ -5,6 +5,8 @@ import { getLocalStackStatus } from "../lib/localstack/localstack.utils";
 import { runCommand } from "../core/command-runner";
 import { runPreflights, requireLocalStackCli } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
+import { httpClient } from "../core/http-client";
+import { HEALTH_ENDPOINT } from "../core/config";
 
 export const schema = {
   action: z
@@ -96,21 +98,29 @@ async function handleStart({ envVars }: { envVars?: Record<string, string> }) {
       }
     });
 
-    const pollInterval = 5000;
+    const pollInterval = 3000;
     const maxWaitTime = 120000;
     let timeWaited = 0;
 
     poll = setInterval(async () => {
       timeWaited += pollInterval;
-      const status = await getLocalStackStatus();
-      if (status.isReady || status.isRunning) {
-        clearInterval(poll);
-        let resultMessage = "🚀 LocalStack started successfully!\n\n";
-        if (envVars)
-          resultMessage += `✅ Custom environment variables applied: ${Object.keys(envVars).join(", ")}\n`;
-        resultMessage += `\n**Status:**\n${status.statusOutput}`;
-        resolve(ResponseBuilder.markdown(resultMessage));
-      } else if (timeWaited >= maxWaitTime) {
+      try {
+        const health: any = await httpClient.request(HEALTH_ENDPOINT, { method: "GET" });
+        const isHealthy = health && typeof health === "object" && health.services;
+        if (isHealthy) {
+          clearInterval(poll);
+          const status = await getLocalStackStatus();
+          let resultMessage = "🚀 LocalStack started successfully!\n\n";
+          if (envVars)
+            resultMessage += `✅ Custom environment variables applied: ${Object.keys(envVars).join(", ")}\n`;
+          resultMessage += `\n**Status:**\n${status.statusOutput || "Ready"}`;
+          resolve(ResponseBuilder.markdown(resultMessage));
+          return;
+        }
+      } catch (e) {
+        // ignore until max wait
+      }
+      if (timeWaited >= maxWaitTime) {
         clearInterval(poll);
         resolve(
           ResponseBuilder.markdown(
@@ -129,16 +139,16 @@ async function handleStop() {
   if (cmd.stdout.trim()) result += `\nOutput:\n${cmd.stdout}`;
   if (cmd.stderr.trim()) result += `\nMessages:\n${cmd.stderr}`;
 
-  const statusResult = await getLocalStackStatus();
-  if (!statusResult.isRunning) {
-    result += "\n\n✅ LocalStack has been stopped successfully.";
-  } else if (statusResult.errorMessage) {
-    result += "\n\n✅ LocalStack appears to be stopped.";
+  if (!cmd.error) {
+    const statusResult = await getLocalStackStatus();
+    if (!statusResult.isRunning) {
+      result += "\n\n✅ LocalStack has been stopped successfully.";
+    } else if (statusResult.errorMessage) {
+      result += "\n\n✅ LocalStack appears to be stopped.";
+    } else {
+      result += "\n\n⚠️  LocalStack may still be running. Check the status manually if needed.";
+    }
   } else {
-    result += "\n\n⚠️  LocalStack may still be running. Check the status manually if needed.";
-  }
-
-  if (cmd.error) {
     result = `❌ Failed to stop LocalStack: ${cmd.error.message}\n\nThis could happen if:\n- LocalStack is not currently running\n- There was an error executing the stop command\n- Permission issues\n\nYou can try checking the LocalStack status first to see if it's running.`;
   }
 
@@ -152,24 +162,24 @@ async function handleRestart() {
   if (cmd.stdout.trim()) result += `Output:\n${cmd.stdout}\n`;
   if (cmd.stderr.trim()) result += `Messages:\n${cmd.stderr}\n`;
 
-  await new Promise((resolve) => setTimeout(resolve, 2000));
-  const statusResult = await getLocalStackStatus();
-  if (statusResult.statusOutput) {
-    result += `\nStatus after restart:\n${statusResult.statusOutput}`;
-    if (statusResult.isRunning) {
-      result +=
-        "\n\n✅ LocalStack has been restarted successfully and is now running with a fresh state.";
-    } else {
-      result +=
-        "\n\n⚠️  LocalStack restart completed but may still be starting up. Check status again in a few moments.";
-    }
-  } else {
-    result +=
-      "\n\n⚠️  Restart completed but unable to verify status. LocalStack may still be starting up.";
-  }
-
   if (cmd.error) {
     result = `❌ Failed to restart LocalStack: ${cmd.error.message}\n\nThis could happen if:\n- LocalStack is not currently installed properly\n- There was an error executing the restart command\n- The restart process timed out (LocalStack can take time to restart)\n- Permission issues\n\nYou can try stopping and starting LocalStack manually using separate actions if the restart action continues to fail.`;
+  } else {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const statusResult = await getLocalStackStatus();
+    if (statusResult.statusOutput) {
+      result += `\nStatus after restart:\n${statusResult.statusOutput}`;
+      if (statusResult.isRunning) {
+        result +=
+          "\n\n✅ LocalStack has been restarted successfully and is now running with a fresh state.";
+      } else {
+        result +=
+          "\n\n⚠️  LocalStack restart completed but may still be starting up. Check status again in a few moments.";
+      }
+    } else {
+      result +=
+        "\n\n⚠️  Restart completed but unable to verify status. LocalStack may still be starting up.";
+    }
   }
 
   return ResponseBuilder.markdown(result);

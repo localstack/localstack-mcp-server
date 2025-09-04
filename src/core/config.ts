@@ -9,3 +9,4 @@ export const DEFAULT_FETCH_TIMEOUT = 15000;
 export const DEFAULT_COMMAND_TIMEOUT = 300000; // 5 minutes
 export const DEFAULT_COMMAND_MAX_BUFFER = 1024 * 1024 * 10; // 10 MB
 export const IAM_CONFIG_ENDPOINT = "/_aws/iam/config";
+export const HEALTH_ENDPOINT = "/_localstack/health";
