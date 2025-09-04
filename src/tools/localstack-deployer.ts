@@ -72,38 +72,26 @@ export default async function localstackDeployer({
       const inferredType = await inferProjectType(directory);
 
       if (inferredType === "ambiguous") {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `❌ **Ambiguous Project Type**
-
-The directory "${directory}" contains both CDK and Terraform files. Please specify the project type explicitly:
+        return ResponseBuilder.error(
+          "Ambiguous Project Type",
+          `The directory "${directory}" contains both CDK and Terraform files. Please specify the project type explicitly:
 
 - Use \`projectType: 'cdk'\` to deploy as a CDK project
-- Use \`projectType: 'terraform'\` to deploy as a Terraform project`,
-            },
-          ],
-        };
+- Use \`projectType: 'terraform'\` to deploy as a Terraform project`
+        );
       }
 
       if (inferredType === "unknown") {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `❌ **Unknown Project Type**
-
-The directory "${directory}" does not appear to contain recognizable infrastructure-as-code files.
+        return ResponseBuilder.error(
+          "Unknown Project Type",
+          `The directory "${directory}" does not appear to contain recognizable infrastructure-as-code files.
 
 Expected files:
 - **CDK**: \`cdk.json\`, \`app.py\`, \`app.js\`, or \`app.ts\`
 - **Terraform**: \`*.tf\` or \`*.tf.json\` files
 
-Please check the directory path or specify the project type explicitly.`,
-            },
-          ],
-        };
+Please check the directory path or specify the project type explicitly.`
+        );
       }
 
       resolvedProjectType = inferredType as "cdk" | "terraform";
@@ -114,46 +102,34 @@ Please check the directory path or specify the project type explicitly.`,
     // Check Dependencies
     const dependencyCheck = await checkDependencies(resolvedProjectType);
     if (!dependencyCheck.isAvailable) {
-      return {
-        content: [{ type: "text", text: dependencyCheck.errorMessage! }],
-      };
+      return ResponseBuilder.error("Dependency Not Available", dependencyCheck.errorMessage!);
     }
 
     // Security Validation
     const validationErrors = validateVariables(variables);
     if (validationErrors.length > 0) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `🛡️ **Security Violation Detected**
+      return ResponseBuilder.error(
+        "Security Violation Detected",
+        `🛡️ **Security Violation Detected**
 
 Command injection attempt prevented. The following issues were found:
 
 ${validationErrors.map((error) => `- ${error}`).join("\n")}
 
-Please review your variables and ensure they don't contain shell metacharacters or invalid identifiers.`,
-          },
-        ],
-      };
+Please review your variables and ensure they don't contain shell metacharacters or invalid identifiers.`
+      );
     }
 
     // Execute Commands Based on Project Type and Action
     return await executeDeploymentCommands(resolvedProjectType, action, directory, variables);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    return {
-      content: [
-        {
-          type: "text",
-          text: `❌ **Deployment Error**
+    return ResponseBuilder.error(
+      "Deployment Error",
+      `An unexpected error occurred: ${errorMessage}
 
-An unexpected error occurred: ${errorMessage}
-
-Please check the directory path and ensure all prerequisites are met.`,
-        },
-      ],
-    };
+Please check the directory path and ensure all prerequisites are met.`
+    );
   }
 }
 

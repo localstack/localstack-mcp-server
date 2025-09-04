@@ -35,7 +35,7 @@ export async function checkProFeature(feature: ProFeature): Promise<LicenseCheck
     if (!licenseInfo.available_plugins || !Array.isArray(licenseInfo.available_plugins)) {
       return {
         isSupported: false,
-        errorMessage: `❌ **License Check Failed:** Unable to parse license information from LocalStack. The license response format was unexpected.`,
+        errorMessage: `Unable to parse license information from LocalStack. The license response format was unexpected.`,
       };
     }
 
@@ -44,24 +44,24 @@ export async function checkProFeature(feature: ProFeature): Promise<LicenseCheck
       ? { isSupported: true }
       : {
           isSupported: false,
-          errorMessage: `❌ **Feature Not Available:** Your LocalStack license does not seem to include the '${feature}' feature. Please check your license details.`,
+          errorMessage: `Your LocalStack license does not seem to include the '${feature}' feature. Please check your license details.`,
         };
   } catch (error: any) {
     if (error instanceof HttpError && error.status === 404) {
       return {
         isSupported: false,
-        errorMessage: `❌ **Feature Not Available:** The '${feature}' feature requires a LocalStack license, but the license endpoint was not found. Please ensure you are running LocalStack with a valid Auth Token.`,
+        errorMessage: `The '${feature}' feature requires a LocalStack license, but the license endpoint was not found. Please ensure you are running LocalStack with a valid Auth Token.`,
       };
     }
     if (error.code === "ECONNREFUSED" || error.message?.includes("ECONNREFUSED")) {
       return {
         isSupported: false,
-        errorMessage: `❌ **Connection Error:** Cannot connect to LocalStack. Please ensure LocalStack is running and accessible at http://localhost:4566.`,
+        errorMessage: `Cannot connect to LocalStack. Please ensure LocalStack is running and accessible at http://localhost:4566.`,
       };
     }
     return {
       isSupported: false,
-      errorMessage: `❌ **License Check Failed:** Unable to verify feature availability due to an unexpected error: ${error.message || "Unknown error"}`,
+      errorMessage: `Unable to verify feature availability due to an unexpected error: ${error.message || "Unknown error"}`,
     };
   }
 }

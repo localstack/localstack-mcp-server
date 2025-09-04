@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
-import { checkProFeature, ProFeature } from "../lib/localstack/license-checker";
+import { ProFeature } from "../lib/localstack/license-checker";
 import { CloudPodsApiClient } from "../lib/localstack/localstack.client";
 import { ResponseBuilder } from "../core/response-builder";
 import { runPreflights, requireLocalStackCli, requireProFeature } from "../core/preflight";
@@ -11,6 +11,13 @@ export const schema = {
 
   pod_name: z
     .string()
+    .refine((v) => v.trim().length > 0, {
+      message: "pod_name must not be empty or whitespace",
+    })
+    .refine((v) => /^[A-Za-z0-9._-]{1,128}$/.test(v), {
+      message:
+        "pod_name may only contain letters, numbers, '.', '_' or '-' and be at most 128 characters",
+    })
     .optional()
     .describe(
       "The name of the Cloud Pod. This is required for 'save', 'load', and 'delete' actions."

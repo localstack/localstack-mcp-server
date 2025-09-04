@@ -1,8 +1,7 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
-import { ensureLocalStackCli } from "../lib/localstack/localstack.utils";
 import { LocalStackLogRetriever, type LogEntry } from "../lib/logs/log-retriever";
-import { checkProFeature, ProFeature } from "../lib/localstack/license-checker";
+import { ProFeature } from "../lib/localstack/license-checker";
 import { httpClient, HttpError } from "../core/http-client";
 import { IAM_CONFIG_ENDPOINT } from "../core/config";
 import {
@@ -11,6 +10,8 @@ import {
   generateIamPolicy,
   formatPolicyReport,
 } from "../lib/iam/iam-policy.logic";
+import { runPreflights, requireLocalStackCli, requireProFeature } from "../core/preflight";
+import { ResponseBuilder } from "../core/response-builder";
 
 export const schema = {
   action: z
@@ -47,48 +48,35 @@ export default async function localstackIamPolicyAnalyzer({
   action,
   mode,
 }: InferSchema<typeof schema>) {
-  const cliError = await ensureLocalStackCli();
-  if (cliError) return cliError;
-
-  // Check if IAM enforcement feature is supported
-  const licenseCheck = await checkProFeature(ProFeature.IAM_ENFORCEMENT);
-  if (!licenseCheck.isSupported) {
-    return { content: [{ type: "text", text: licenseCheck.errorMessage! }] };
-  }
+  const preflightError = await runPreflights([
+    requireLocalStackCli(),
+    requireProFeature(ProFeature.IAM_ENFORCEMENT),
+  ]);
+  if (preflightError) return preflightError;
 
   switch (action) {
     case "get-status":
       return await handleGetStatus();
     case "set-mode":
       if (!mode) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `❌ **Missing Required Parameter**
-
-The 'mode' parameter is required when using 'set-mode' action.
+        return ResponseBuilder.error(
+          "Missing Required Parameter",
+          `The 'mode' parameter is required when using 'set-mode' action.
 
 Valid modes:
 - **ENFORCED**: Strict IAM enforcement (blocks unauthorized actions)
 - **SOFT_MODE**: Log IAM violations without blocking
-- **DISABLED**: Turn off IAM enforcement completely`,
-            },
-          ],
-        };
+- **DISABLED**: Turn off IAM enforcement completely`
+        );
       }
       return await handleSetMode(mode);
     case "analyze-policies":
       return await handleAnalyzePolicies();
     default:
-      return {
-        content: [
-          {
-            type: "text",
-            text: `❌ Unknown action: ${action}. Supported actions: get-status, set-mode, analyze-policies`,
-          },
-        ],
-      };
+      return ResponseBuilder.error(
+        "Unknown action",
+        `Unknown action: ${action}. Supported actions: get-status, set-mode, analyze-policies`
+      );
   }
 }
 
@@ -118,11 +106,7 @@ async function handleGetStatus() {
       default:
         statusDescription = `Unknown state: ${currentState}`;
     }
-    return {
-      content: [
-        {
-          type: "text",
-          text: `${statusEmoji} **LocalStack IAM Enforcement Status**
+    return ResponseBuilder.markdown(`${statusEmoji} **LocalStack IAM Enforcement Status**
 
 **Current Mode:** \`${currentState}\`
 
@@ -130,44 +114,27 @@ ${statusDescription}
 
 **Available Actions:**
 - Use \`set-mode\` to change enforcement mode
-- Use \`analyze-policies\` to generate policies from recent IAM denials`,
-        },
-      ],
-    };
+- Use \`analyze-policies\` to generate policies from recent IAM denials`);
   } catch (error) {
     if (error instanceof HttpError && error.status === 404) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `⚠️ **LocalStack IAM Configuration Not Available**
+      return ResponseBuilder.markdown(`⚠️ **LocalStack IAM Configuration Not Available**
 
 This could mean:
 - LocalStack is not running
 - LocalStack version doesn't support IAM configuration
 - IAM enforcement is not available in your LocalStack version
 
-Please ensure LocalStack is running and supports IAM enforcement.`,
-          },
-        ],
-      };
+Please ensure LocalStack is running and supports IAM enforcement.`);
     }
     const errorMessage = error instanceof Error ? error.message : String(error);
-    return {
-      content: [
-        {
-          type: "text",
-          text: `❌ **Failed to Get IAM Status**
+    return ResponseBuilder.markdown(`❌ **Failed to Get IAM Status**
 
 Error: ${errorMessage}
 
 **Troubleshooting:**
 - Ensure LocalStack is running on port 4566
 - Check if your LocalStack version supports IAM enforcement
-- Verify network connectivity to LocalStack`,
-        },
-      ],
-    };
+- Verify network connectivity to LocalStack`);
   }
 }
 
@@ -213,35 +180,21 @@ This mode is perfect for:
         break;
     }
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: `${modeEmoji} **IAM Enforcement Mode Updated**
+    return ResponseBuilder.markdown(`${modeEmoji} **IAM Enforcement Mode Updated**
 
 ✅ IAM enforcement mode has been set to \`${mode}\`.
 
-${nextStepGuidance}`,
-        },
-      ],
-    };
+${nextStepGuidance}`);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    return {
-      content: [
-        {
-          type: "text",
-          text: `❌ **Failed to Set IAM Mode**
+    return ResponseBuilder.markdown(`❌ **Failed to Set IAM Mode**
 
 Error: ${errorMessage}
 
 **Troubleshooting:**
 - Ensure LocalStack is running on port 4566
 - Check if your LocalStack version supports IAM configuration
-- Verify you have permission to modify LocalStack settings`,
-        },
-      ],
-    };
+- Verify you have permission to modify LocalStack settings`);
   }
 }
 
@@ -251,28 +204,17 @@ async function handleAnalyzePolicies() {
     const logResult = await logRetriever.retrieveLogs(5000);
 
     if (!logResult.success) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `❌ **Failed to Retrieve Logs**
+      return ResponseBuilder.markdown(`❌ **Failed to Retrieve Logs**
 
 ${logResult.errorMessage}
 
-Please ensure LocalStack is running and generating logs.`,
-          },
-        ],
-      };
+Please ensure LocalStack is running and generating logs.`);
     }
 
     const iamDenials = logResult.logs.filter((log) => log.isIamDenial === true);
 
     if (iamDenials.length === 0) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `✅ **Analysis Complete - No IAM Denials Found**
+      return ResponseBuilder.markdown(`✅ **Analysis Complete - No IAM Denials Found**
 
 No IAM permission errors were found in the recent logs.
 
@@ -285,10 +227,7 @@ No IAM permission errors were found in the recent logs.
 **Next steps:**
 - If you expected to see denials, ensure IAM enforcement is in \`ENFORCED\` or \`SOFT_MODE\`
 - Try running your application again to generate fresh logs
-- Increase the log analysis window if needed`,
-          },
-        ],
-      };
+- Increase the log analysis window if needed`);
     }
 
     const enrichedDenials = await enrichWithResourceData(iamDenials, logResult.logs);
@@ -298,17 +237,10 @@ No IAM permission errors were found in the recent logs.
     return formatPolicyReport(enrichedDenials, uniquePermissions, iamPolicy);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    return {
-      content: [
-        {
-          type: "text",
-          text: `❌ **Policy Analysis Failed**
+    return ResponseBuilder.markdown(`❌ **Policy Analysis Failed**
 
 Error: ${errorMessage}
 
-Please ensure LocalStack is running and check the logs for more details.`,
-        },
-      ],
-    };
+Please ensure LocalStack is running and check the logs for more details.`);
   }
 }

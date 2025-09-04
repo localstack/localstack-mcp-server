@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
-import { checkProFeature, ProFeature } from "../lib/localstack/license-checker";
+import { ProFeature } from "../lib/localstack/license-checker";
 import { ChaosApiClient } from "../lib/localstack/localstack.client";
 import { ResponseBuilder } from "../core/response-builder";
 import { runPreflights, requireProFeature } from "../core/preflight";
@@ -322,7 +322,7 @@ ${JSON.stringify(getCurrentResult.data, null, 2)}
       const message = `✅ Latency of ${latency_ms}ms has been injected. The current network effects are:
 
 \`\`\`json
-${JSON.stringify(getCurrentResult, null, 2)}
+${JSON.stringify(getCurrentResult.data, null, 2)}
 \`\`\``;
 
       return ResponseBuilder.markdown(addWorkflowGuidance(message));
