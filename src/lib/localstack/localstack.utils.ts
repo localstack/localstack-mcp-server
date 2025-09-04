@@ -12,7 +12,6 @@ export interface LocalStackCliCheckResult {
  */
 export async function checkLocalStackCli(): Promise<LocalStackCliCheckResult> {
   try {
-    await runCommand("localstack", ["--help"]);
     const { stdout: version } = await runCommand("localstack", ["--version"]);
 
     return {
