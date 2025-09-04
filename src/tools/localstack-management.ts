@@ -55,87 +55,79 @@ export default async function localstackManagement({
 
 // Handle start action
 async function handleStart({ envVars }: { envVars?: Record<string, string> }) {
-  // Check if LocalStack is already running
   const statusCheck = await getLocalStackStatus();
   if (statusCheck.isRunning) {
     return {
       content: [
         {
           type: "text",
-          text: "⚠️  LocalStack is already running. Use the restart action if you want to restart it with new configuration.",
+          text: "⚠️  LocalStack is already running. Use 'restart' if you want to apply new configuration.",
         },
       ],
     };
   }
 
-  // Prepare environment variables
-  const environment = { ...process.env };
-
-  const hasAuthToken = !!process.env.LOCALSTACK_AUTH_TOKEN;
-
-  if (hasAuthToken) {
+  const environment = { ...process.env, ...(envVars || {}) } as Record<string, string>;
+  if (process.env.LOCALSTACK_AUTH_TOKEN) {
     environment.LOCALSTACK_AUTH_TOKEN = process.env.LOCALSTACK_AUTH_TOKEN;
   }
 
-  // Add custom environment variables
-  if (envVars) {
-    Object.entries(envVars).forEach(([key, value]) => {
-      environment[key] = value;
-    });
-  }
-
   return new Promise((resolve) => {
-    // Start LocalStack using spawn for better control
-    const localstackProcess = spawn("localstack", ["start"], {
-      env: environment,
-      stdio: ["pipe", "pipe", "pipe"],
+    const child = spawn("localstack", ["start"], { env: environment });
+
+    let stderr = "";
+    child.stderr.on("data", (data) => {
+      stderr += data.toString();
     });
 
-    let output = "";
-    let errorOutput = "";
-
-    localstackProcess.stdout?.on("data", (data) => {
-      output += data.toString();
-    });
-
-    localstackProcess.stderr?.on("data", (data) => {
-      errorOutput += data.toString();
-    });
-
-    // Give LocalStack some time to start and then check status
-    setTimeout(async () => {
-      const statusResult = await getLocalStackStatus();
-
-      let resultMessage = "🚀 LocalStack start command executed!\n\n";
-      resultMessage += "✅ LocalStack services enabled\n";
-
-      if (envVars && Object.keys(envVars).length > 0) {
-        resultMessage += `✅ Custom environment variables applied: ${Object.keys(envVars).join(", ")}\n`;
-      }
-
-      if (statusResult.statusOutput) {
-        resultMessage += `\nStatus check:\n${statusResult.statusOutput}`;
-      } else if (statusResult.errorMessage) {
-        resultMessage += `\nStatus check failed: ${statusResult.errorMessage}`;
-        resultMessage +=
-          "\nLocalStack may still be starting up. You can check the status manually using the status action.";
-      }
-
-      if (output) {
-        resultMessage += `\n\nOutput:\n${output}`;
-      }
-
+    let earlyExit = false;
+    child.on("error", (err) => {
+      earlyExit = true;
       resolve({
-        content: [{ type: "text", text: resultMessage }],
-      });
-    }, 10000); // Wait 10 seconds for LocalStack to start
-
-    localstackProcess.on("error", (error) => {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      resolve({
-        content: [{ type: "text", text: `❌ Failed to start LocalStack: ${errorMessage}` }],
+        content: [{ type: "text", text: `❌ Failed to start LocalStack process: ${err.message}` }],
       });
     });
+
+    child.on("close", (code) => {
+      if (earlyExit) return;
+      if (code !== 0) {
+        resolve({
+          content: [
+            {
+              type: "text",
+              text: `❌ LocalStack process exited unexpectedly with code ${code}.\n\nStderr:\n${stderr}`,
+            },
+          ],
+        });
+      }
+    });
+
+    const pollInterval = 5000;
+    const maxWaitTime = 120000;
+    let timeWaited = 0;
+
+    const poll = setInterval(async () => {
+      timeWaited += pollInterval;
+      const status = await getLocalStackStatus();
+      if (status.isReady || status.isRunning) {
+        clearInterval(poll);
+        let resultMessage = "🚀 LocalStack started successfully!\n\n";
+        if (envVars)
+          resultMessage += `✅ Custom environment variables applied: ${Object.keys(envVars).join(", ")}\n`;
+        resultMessage += `\n**Status:**\n${status.statusOutput}`;
+        resolve({ content: [{ type: "text", text: resultMessage }] });
+      } else if (timeWaited >= maxWaitTime) {
+        clearInterval(poll);
+        resolve({
+          content: [
+            {
+              type: "text",
+              text: `❌ LocalStack start timed out after ${maxWaitTime / 1000} seconds. It may still be starting in the background.`,
+            },
+          ],
+        });
+      }
+    }, pollInterval);
   });
 }
 

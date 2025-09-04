@@ -222,3 +222,11 @@ export function parseCdkOutputs(stdout: string): string {
     return `Error parsing CDK outputs: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
+
+export type DeploymentEventType = "header" | "command" | "output" | "error" | "success" | "warning";
+
+export interface DeploymentEvent {
+  type: DeploymentEventType;
+  title?: string;
+  content: string;
+}

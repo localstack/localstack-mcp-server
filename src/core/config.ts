@@ -8,3 +8,4 @@ export const DEFAULT_FETCH_TIMEOUT = 15000;
 // Default timeouts and buffer sizes for command execution
 export const DEFAULT_COMMAND_TIMEOUT = 300000; // 5 minutes
 export const DEFAULT_COMMAND_MAX_BUFFER = 1024 * 1024 * 10; // 10 MB
+export const IAM_CONFIG_ENDPOINT = "/_aws/iam/config";

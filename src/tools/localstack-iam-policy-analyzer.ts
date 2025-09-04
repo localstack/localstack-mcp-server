@@ -4,6 +4,7 @@ import { ensureLocalStackCli } from "../lib/localstack/localstack.utils";
 import { LocalStackLogRetriever, type LogEntry } from "../lib/logs/log-retriever";
 import { checkProFeature, ProFeature } from "../lib/localstack/license-checker";
 import { httpClient, HttpError } from "../core/http-client";
+import { IAM_CONFIG_ENDPOINT } from "../core/config";
 import {
   enrichWithResourceData,
   deduplicatePermissions,
@@ -35,7 +36,7 @@ export const metadata: ToolMetadata = {
   },
 };
 
-const IAM_CONFIG_URL = "http://localhost:4566/_aws/iam/config";
+// Using centralized IAM config endpoint from core/config
 
 interface IamConfigResponse {
   state: string;
@@ -93,7 +94,7 @@ Valid modes:
 
 async function handleGetStatus() {
   try {
-    const response = await httpClient.request<IamConfigResponse>("/_aws/iam/config", {
+    const response = await httpClient.request<IamConfigResponse>(IAM_CONFIG_ENDPOINT, {
       method: "GET",
     });
     const currentState = response.state || "UNKNOWN";
@@ -173,7 +174,7 @@ Error: ${errorMessage}
 async function handleSetMode(mode: "ENFORCED" | "SOFT_MODE" | "DISABLED") {
   try {
     const payload = { state: mode };
-    await httpClient.request("/_aws/iam/config", {
+    await httpClient.request(IAM_CONFIG_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

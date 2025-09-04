@@ -11,15 +11,9 @@ export interface CommandResult {
 export interface CommandOptions extends SpawnOptions {
   timeout?: number;
   maxBuffer?: number;
+  onData?: (chunk: string, type: "stdout" | "stderr") => void;
 }
 
-/**
- * Executes a command securely using spawn.
- * @param command The command to execute (e.g., 'tflocal').
- * @param args An array of string arguments.
- * @param options Spawn options including cwd, env, timeout, etc.
- * @returns A promise that resolves with the command result.
- */
 export function runCommand(
   command: string,
   args: string[],
@@ -29,32 +23,68 @@ export function runCommand(
     const {
       timeout = DEFAULT_COMMAND_TIMEOUT,
       maxBuffer = DEFAULT_COMMAND_MAX_BUFFER,
+      onData,
       ...spawnOptions
     } = options;
 
-    const child = spawn(command, args, {
-      ...spawnOptions,
-      timeout,
-    });
+    const child = spawn(command, args, { ...spawnOptions });
 
     let stdout = "";
     let stderr = "";
+    let outBytes = 0;
+    let errBytes = 0;
+    let timedOut = false;
+    let bufferExceeded = false;
+    let error: Error | undefined;
 
-    child.stdout?.on("data", (data) => {
-      stdout += data.toString();
-    });
+    const killProcess = (reason: string) => {
+      if (child.killed) return;
+      error = new Error(reason);
+      child.kill(spawnOptions.killSignal ?? "SIGTERM");
+      setTimeout(() => {
+        if (!child.killed) child.kill("SIGKILL");
+      }, 2000);
+    };
 
-    child.stderr?.on("data", (data) => {
-      stderr += data.toString();
-    });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killProcess(`Command timed out after ${timeout}ms`);
+    }, timeout);
 
-    child.on("error", (error) => {
-      resolve({ stdout, stderr, error, exitCode: child.exitCode });
+    const onChunk = (isStdout: boolean) => (chunk: Buffer) => {
+      if (timedOut || bufferExceeded) return;
+      const len = chunk.length;
+      if (isStdout) {
+        outBytes += len;
+        const data = chunk.toString();
+        stdout += data;
+        if (onData) onData(data, "stdout");
+        if (outBytes > maxBuffer) {
+          bufferExceeded = true;
+          killProcess(`stdout exceeded maxBuffer size of ${maxBuffer} bytes`);
+        }
+      } else {
+        errBytes += len;
+        const data = chunk.toString();
+        stderr += data;
+        if (onData) onData(data, "stderr");
+        if (errBytes > maxBuffer) {
+          bufferExceeded = true;
+          killProcess(`stderr exceeded maxBuffer size of ${maxBuffer} bytes`);
+        }
+      }
+    };
+
+    child.stdout?.on("data", onChunk(true));
+    child.stderr?.on("data", onChunk(false));
+
+    child.on("error", (err) => {
+      error = err;
     });
 
     child.on("close", (code) => {
-      let error: Error | undefined;
-      if (code !== 0) {
+      clearTimeout(timer);
+      if (!timedOut && !bufferExceeded && code !== 0 && !error) {
         error = new Error(`Command failed with exit code ${code}: ${stderr.trim()}`);
       }
       resolve({ stdout, stderr, error, exitCode: code });
@@ -62,12 +92,6 @@ export function runCommand(
   });
 }
 
-/**
- * Strip ANSI escape codes from command output for clean display.
- * This is the exact same function from the original deployment-utils.ts, now centralized.
- * @param text The text containing ANSI escape codes.
- * @returns Cleaned text without ANSI codes.
- */
 export function stripAnsiCodes(text: string): string {
   return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
 }
