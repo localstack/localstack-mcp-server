@@ -1,4 +1,4 @@
-import { ensureLocalStackCli } from "../lib/localstack/localstack.utils";
+import { ensureLocalStackCli, getLocalStackStatus } from "../lib/localstack/localstack.utils";
 import { checkProFeature, ProFeature } from "../lib/localstack/license-checker";
 import { ResponseBuilder } from "./response-builder";
 
@@ -21,4 +21,15 @@ export const runPreflights = async (
 ): Promise<ToolResponse | null> => {
   const results = await Promise.all(checks);
   return results.find((r) => r !== null) || null;
+};
+
+export const requireLocalStackRunning = async (): Promise<ToolResponse | null> => {
+  const statusResult = await getLocalStackStatus();
+  if (!statusResult.isRunning) {
+    return ResponseBuilder.error(
+      "LocalStack Not Running",
+      "LocalStack is not running. Please start LocalStack (e.g., 'localstack start') and try again."
+    );
+  }
+  return null;
 };
