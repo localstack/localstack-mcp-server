@@ -2,7 +2,7 @@
   "dxt_version": "0.1",
   "name": "localstack-mcp-server",
   "display_name": "LocalStack MCP Server",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "A LocalStack MCP Server providing essential tools for local cloud development & testing",
   "author": {
     "name": "LocalStack Team",
@@ -104,6 +104,18 @@
       "description": "Inject chaos faults and network effects into LocalStack",
       "arguments": ["services", "regions", "operations", "probability", "error"],
       "text": "Create chaos faults for ${arguments.services} in ${arguments.regions} for ${arguments.operations} with a probability of ${arguments.probability} and an error of ${arguments.error}."
+    },
+    {
+      "name": "localstack-aws-client",
+      "description": "Runs AWS CLI commands inside the LocalStack container",
+      "arguments": ["description"],
+      "text": "Please query the LocalStack container for ${arguments.description}."
+    },
+    {
+      "name": "cloud-pods",
+      "description": "Manage LocalStack state snapshots (Cloud Pods) for saving, loading, deleting, and resetting",
+      "arguments": ["action", "pod_name"],
+      "text": "Please ${arguments.action} Cloud Pod in the LocalStack container with the pod name ${arguments.pod_name}."
     }
   ],
   "keywords": ["localstack", "aws", "cloud", "cloud-dev", "cloud-testing"],
