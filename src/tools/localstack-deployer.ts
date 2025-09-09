@@ -2,7 +2,10 @@ import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { runCommand, stripAnsiCodes } from "../core/command-runner";
 import path from "path";
+import fs from "fs";
 import { ensureLocalStackCli } from "../lib/localstack/localstack.utils";
+import { runPreflights, requireLocalStackRunning } from "../core/preflight";
+import { DockerApiClient } from "../lib/docker/docker.client";
 import {
   checkDependencies,
   inferProjectType,
@@ -18,18 +21,19 @@ import { ResponseBuilder } from "../core/response-builder";
 // Define the schema for tool parameters
 export const schema = {
   action: z
-    .enum(["deploy", "destroy"])
+    .enum(["deploy", "destroy", "create-stack", "delete-stack"])
     .describe(
-      "The deployment action to perform: 'deploy' to create/update resources, or 'destroy' to remove them."
+      "The action to perform: 'deploy'/'destroy' for CDK/Terraform, or 'create-stack'/'delete-stack' for CloudFormation."
     ),
   projectType: z
-    .enum(["cdk", "terraform", "auto"])
+    .enum(["cdk", "terraform", "auto"]) 
     .default("auto")
     .describe(
       "The type of project. 'auto' (default) infers from files. Specify 'cdk' or 'terraform' to override."
     ),
   directory: z
     .string()
+    .optional()
     .describe(
       "The required path to the project directory containing your infrastructure-as-code files."
     ),
@@ -39,6 +43,14 @@ export const schema = {
     .describe(
       "Key-value pairs for parameterization. Used for Terraform variables (-var) or CDK context (-c)."
     ),
+  stackName: z
+    .string()
+    .optional()
+    .describe("The name of the CloudFormation stack. Required for 'create-stack' and 'delete-stack'."),
+  templatePath: z
+    .string()
+    .optional()
+    .describe("The local file path to the CloudFormation template. Required for 'create-stack' if not discoverable from 'directory'."),
 };
 
 // Define tool metadata
@@ -59,17 +71,174 @@ export default async function localstackDeployer({
   projectType,
   directory,
   variables,
+  stackName,
+  templatePath,
 }: InferSchema<typeof schema>) {
-  // Check if LocalStack CLI is available first
-  const cliError = await ensureLocalStackCli();
-  if (cliError) return cliError;
+  if (action === "deploy" || action === "destroy") {
+    const cliError = await ensureLocalStackCli();
+    if (cliError) return cliError;
+  } else {
+    const preflightError = await runPreflights([requireLocalStackRunning()]);
+    if (preflightError) return preflightError;
+  }
+
+  if (action === "create-stack") {
+    if (!stackName) {
+      return ResponseBuilder.error(
+        "Missing Parameter",
+        "The parameter 'stackName' is required for action 'create-stack'."
+      );
+    }
+    let resolvedTemplatePath = templatePath;
+    if (!resolvedTemplatePath) {
+      if (!directory) {
+        return ResponseBuilder.error(
+          "Missing Parameter",
+          "Provide 'templatePath' or a 'directory' containing a single .yaml/.yml CloudFormation template."
+        );
+      }
+      try {
+        const files = await fs.promises.readdir(directory);
+        const yamlFiles = files.filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"));
+        if (yamlFiles.length === 0) {
+          return ResponseBuilder.error(
+            "Template Not Found",
+            `No .yaml/.yml template found in directory '${directory}'.`
+          );
+        }
+        if (yamlFiles.length > 1) {
+          return ResponseBuilder.error(
+            "Multiple Templates Found",
+            `Multiple .yaml/.yml templates found in '${directory}'. Please specify 'templatePath'.\n\nFound:\n${yamlFiles
+              .map((f) => `- ${f}`)
+              .join("\n")}`
+          );
+        }
+        resolvedTemplatePath = path.join(directory, yamlFiles[0]);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return ResponseBuilder.error(
+          "Directory Read Error",
+          `Failed to read directory '${directory}'. ${message}`
+        );
+      }
+    }
+
+    let templateBody = "";
+    try {
+      templateBody = await fs.promises.readFile(resolvedTemplatePath, "utf-8");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return ResponseBuilder.error(
+        "Template Read Error",
+        `Failed to read template file at '${resolvedTemplatePath}'. ${message}`
+      );
+    }
+
+    try {
+      const dockerClient = new DockerApiClient();
+      const containerId = await dockerClient.findLocalStackContainer();
+
+      const tempPath = `/tmp/ls-cfn-${Date.now()}.yaml`;
+      const writeRes = await dockerClient.executeInContainer(
+        containerId,
+        ["/bin/sh", "-c", `cat > ${tempPath}`],
+        templateBody
+      );
+      if (writeRes.exitCode !== 0) {
+        return ResponseBuilder.error(
+          "Template Upload Failed",
+          writeRes.stderr || `Failed to write template to ${tempPath}`
+        );
+      }
+
+      const createCmd = [
+        "awslocal",
+        "cloudformation",
+        "create-stack",
+        "--stack-name",
+        stackName,
+        "--template-body",
+        `file://${tempPath}`,
+      ];
+      const createRes = await dockerClient.executeInContainer(containerId, createCmd);
+
+      try {
+        await dockerClient.executeInContainer(containerId, ["/bin/sh", "-c", `rm -f ${tempPath}`]);
+      } catch {}
+
+      if (createRes.exitCode === 0) {
+        return ResponseBuilder.markdown(
+          (createRes.stdout && createRes.stdout.trim())
+            ? createRes.stdout
+            : `Stack '${stackName}' creation initiated.\n\nTip: Use the 'localstack-aws-client' tool with 'cloudformation describe-stacks' to monitor stack status and wait for CREATE_COMPLETE.`
+        );
+      }
+      return ResponseBuilder.error(
+        "CloudFormation create-stack failed",
+        createRes.stderr || "Unknown error"
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return ResponseBuilder.error(
+        "CloudFormation Error",
+        `An unexpected error occurred: ${errorMessage}`
+      );
+    }
+  }
+
+  if (action === "delete-stack") {
+    if (!stackName) {
+      return ResponseBuilder.error(
+        "Missing Parameter",
+        "The parameter 'stackName' is required for action 'delete-stack'."
+      );
+    }
+    try {
+      const dockerClient = new DockerApiClient();
+      const containerId = await dockerClient.findLocalStackContainer();
+      const command = [
+        "awslocal",
+        "cloudformation",
+        "delete-stack",
+        "--stack-name",
+        stackName,
+      ];
+      const result = await dockerClient.executeInContainer(containerId, command);
+      if (result.exitCode === 0) {
+        return ResponseBuilder.markdown(
+          (result.stdout && result.stdout.trim())
+            ? result.stdout
+            : `Stack '${stackName}' deletion initiated.\n\nTip: Use the 'localstack-aws-client' tool with 'cloudformation describe-stacks' to monitor deletion status until DELETE_COMPLETE.`
+        );
+      }
+      return ResponseBuilder.error(
+        "CloudFormation delete-stack failed",
+        result.stderr || "Unknown error"
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return ResponseBuilder.error(
+        "CloudFormation Error",
+        `An unexpected error occurred: ${errorMessage}`
+      );
+    }
+  }
 
   let resolvedProjectType: "cdk" | "terraform";
 
   try {
+    if (!directory) {
+      return ResponseBuilder.error(
+        "Missing Parameter",
+        "The parameter 'directory' is required for actions 'deploy' and 'destroy'."
+      );
+    }
+    const nonNullDirectory = directory as string;
+
     // Step 1: Project Type Resolution
     if (projectType === "auto") {
-      const inferredType = await inferProjectType(directory);
+      const inferredType = await inferProjectType(nonNullDirectory);
 
       if (inferredType === "ambiguous") {
         return ResponseBuilder.error(
@@ -121,7 +290,12 @@ Please review your variables and ensure they don't contain shell metacharacters 
     }
 
     // Execute Commands Based on Project Type and Action
-    return await executeDeploymentCommands(resolvedProjectType, action, directory, variables);
+    return await executeDeploymentCommands(
+      resolvedProjectType,
+      action,
+      nonNullDirectory,
+      variables
+    );
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     return ResponseBuilder.error(

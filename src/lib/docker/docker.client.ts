@@ -31,21 +31,31 @@ export class DockerApiClient {
     throw new Error("Could not find a running LocalStack container named 'localstack-main'.");
   }
 
-  async executeInContainer(containerId: string, command: string[]): Promise<ContainerExecResult> {
+  async executeInContainer(
+    containerId: string,
+    command: string[],
+    stdin?: string
+  ): Promise<ContainerExecResult> {
     const container = this.docker.getContainer(containerId);
 
     const exec = await container.exec({
       Cmd: command,
       AttachStdout: true,
       AttachStderr: true,
+      ...(stdin ? { AttachStdin: true } : {}),
     });
 
-    const stream: NodeJS.ReadableStream = await new Promise((resolve, reject) => {
-      exec.start({ hijack: true, stdin: false } as any, (err: any, stream: any) => {
+    const stream: NodeJS.ReadWriteStream = await new Promise((resolve, reject) => {
+      exec.start({ hijack: true, stdin: Boolean(stdin) } as any, (err: any, stream: any) => {
         if (err) return reject(err);
-        resolve(stream as NodeJS.ReadableStream);
+        resolve(stream as NodeJS.ReadWriteStream);
       });
     });
+
+    if (stdin) {
+      stream.write(stdin);
+      stream.end();
+    }
 
     const stdoutStream = new PassThrough();
     const stderrStream = new PassThrough();
