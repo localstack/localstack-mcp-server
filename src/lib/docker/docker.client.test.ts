@@ -92,8 +92,7 @@ describe("DockerApiClient", () => {
     mocks.start.mockImplementationOnce((opts: any, cb: any) => {
       setImmediate(() => {
         cb(null, stream);
-        setImmediate(() => {
-        });
+        setImmediate(() => {});
       });
     });
 

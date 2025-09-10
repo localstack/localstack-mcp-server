@@ -47,8 +47,12 @@ export default async function localstackAwsClient({ command }: InferSchema<typeo
 
     // Coverage / unimplemented service hints
     const stderr = result.stderr || "";
-    const actionMatch = stderr.match(/The API action '([^']+)' for service '([^']+)' is either not available in your current license plan or has not yet been emulated by LocalStack/i);
-    const serviceMatch = stderr.match(/The API for service '([^']+)' is either not included in your current license plan or has not yet been emulated by LocalStack/i);
+    const actionMatch = stderr.match(
+      /The API action '([^']+)' for service '([^']+)' is either not available in your current license plan or has not yet been emulated by LocalStack/i
+    );
+    const serviceMatch = stderr.match(
+      /The API for service '([^']+)' is either not included in your current license plan or has not yet been emulated by LocalStack/i
+    );
     if (actionMatch) {
       const service = actionMatch[2];
       const link = `https://docs.localstack.cloud/references/coverage/coverage_${service}`;
