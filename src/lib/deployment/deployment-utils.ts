@@ -9,7 +9,7 @@ export interface DependencyCheckResult {
   errorMessage?: string;
 }
 
-export type ProjectType = "cdk" | "terraform" | "ambiguous" | "unknown";
+export type ProjectType = "cdk" | "terraform" | "cloudformation" | "ambiguous" | "unknown";
 
 /**
  * Check if the required deployment tool (cdklocal or tflocal) is available in the system PATH
@@ -84,15 +84,24 @@ export async function inferProjectType(directory: string): Promise<ProjectType> 
       (file) => file.endsWith(".tf") || file.endsWith(".tf.json")
     );
 
+    const hasCloudFormationTemplates = files.some(
+      (file) => file.endsWith(".yaml") || file.endsWith(".yml")
+    );
+
     const isCdk = hasCdkJson || hasCdkFiles;
     const isTerraform = hasTerraformFiles;
+    const isCloudFormation = hasCloudFormationTemplates;
 
-    if (isCdk && isTerraform) {
+    if (
+      [isCdk, isTerraform, isCloudFormation].filter(Boolean).length > 1
+    ) {
       return "ambiguous";
     } else if (isCdk) {
       return "cdk";
     } else if (isTerraform) {
       return "terraform";
+    } else if (isCloudFormation) {
+      return "cloudformation";
     } else {
       return "unknown";
     }
