@@ -1,0 +1,31 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "name": "io.github.localstack/localstack-mcp-server",
+  "description": "A LocalStack MCP Server providing essential tools for local cloud development & testing",
+  "status": "active",
+  "repository": {
+    "url": "https://github.com/localstack/localstack-mcp-server",
+    "source": "github"
+  },
+  "version": "0.1.5",
+  "packages": [
+    {
+      "registry_type": "npm",
+      "registry_base_url": "https://registry.npmjs.org",
+      "identifier": "@localstack/localstack-mcp-server",
+      "version": "0.1.5",
+      "transport": {
+        "type": "stdio"
+      },
+      "environment_variables": [
+        {
+          "description": "LocalStack Auth Token (optional for Pro features)",
+          "is_required": false,
+          "format": "string",
+          "is_secret": true,
+          "name": "LOCALSTACK_AUTH_TOKEN"
+        }
+      ]
+    }
+  ]
+}
