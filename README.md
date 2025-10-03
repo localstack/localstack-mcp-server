@@ -1,6 +1,6 @@
 # LocalStack MCP Server
 
-> [!NOTE]
+> [!IMPORTANT]
 > The LocalStack MCP server is currently available as an experimental public preview. For questions, issues or feedback, please utilize the [LocalStack Community slack](https://slack.localstack.cloud) or submit a [GitHub Issue](https://github.com/localstack/localstack-mcp-server/issues)
 
 A [Model Context Protocol](https://modelcontextprotocol.io/docs/getting-started/intro) server that provides tools to manage your LocalStack container and other assorted related tasks, to simplify local cloud development and testing. The LocalStack MCP Server provides simplified integration between Model Context Protocol-compatible apps and your local AWS development environment, enabling secure and direct communication with LocalStack's assortment of various features.
