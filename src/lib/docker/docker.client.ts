@@ -10,23 +10,34 @@ export class DockerApiClient {
   private docker: any;
 
   constructor() {
-    const DockerCtor = (eval("require") as any)("dockerode");
-    this.docker = new DockerCtor();
+    // Dynamic import to avoid bundling native modules
+    this.docker = null;
+  }
+
+  private async getDocker(): Promise<any> {
+    if (!this.docker) {
+      // Use string-based import to avoid webpack static analysis
+      const dockerodeModule = await import(/* webpackIgnore: true */ "dockerode");
+      const Docker = dockerodeModule.default;
+      this.docker = new Docker();
+    }
+    return this.docker;
   }
 
   async findLocalStackContainer(): Promise<string> {
-    const running = (await (this.docker.listContainers as any)({
+    const docker = await this.getDocker();
+    const running = await docker.listContainers({
       filters: { status: ["running"] },
-    })) as Array<{ Id: string; Names?: string[] }>;
+    });
 
-    const match = (running || []).find((c) =>
-      (c.Names || []).some((n) => {
+    const match = (running || []).find((c: any) =>
+      (c.Names || []).some((n: any) => {
         const name = (n || "").startsWith("/") ? n.slice(1) : n;
         return name === "localstack-main";
       })
     );
 
-    if (match) return match.Id as string;
+    if (match) return match.Id;
 
     throw new Error("Could not find a running LocalStack container named 'localstack-main'.");
   }
@@ -36,7 +47,8 @@ export class DockerApiClient {
     command: string[],
     stdin?: string
   ): Promise<ContainerExecResult> {
-    const container = this.docker.getContainer(containerId);
+    const docker = await this.getDocker();
+    const container = docker.getContainer(containerId);
 
     const exec = await container.exec({
       Cmd: command,
@@ -46,7 +58,7 @@ export class DockerApiClient {
     });
 
     const stream: NodeJS.ReadWriteStream = await new Promise((resolve, reject) => {
-      exec.start({ hijack: true, stdin: Boolean(stdin) } as any, (err: any, stream: any) => {
+      exec.start({ hijack: true, stdin: Boolean(stdin) }, (err: any, stream: any) => {
         if (err) return reject(err);
         resolve(stream as NodeJS.ReadWriteStream);
       });
@@ -67,7 +79,7 @@ export class DockerApiClient {
 
     await new Promise<void>((resolve, reject) => {
       // demux combined docker stream into stdout/stderr
-      (this.docker as any).modem.demuxStream(stream as any, stdoutStream, stderrStream);
+      (docker as any).modem.demuxStream(stream, stdoutStream, stderrStream);
       stream.on("end", () => resolve());
       stream.on("error", (e) => reject(e));
     });
