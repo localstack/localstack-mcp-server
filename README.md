@@ -5,6 +5,10 @@
 
 A [Model Context Protocol](https://modelcontextprotocol.io/docs/getting-started/intro) (MCP) server that provides tools to manage and interact with your [LocalStack for AWS](https://www.localstack.cloud/localstack-for-aws) container for simplified local cloud development and testing. The LocalStack MCP Server provides simplified integration between MCP-compatible apps and your local LocalStack for AWS development environment, enabling secure and direct communication with LocalStack's emulated services and additional developer experience features.
 
+<a href="https://glama.ai/mcp/servers/@localstack/localstack-mcp-server">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@localstack/localstack-mcp-server/badge" alt="LocalStack Server MCP server" />
+</a>
+
 This server eliminates custom scripts and manual LocalStack management with direct access to:
 
 - Start, stop, restart, and monitor LocalStack for AWS container status with built-in auth.
