@@ -9,6 +9,7 @@ This server eliminates custom scripts and manual LocalStack management with dire
 - Parse logs, catch errors, and auto-generate IAM policies from violations.
 - Inject chaos faults and network effects into LocalStack to test system resilience.
 - Manage LocalStack state snapshots via Cloud Pods for development workflows.
+- Search LocalStack documentation for guides, API references, and configuration details.
 - Connect AI assistants and dev tools for automated cloud testing workflows.
 
 ## Tools Reference
@@ -24,6 +25,7 @@ This server provides your AI with dedicated tools for managing your LocalStack e
 | [`localstack-chaos-injector`](./src/tools/localstack-chaos-injector.ts)           | Injects and manages chaos engineering faults for system resilience testing | - Inject, add, remove, and clear service fault rules<br/>- Configure network latency effects<br/>- Comprehensive fault targeting by service, region, and operation<br/>- Built-in workflow guidance for chaos experiments                                                                                                                                                 |
 | [`localstack-cloud-pods`](./src/tools/localstack-cloud-pods.ts)                   | Manages LocalStack state snapshots for development workflows               | - Save current state as Cloud Pods<br/>- Load previously saved Cloud Pods instantly<br/>- Delete Cloud Pods or reset to a clean state<br/>- Requires a valid LocalStack Auth Token                                                                                                                                                                                        |
 | [`localstack-aws-client`](./src/tools/localstack-aws-client.ts)                   | Runs AWS CLI commands inside the LocalStack container                      | - Executes commands via `awslocal` inside the running container<br/>- Sanitizes commands to block shell chaining<br/>- Auto-detects LocalStack coverage errors and links to docs                                                                                                                                                                                            |
+| [`localstack-docs`](./src/tools/localstack-docs.ts)                               | Searches LocalStack documentation through CrawlChat                        | - Queries LocalStack docs through a public CrawlChat collection<br/>- Returns focused snippets with source links only<br/>- Helps answer coverage, configuration, and setup questions without requiring LocalStack runtime                                                                                                                                                |
 
 ## Installation
 
