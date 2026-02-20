@@ -7,6 +7,7 @@ export enum ProFeature {
   IAM_ENFORCEMENT = "localstack.platform.plugin/iam-enforcement",
   CLOUD_PODS = "localstack.platform.plugin/pods",
   CHAOS_ENGINEERING = "localstack.platform.plugin/chaos",
+  EXTENSIONS = "localstack.platform.plugin/extensions",
 }
 
 export interface LicenseCheckResult {

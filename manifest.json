@@ -46,6 +46,10 @@
     {
       "name": "localstack-cloud-pods",
       "description": "Manages LocalStack state snapshots (Cloud Pods) for saving, loading, deleting, and resetting"
+    },
+    {
+      "name": "localstack-extensions",
+      "description": "Install, uninstall, list, and discover LocalStack Extensions from the marketplace"
     }
   ],
   "prompts": [
@@ -116,6 +120,28 @@
       "description": "Manage LocalStack state snapshots (Cloud Pods) for saving, loading, deleting, and resetting",
       "arguments": ["action", "pod_name"],
       "text": "Please ${arguments.action} Cloud Pod in the LocalStack container with the pod name ${arguments.pod_name}."
+    },
+    {
+      "name": "extensions-list",
+      "description": "List installed LocalStack extensions",
+      "text": "List all LocalStack extensions currently installed on my machine."
+    },
+    {
+      "name": "extensions-available",
+      "description": "Browse available LocalStack extensions",
+      "text": "Show me the available extensions in the LocalStack marketplace."
+    },
+    {
+      "name": "extensions-install",
+      "description": "Install a LocalStack extension",
+      "arguments": ["extension_name"],
+      "text": "Install the LocalStack extension ${arguments.extension_name}."
+    },
+    {
+      "name": "extensions-uninstall",
+      "description": "Uninstall a LocalStack extension",
+      "arguments": ["extension_name"],
+      "text": "Uninstall the LocalStack extension ${arguments.extension_name}."
     }
   ],
   "keywords": ["localstack", "aws", "cloud", "cloud-dev", "cloud-testing"],
