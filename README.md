@@ -9,6 +9,7 @@ This server eliminates custom scripts and manual LocalStack management with dire
 
 - Start, stop, restart, and monitor LocalStack for AWS container status with built-in auth.
 - Deploy CDK and Terraform projects with automatic configuration detection.
+- Search LocalStack documentation for guides, API references, and configuration details.
 - Parse logs, catch errors, and auto-generate IAM policies from violations. (requires active license)
 - Inject chaos faults and network effects into LocalStack to test system resilience. (requires active license)
 - Manage LocalStack state snapshots via [Cloud Pods](https://docs.localstack.cloud/aws/capabilities/state-management/cloud-pods/) for development workflows. (requires active license)
@@ -29,6 +30,7 @@ This server provides your AI with dedicated tools for managing your LocalStack e
 | [`localstack-cloud-pods`](./src/tools/localstack-cloud-pods.ts)                   | Manages LocalStack state snapshots for development workflows               | - Save current state as Cloud Pods<br/>- Load previously saved Cloud Pods instantly<br/>- Delete Cloud Pods or reset to a clean state<br/>- Requires a valid LocalStack Auth Token                                                                                                                                                                                        |
 | [`localstack-extensions`](./src/tools/localstack-extensions.ts)                   | Installs, uninstalls, lists, and discovers LocalStack Extensions           | - Manage installed extensions via CLI actions (`list`, `install`, `uninstall`)<br/>- Browse the LocalStack Extensions marketplace (`available`)<br/>- Requires a valid LocalStack Auth Token support                                                                                                                        |
 | [`localstack-aws-client`](./src/tools/localstack-aws-client.ts)                   | Runs AWS CLI commands inside the LocalStack for AWS container              | - Executes commands via `awslocal` inside the running container<br/>- Sanitizes commands to block shell chaining<br/>- Auto-detects LocalStack coverage errors and links to docs                                                                                                                                                                                            |
+| [`localstack-docs`](./src/tools/localstack-docs.ts)                               | Searches LocalStack documentation through CrawlChat                        | - Queries LocalStack docs through a public CrawlChat collection<br/>- Returns focused snippets with source links only<br/>- Helps answer coverage, configuration, and setup questions without requiring LocalStack runtime                                                                                                                                                |
 
 ## Installation
 

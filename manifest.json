@@ -50,6 +50,10 @@
     {
       "name": "localstack-extensions",
       "description": "Install, uninstall, list, and discover LocalStack Extensions from the marketplace"
+    },
+    {
+      "name": "localstack-docs",
+      "description": "Search the LocalStack documentation to find guides, API references, and configuration details"
     }
   ],
   "prompts": [
@@ -142,6 +146,12 @@
       "description": "Uninstall a LocalStack extension",
       "arguments": ["extension_name"],
       "text": "Uninstall the LocalStack extension ${arguments.extension_name}."
+    },
+    {
+      "name": "localstack-docs-search",
+      "description": "Search LocalStack documentation",
+      "arguments": ["query"],
+      "text": "Search the LocalStack documentation for: ${arguments.query}"
     }
   ],
   "keywords": ["localstack", "aws", "cloud", "cloud-dev", "cloud-testing"],
