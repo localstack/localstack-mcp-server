@@ -46,6 +46,10 @@
     {
       "name": "localstack-cloud-pods",
       "description": "Manages LocalStack state snapshots (Cloud Pods) for saving, loading, deleting, and resetting"
+    },
+    {
+      "name": "localstack-docs",
+      "description": "Search the LocalStack documentation to find guides, API references, and configuration details"
     }
   ],
   "prompts": [
@@ -116,6 +120,12 @@
       "description": "Manage LocalStack state snapshots (Cloud Pods) for saving, loading, deleting, and resetting",
       "arguments": ["action", "pod_name"],
       "text": "Please ${arguments.action} Cloud Pod in the LocalStack container with the pod name ${arguments.pod_name}."
+    },
+    {
+      "name": "localstack-docs-search",
+      "description": "Search LocalStack documentation",
+      "arguments": ["query"],
+      "text": "Search the LocalStack documentation for: ${arguments.query}"
     }
   ],
   "keywords": ["localstack", "aws", "cloud", "cloud-dev", "cloud-testing"],
