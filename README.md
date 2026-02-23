@@ -5,10 +5,6 @@
 
 A [Model Context Protocol](https://modelcontextprotocol.io/docs/getting-started/intro) (MCP) server that provides tools to manage and interact with your [LocalStack for AWS](https://www.localstack.cloud/localstack-for-aws) container for simplified local cloud development and testing. The LocalStack MCP Server provides simplified integration between MCP-compatible apps and your local LocalStack for AWS development environment, enabling secure and direct communication with LocalStack's emulated services and additional developer experience features.
 
-<a href="https://glama.ai/mcp/servers/@localstack/localstack-mcp-server">
-  <img width="380" height="200" src="https://glama.ai/mcp/servers/@localstack/localstack-mcp-server/badge" alt="LocalStack Server MCP server" />
-</a>
-
 This server eliminates custom scripts and manual LocalStack management with direct access to:
 
 - Start, stop, restart, and monitor LocalStack for AWS container status with built-in auth.
@@ -17,6 +13,7 @@ This server eliminates custom scripts and manual LocalStack management with dire
 - Parse logs, catch errors, and auto-generate IAM policies from violations. (requires active license)
 - Inject chaos faults and network effects into LocalStack to test system resilience. (requires active license)
 - Manage LocalStack state snapshots via [Cloud Pods](https://docs.localstack.cloud/aws/capabilities/state-management/cloud-pods/) for development workflows. (requires active license)
+- Install, remove, list, and discover [LocalStack Extensions](https://docs.localstack.cloud/aws/capabilities/extensions/) from the marketplace. (requires active license)
 - Connect AI assistants and dev tools for automated cloud testing workflows.
 
 ## Tools Reference
@@ -31,7 +28,8 @@ This server provides your AI with dedicated tools for managing your LocalStack e
 | [`localstack-iam-policy-analyzer`](./src/tools/localstack-iam-policy-analyzer.ts) | Handles IAM policy management and violation remediation                    | - Set IAM enforcement levels including `enforced`, `soft`, and `disabled` modes<br/>- Search logs for permission-related violations<br/>- Generate IAM policies automatically from detected access failures<br/>- Requires a valid LocalStack Auth Token                                                                                                                  |
 | [`localstack-chaos-injector`](./src/tools/localstack-chaos-injector.ts)           | Injects and manages chaos experiment faults for system resilience testing  | - Inject, add, remove, and clear service fault rules<br/>- Configure network latency effects<br/>- Comprehensive fault targeting by service, region, and operation<br/>- Built-in workflow guidance for chaos experiments<br/>- Requires a valid LocalStack Auth Token                                                                                                                                                     |
 | [`localstack-cloud-pods`](./src/tools/localstack-cloud-pods.ts)                   | Manages LocalStack state snapshots for development workflows               | - Save current state as Cloud Pods<br/>- Load previously saved Cloud Pods instantly<br/>- Delete Cloud Pods or reset to a clean state<br/>- Requires a valid LocalStack Auth Token                                                                                                                                                                                        |
-| [`localstack-aws-client`](./src/tools/localstack-aws-client.ts)                   | Runs AWS CLI commands inside the LocalStack container                      | - Executes commands via `awslocal` inside the running container<br/>- Sanitizes commands to block shell chaining<br/>- Auto-detects LocalStack coverage errors and links to docs                                                                                                                                                                                            |
+| [`localstack-extensions`](./src/tools/localstack-extensions.ts)                   | Installs, uninstalls, lists, and discovers LocalStack Extensions           | - Manage installed extensions via CLI actions (`list`, `install`, `uninstall`)<br/>- Browse the LocalStack Extensions marketplace (`available`)<br/>- Requires a valid LocalStack Auth Token support                                                                                                                        |
+| [`localstack-aws-client`](./src/tools/localstack-aws-client.ts)                   | Runs AWS CLI commands inside the LocalStack for AWS container              | - Executes commands via `awslocal` inside the running container<br/>- Sanitizes commands to block shell chaining<br/>- Auto-detects LocalStack coverage errors and links to docs                                                                                                                                                                                            |
 | [`localstack-docs`](./src/tools/localstack-docs.ts)                               | Searches LocalStack documentation through CrawlChat                        | - Queries LocalStack docs through a public CrawlChat collection<br/>- Returns focused snippets with source links only<br/>- Helps answer coverage, configuration, and setup questions without requiring LocalStack runtime                                                                                                                                                |
 
 ## Installation
@@ -45,7 +43,7 @@ For other MCP Clients, refer to the [configuration guide](#configuration).
 
 - [LocalStack CLI](https://docs.localstack.cloud/getting-started/installation/#localstack-cli) and Docker installed in your system path
 - [`cdklocal`](https://github.com/localstack/aws-cdk-local) or [`tflocal`](https://github.com/localstack/terraform-local) installed in your system path for running infrastructure deployment tooling
-- A [valid LocalStack Auth Token](https://docs.localstack.cloud/aws/getting-started/auth-token/) to enable Pro services IAM Policy Analyzer, Cloud Pods, and Chaos Injector tools (**optional**)
+- A [valid LocalStack Auth Token](https://docs.localstack.cloud/aws/getting-started/auth-token/) to enable Pro services, IAM Policy Analyzer, Cloud Pods, Chaos Injector, and Extensions tools (**optional**)
 - [Node.js v22.x](https://nodejs.org/en/download/) installed in your system path
 
 ### Configuration
@@ -110,3 +108,7 @@ Built on the [XMCP](https://github.com/basementstudio/xmcp) framework, you can a
 ## License
 
 [Apache License 2.0](./LICENSE)
+
+<a href="https://glama.ai/mcp/servers/@localstack/localstack-mcp-server">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@localstack/localstack-mcp-server/badge" alt="LocalStack Server MCP server" />
+</a>
