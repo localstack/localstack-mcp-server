@@ -24,4 +24,11 @@ export class ResponseBuilder {
       content: [{ type: "text", text: content }],
     };
   }
+
+  public static json(data: any): ToolResponse {
+    const jsonString = JSON.stringify(data, null, 2);
+    return {
+      content: [{ type: "text", text: `\`\`\`json\n${jsonString}\n\`\`\`` }],
+    };
+  }
 }
