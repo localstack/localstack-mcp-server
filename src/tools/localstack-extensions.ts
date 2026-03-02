@@ -7,6 +7,7 @@ import {
   requireLocalStackCli,
   requireLocalStackRunning,
   requireProFeature,
+  requireAuthToken,
 } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { ProFeature } from "../lib/localstack/license-checker";
@@ -50,9 +51,6 @@ interface MarketplaceExtension {
   version?: string;
 }
 
-const AUTH_TOKEN_REQUIRED_MESSAGE =
-  "LOCALSTACK_AUTH_TOKEN is not set in your environment. LocalStack Extensions require a valid Auth Token. Please set it and try again.";
-
 export default async function localstackExtensions({
   action,
   name,
@@ -81,13 +79,6 @@ export default async function localstackExtensions({
   }
 }
 
-function requireAuthTokenForCli() {
-  if (!process.env.LOCALSTACK_AUTH_TOKEN) {
-    return ResponseBuilder.error("Auth Token Required", AUTH_TOKEN_REQUIRED_MESSAGE);
-  }
-  return null;
-}
-
 function cleanOutput(stdout: string, stderr: string) {
   return {
     stdout: stripAnsiCodes(stdout || "").trim(),
@@ -100,7 +91,7 @@ function combineOutput(stdout: string, stderr: string): string {
 }
 
 async function handleList() {
-  const authError = requireAuthTokenForCli();
+  const authError = requireAuthToken();
   if (authError) return authError;
 
   const cmd = await runCommand("localstack", ["extensions", "list"], {
@@ -128,7 +119,7 @@ async function handleList() {
 }
 
 async function handleInstall(name?: string, source?: string) {
-  const authError = requireAuthTokenForCli();
+  const authError = requireAuthToken();
   if (authError) return authError;
 
   const hasName = !!name;
@@ -198,7 +189,7 @@ async function handleInstall(name?: string, source?: string) {
 }
 
 async function handleUninstall(name?: string) {
-  const authError = requireAuthTokenForCli();
+  const authError = requireAuthToken();
   if (authError) return authError;
 
   if (!name) {

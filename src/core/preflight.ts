@@ -16,6 +16,16 @@ export const requireProFeature = async (feature: ProFeature): Promise<ToolRespon
     : null;
 };
 
+export const requireAuthToken = (): ToolResponse | null => {
+  if (!process.env.LOCALSTACK_AUTH_TOKEN) {
+    return ResponseBuilder.error(
+      "Auth Token Required",
+      "LOCALSTACK_AUTH_TOKEN is required for this operation."
+    );
+  }
+  return null;
+};
+
 export const runPreflights = async (
   checks: Array<Promise<ToolResponse | null>>
 ): Promise<ToolResponse | null> => {
