@@ -14,21 +14,43 @@ export class DockerApiClient {
     this.docker = new DockerCtor();
   }
 
+  private normalizeContainerName(name?: string): string {
+    if (!name) return "";
+    return name.startsWith("/") ? name.slice(1) : name;
+  }
+
+  private matchesConfiguredContainerName(
+    container: { Names?: string[] },
+    configuredName: string
+  ): boolean {
+    return (container.Names || []).some(
+      (n) => this.normalizeContainerName(n) === configuredName
+    );
+  }
+
   async findLocalStackContainer(): Promise<string> {
     const running = (await (this.docker.listContainers as any)({
       filters: { status: ["running"] },
-    })) as Array<{ Id: string; Names?: string[] }>;
+    })) as Array<{
+      Id: string;
+      Names?: string[];
+    }>;
 
-    const match = (running || []).find((c) =>
-      (c.Names || []).some((n) => {
-        const name = (n || "").startsWith("/") ? n.slice(1) : n;
-        return name === "localstack-main";
-      })
+    const configuredName = (
+      process.env.MAIN_CONTAINER_NAME ||
+      process.env.LOCALSTACK_MAIN_CONTAINER_NAME ||
+      "localstack-main"
+    ).trim();
+
+    const byConfiguredName = (running || []).find((c) =>
+      this.matchesConfiguredContainerName(c, configuredName)
     );
+    if (byConfiguredName) return byConfiguredName.Id as string;
 
-    if (match) return match.Id as string;
-
-    throw new Error("Could not find a running LocalStack container named 'localstack-main'.");
+    throw new Error(
+      `Could not find a running LocalStack container named "${configuredName}". ` +
+        `Set MAIN_CONTAINER_NAME to your container name if it is custom.`
+    );
   }
 
   async executeInContainer(
