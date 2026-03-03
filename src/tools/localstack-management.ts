@@ -1,15 +1,25 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
-import { spawn } from "child_process";
-import { getLocalStackStatus } from "../lib/localstack/localstack.utils";
+import {
+  getLocalStackStatus,
+  getSnowflakeEmulatorStatus,
+  startRuntime,
+} from "../lib/localstack/localstack.utils";
 import { runCommand } from "../core/command-runner";
-import { runPreflights, requireLocalStackCli } from "../core/preflight";
+import { runPreflights, requireLocalStackCli, requireProFeature, requireAuthToken } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
+import { ProFeature } from "../lib/localstack/license-checker";
 
 export const schema = {
   action: z
     .enum(["start", "stop", "restart", "status"])
     .describe("The LocalStack management action to perform"),
+  service: z
+    .enum(["aws", "snowflake"])
+    .default("aws")
+    .describe(
+      "The LocalStack stack/service to manage. Use 'aws' for the default AWS emulator, or 'snowflake' for the Snowflake emulator."
+    ),
   envVars: z
     .record(z.string())
     .optional()
@@ -29,20 +39,31 @@ export const metadata: ToolMetadata = {
 
 export default async function localstackManagement({
   action,
+  service,
   envVars,
 }: InferSchema<typeof schema>) {
-  const preflightError = await runPreflights([requireLocalStackCli()]);
+  const checks = [requireLocalStackCli()];
+
+  if (service === "snowflake") {
+    const authTokenError = requireAuthToken();
+    if (authTokenError) return authTokenError;
+
+    // `start` can run when no LocalStack runtime is currently up; validate feature after startup.
+    if (action !== "start") checks.push(requireProFeature(ProFeature.SNOWFLAKE));
+  }
+
+  const preflightError = await runPreflights(checks);
   if (preflightError) return preflightError;
 
   switch (action) {
     case "start":
-      return await handleStart({ envVars });
+      return await handleStart({ envVars, service });
     case "stop":
       return await handleStop();
     case "restart":
       return await handleRestart();
     case "status":
-      return await handleStatus();
+      return await handleStatus({ service });
     default:
       return ResponseBuilder.error(
         "Unknown action",
@@ -52,73 +73,44 @@ export default async function localstackManagement({
 }
 
 // Handle start action
-async function handleStart({ envVars }: { envVars?: Record<string, string> }) {
-  const statusCheck = await getLocalStackStatus();
-  if (statusCheck.isRunning) {
-    return ResponseBuilder.markdown(
-      "⚠️  LocalStack is already running. Use 'restart' if you want to apply new configuration."
-    );
+async function handleStart({
+  envVars,
+  service,
+}: {
+  envVars?: Record<string, string>;
+  service: "aws" | "snowflake";
+}) {
+  if (service === "snowflake") {
+    return await handleSnowflakeStart({ envVars });
   }
 
-  const environment = { ...process.env, ...(envVars || {}) } as Record<string, string>;
-  if (process.env.LOCALSTACK_AUTH_TOKEN) {
-    environment.LOCALSTACK_AUTH_TOKEN = process.env.LOCALSTACK_AUTH_TOKEN;
-  }
+  return await startRuntime({
+    startArgs: ["start"],
+    getStatus: getLocalStackStatus,
+    processLabel: "LocalStack",
+    alreadyRunningMessage:
+      "⚠️  LocalStack is already running. Use 'restart' if you want to apply new configuration.",
+    successTitle: "🚀 LocalStack started successfully!",
+    statusHeading: "Status",
+    timeoutMessage:
+      "❌ LocalStack start timed out after 120 seconds. It may still be starting in the background.",
+    envVars,
+  });
+}
 
-  return new Promise((resolve) => {
-    const child = spawn("localstack", ["start"], {
-      env: environment,
-      stdio: ["ignore", "ignore", "pipe"],
-    });
-
-    let stderr = "";
-    child.stderr.on("data", (data) => {
-      stderr += data.toString();
-    });
-
-    let earlyExit = false;
-    let poll: NodeJS.Timeout;
-    child.on("error", (err) => {
-      earlyExit = true;
-      if (poll) clearInterval(poll);
-      resolve(ResponseBuilder.markdown(`❌ Failed to start LocalStack process: ${err.message}`));
-    });
-
-    child.on("close", (code) => {
-      if (earlyExit) return;
-      if (poll) clearInterval(poll);
-      if (code !== 0) {
-        resolve(
-          ResponseBuilder.markdown(
-            `❌ LocalStack process exited unexpectedly with code ${code}.\n\nStderr:\n${stderr}`
-          )
-        );
-      }
-    });
-
-    const pollInterval = 5000;
-    const maxWaitTime = 120000;
-    let timeWaited = 0;
-
-    poll = setInterval(async () => {
-      timeWaited += pollInterval;
-      const status = await getLocalStackStatus();
-      if (status.isReady || status.isRunning) {
-        clearInterval(poll);
-        let resultMessage = "🚀 LocalStack started successfully!\n\n";
-        if (envVars)
-          resultMessage += `✅ Custom environment variables applied: ${Object.keys(envVars).join(", ")}\n`;
-        resultMessage += `\n**Status:**\n${status.statusOutput}`;
-        resolve(ResponseBuilder.markdown(resultMessage));
-      } else if (timeWaited >= maxWaitTime) {
-        clearInterval(poll);
-        resolve(
-          ResponseBuilder.markdown(
-            `❌ LocalStack start timed out after ${maxWaitTime / 1000} seconds. It may still be starting in the background.`
-          )
-        );
-      }
-    }, pollInterval);
+async function handleSnowflakeStart({ envVars }: { envVars?: Record<string, string> }) {
+  return await startRuntime({
+    startArgs: ["start", "--stack", "snowflake"],
+    getStatus: getSnowflakeEmulatorStatus,
+    processLabel: "Snowflake emulator",
+    alreadyRunningMessage:
+      "⚠️  Snowflake emulator is already running. Use 'restart' if you want to apply new configuration.",
+    successTitle: "🚀 Snowflake emulator started successfully!",
+    statusHeading: "Health check",
+    timeoutMessage:
+      '❌ Snowflake emulator start timed out after 120 seconds. Health check endpoint did not return {"success": true}.',
+    envVars,
+    onReady: async () => await requireProFeature(ProFeature.SNOWFLAKE),
   });
 }
 
@@ -130,16 +122,16 @@ async function handleStop() {
   if (cmd.stderr.trim()) result += `\nMessages:\n${cmd.stderr}`;
 
   const statusResult = await getLocalStackStatus();
-  if (!statusResult.isRunning) {
+
+  if (!statusResult.isRunning || statusResult.errorMessage) {
     result += "\n\n✅ LocalStack has been stopped successfully.";
-  } else if (statusResult.errorMessage) {
-    result += "\n\n✅ LocalStack appears to be stopped.";
   } else {
     result += "\n\n⚠️  LocalStack may still be running. Check the status manually if needed.";
   }
 
   if (cmd.error) {
-    result = `❌ Failed to stop LocalStack: ${cmd.error.message}\n\nThis could happen if:\n- LocalStack is not currently running\n- There was an error executing the stop command\n- Permission issues\n\nYou can try checking the LocalStack status first to see if it's running.`;
+    result =
+      `❌ Failed to stop LocalStack: ${cmd.error.message}\n\nThis could happen if:\n- LocalStack is not currently running\n- There was an error executing the stop command\n- Permission issues\n\nYou can try checking the LocalStack status first to see if it's running.`;
   }
 
   return ResponseBuilder.markdown(result);
@@ -157,8 +149,7 @@ async function handleRestart() {
   if (statusResult.statusOutput) {
     result += `\nStatus after restart:\n${statusResult.statusOutput}`;
     if (statusResult.isRunning) {
-      result +=
-        "\n\n✅ LocalStack has been restarted successfully and is now running with a fresh state.";
+      result += "\n\n✅ LocalStack has been restarted successfully and is now running with a fresh state.";
     } else {
       result +=
         "\n\n⚠️  LocalStack restart completed but may still be starting up. Check status again in a few moments.";
@@ -176,20 +167,36 @@ async function handleRestart() {
 }
 
 // Handle status action
-async function handleStatus() {
+async function handleStatus({ service }: { service: "aws" | "snowflake" }) {
   const statusResult = await getLocalStackStatus();
 
   if (statusResult.statusOutput) {
     let result = "📊 LocalStack Status:\n\n";
     result += statusResult.statusOutput;
 
-    // Add helpful information based on the status
-    if (statusResult.isRunning) {
-      result += "\n\n✅ LocalStack is currently running and ready to accept requests.";
-    } else {
+    if (!statusResult.isRunning) {
       result += "\n\n⚠️  LocalStack is not currently running. Use the start action to start it.";
+      return ResponseBuilder.markdown(result);
     }
 
+    if (service === "snowflake") {
+      const snowflakeStatus = await getSnowflakeEmulatorStatus();
+
+      if (snowflakeStatus.isReady || snowflakeStatus.isRunning) {
+        result += "\n\n✅ LocalStack is running and Snowflake emulator health check passed.";
+      } else {
+        const diagnostics = [snowflakeStatus.statusOutput, snowflakeStatus.errorMessage]
+          .filter(Boolean)
+          .join(" | ");
+        result +=
+          "\n\n⚠️  LocalStack is running, but Snowflake emulator health check did not pass." +
+          (diagnostics ? ` (${diagnostics})` : "");
+      }
+      return ResponseBuilder.markdown(result);
+    }
+
+    // Default aws service status check
+    result += "\n\n✅ LocalStack is currently running and ready to accept requests.";
     return ResponseBuilder.markdown(result);
   } else {
     const result = `❌ ${statusResult.errorMessage}
