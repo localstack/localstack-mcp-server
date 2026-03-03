@@ -57,6 +57,8 @@ describe("DockerApiClient", () => {
     mocks.getContainer.mockImplementation(() => ({ exec: mocks.exec }));
     mocks.exec.mockImplementation(async () => ({ start: mocks.start, inspect: mocks.execInspect }));
     mocks.__state.demuxTarget = "stdout";
+    delete process.env.MAIN_CONTAINER_NAME;
+    delete process.env.LOCALSTACK_MAIN_CONTAINER_NAME;
   });
 
   test("findLocalStackContainer throws when none found", async () => {
@@ -75,6 +77,29 @@ describe("DockerApiClient", () => {
 
     const client = new DockerApiClient();
     await expect(client.findLocalStackContainer()).resolves.toBe("abc123");
+  });
+
+  test("findLocalStackContainer matches MAIN_CONTAINER_NAME when configured", async () => {
+    process.env.MAIN_CONTAINER_NAME = "my-custom-localstack";
+
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      { Id: "not-this", Names: ["/localstack-main"] },
+      { Id: "xyz999", Names: ["/my-custom-localstack"] },
+    ]);
+
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).resolves.toBe("xyz999");
+  });
+
+  test("findLocalStackContainer throws when only compose-prefixed name exists without config", async () => {
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([{ Id: "compose123", Names: ["/project-localstack-1"] }]);
+
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).rejects.toThrow(
+      /Could not find a running LocalStack container named "localstack-main"/i
+    );
   });
 
   test("executeInContainer returns stdout on success", async () => {
