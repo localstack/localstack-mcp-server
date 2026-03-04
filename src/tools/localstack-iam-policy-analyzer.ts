@@ -12,6 +12,7 @@ import {
 } from "../lib/iam/iam-policy.logic";
 import { runPreflights, requireLocalStackCli, requireProFeature } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
+import { withToolAnalytics } from "../core/analytics";
 
 export const schema = {
   action: z
@@ -48,36 +49,38 @@ export default async function localstackIamPolicyAnalyzer({
   action,
   mode,
 }: InferSchema<typeof schema>) {
-  const preflightError = await runPreflights([
-    requireLocalStackCli(),
-    requireProFeature(ProFeature.IAM_ENFORCEMENT),
-  ]);
-  if (preflightError) return preflightError;
+  return withToolAnalytics("localstack-iam-policy-analyzer", { action, mode }, async () => {
+    const preflightError = await runPreflights([
+      requireLocalStackCli(),
+      requireProFeature(ProFeature.IAM_ENFORCEMENT),
+    ]);
+    if (preflightError) return preflightError;
 
-  switch (action) {
-    case "get-status":
-      return await handleGetStatus();
-    case "set-mode":
-      if (!mode) {
-        return ResponseBuilder.error(
-          "Missing Required Parameter",
-          `The 'mode' parameter is required when using 'set-mode' action.
+    switch (action) {
+      case "get-status":
+        return await handleGetStatus();
+      case "set-mode":
+        if (!mode) {
+          return ResponseBuilder.error(
+            "Missing Required Parameter",
+            `The 'mode' parameter is required when using 'set-mode' action.
 
 Valid modes:
 - **ENFORCED**: Strict IAM enforcement (blocks unauthorized actions)
 - **SOFT_MODE**: Log IAM violations without blocking
 - **DISABLED**: Turn off IAM enforcement completely`
+          );
+        }
+        return await handleSetMode(mode);
+      case "analyze-policies":
+        return await handleAnalyzePolicies();
+      default:
+        return ResponseBuilder.error(
+          "Unknown action",
+          `Unknown action: ${action}. Supported actions: get-status, set-mode, analyze-policies`
         );
-      }
-      return await handleSetMode(mode);
-    case "analyze-policies":
-      return await handleAnalyzePolicies();
-    default:
-      return ResponseBuilder.error(
-        "Unknown action",
-        `Unknown action: ${action}. Supported actions: get-status, set-mode, analyze-policies`
-      );
-  }
+    }
+  });
 }
 
 async function handleGetStatus() {
