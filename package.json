@@ -16,7 +16,7 @@
   "dependencies": {
     "dockerode": "^4.0.7",
     "xmcp": "0.6.4",
-    "zod": "^3.25.76"
+    "zod": "^4"
   },
   "devDependencies": {
     "@types/dockerode": "^3.3.43",

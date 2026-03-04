@@ -38,7 +38,7 @@ export const schema = {
       "The required path to the project directory containing your infrastructure-as-code files."
     ),
   variables: z
-    .record(z.string())
+    .record(z.string(), z.string())
     .optional()
     .describe(
       "Key-value pairs for parameterization. Used for Terraform variables (-var) or CDK context (-c)."
