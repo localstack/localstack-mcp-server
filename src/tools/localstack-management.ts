@@ -21,7 +21,7 @@ export const schema = {
       "The LocalStack stack/service to manage. Use 'aws' for the default AWS emulator, or 'snowflake' for the Snowflake emulator."
     ),
   envVars: z
-    .record(z.string())
+    .record(z.string(), z.string())
     .optional()
     .describe("Additional environment variables as key-value pairs (only for start action)"),
 };
