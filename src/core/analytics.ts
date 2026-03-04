@@ -12,10 +12,41 @@ const DEFAULT_POSTHOG_API_KEY = "phc_avw42FXoCcfAZUS67wftg93WOBeftfJuAhGHMAubGDB
 const DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com";
 const ANALYTICS_ID_DIR = path.join(os.homedir(), ".localstack", "mcp");
 const ANALYTICS_ID_FILE = path.join(ANALYTICS_ID_DIR, "analytics-id");
+const MAX_STRING_LENGTH = 200;
+const SHUTDOWN_TIMEOUT_MS = 1000;
+
+export const TOOL_ARG_ALLOWLIST: Record<string, string[]> = {
+  "localstack-aws-client": ["command"],
+  "localstack-chaos-injector": ["action", "rules_count", "latency_ms"],
+  "localstack-cloud-pods": ["action", "pod_name"],
+  "localstack-deployer": ["action", "projectType", "directory", "stackName", "templatePath"],
+  "localstack-docs": ["query", "limit"],
+  "localstack-extensions": ["action", "name", "source"],
+  "localstack-iam-policy-analyzer": ["action", "mode"],
+  "localstack-logs-analysis": ["analysisType", "lines", "service", "operation", "filter"],
+  "localstack-management": ["action", "service", "envVars"],
+};
 
 let posthogClient: PostHog | null = null;
 let shutdownHooksRegistered = false;
 const distinctId = getDistinctId();
+
+function envVarIsTruthy(value: string | undefined): boolean {
+  if (!value) return false;
+  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+function envVarIsFalsy(value: string | undefined): boolean {
+  if (!value) return false;
+  return ["0", "false", "no", "off"].includes(value.toLowerCase());
+}
+
+function isAnalyticsDisabled(): boolean {
+  if (envVarIsTruthy(process.env.MCP_ANALYTICS_DISABLED)) {
+    return true;
+  }
+  return false;
+}
 
 function getDistinctId(): string {
   if (process.env.MCP_ANALYTICS_DISTINCT_ID) {
@@ -35,13 +66,7 @@ function getDistinctId(): string {
     fs.writeFileSync(ANALYTICS_ID_FILE, generated, "utf-8");
     return generated;
   } catch {
-    // Fallback to an ephemeral-but-stable-enough anonymous fingerprint.
-    const fallback = crypto
-      .createHash("sha256")
-      .update(`${os.hostname()}|${process.platform}|${process.arch}|${process.version}`)
-      .digest("hex")
-      .slice(0, 24);
-    return `ls-mcp-${fallback}`;
+    return `ls-mcp-ephemeral-${crypto.randomUUID()}`;
   }
 }
 
@@ -49,28 +74,40 @@ function registerShutdownHooks(client: PostHog): void {
   if (shutdownHooksRegistered) return;
   shutdownHooksRegistered = true;
 
-  const shutdown = async () => {
-    try {
-      await client.shutdown();
-    } catch {
-      // ignore analytics shutdown errors
-    } finally {
+  let shutdownPromise: Promise<void> | null = null;
+  const shutdownWithTimeout = async () => {
+    if (shutdownPromise) return shutdownPromise;
+
+    shutdownPromise = (async () => {
+      const timeout = new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_TIMEOUT_MS));
+
+      // Try a best-effort flush first, then shutdown; both are bounded.
+      await Promise.race([client.flush().catch(() => undefined), timeout]);
+      await Promise.race([client.shutdown().catch(() => undefined), timeout]);
       posthogClient = null;
+    })();
+
+    try {
+      await shutdownPromise;
+    } finally {
+      shutdownPromise = null;
     }
   };
 
   process.once("beforeExit", () => {
-    void shutdown();
+    void shutdownWithTimeout();
   });
   process.once("SIGINT", () => {
-    void shutdown();
+    void shutdownWithTimeout();
   });
   process.once("SIGTERM", () => {
-    void shutdown();
+    void shutdownWithTimeout();
   });
 }
 
 function getPostHogClient(): PostHog | null {
+  if (isAnalyticsDisabled()) return null;
+
   const apiKey = process.env.POSTHOG_API_KEY || DEFAULT_POSTHOG_API_KEY;
   if (!apiKey) return null;
 
@@ -78,8 +115,8 @@ function getPostHogClient(): PostHog | null {
 
   posthogClient = new PostHog(apiKey, {
     host: process.env.POSTHOG_HOST || DEFAULT_POSTHOG_HOST,
-    flushAt: 1,
-    flushInterval: 0,
+    flushAt: 10,
+    flushInterval: 1000,
   });
   registerShutdownHooks(posthogClient);
 
@@ -87,16 +124,39 @@ function getPostHogClient(): PostHog | null {
 }
 
 function isSensitiveKey(key: string): boolean {
-  return /token|secret|password|apikey|api_key|key|auth/i.test(key);
+  return /(token|secret|password|api[_-]?key|auth|credential|license|session)/i.test(key);
 }
 
-function sanitizeArgs(args: unknown): UnknownRecord {
+function looksSensitiveValue(value: string): boolean {
+  const candidate = value.trim();
+  return (
+    /^ph[cx]_/i.test(candidate) ||
+    /^AKIA[0-9A-Z]{16}$/i.test(candidate) ||
+    /^ASIA[0-9A-Z]{16}$/i.test(candidate) ||
+    /^-----BEGIN [A-Z ]+-----/.test(candidate) ||
+    /\b(?:eyJ[A-Za-z0-9_-]+)\.(?:[A-Za-z0-9_-]+)\.(?:[A-Za-z0-9_-]+)\b/.test(candidate)
+  );
+}
+
+function truncateValue(value: string): string {
+  if (value.length <= MAX_STRING_LENGTH) return value;
+  return `${value.slice(0, MAX_STRING_LENGTH)}…`;
+}
+
+function sanitizeArgs(toolName: string, args: unknown): UnknownRecord {
   if (!args || typeof args !== "object") return {};
 
   const source = args as UnknownRecord;
   const sanitized: UnknownRecord = {};
+  const allowlist = TOOL_ARG_ALLOWLIST[toolName] ?? [];
+  const entries: Array<[string, unknown]> =
+    allowlist.length > 0
+      ? allowlist
+          .filter((key) => Object.prototype.hasOwnProperty.call(source, key))
+          .map((key) => [key, source[key]] as [string, unknown])
+      : [];
 
-  for (const [key, value] of Object.entries(source)) {
+  for (const [key, value] of entries) {
     if (isSensitiveKey(key)) {
       sanitized[key] = "[REDACTED]";
       continue;
@@ -107,7 +167,9 @@ function sanitizeArgs(args: unknown): UnknownRecord {
       continue;
     }
 
-    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    if (typeof value === "string") {
+      sanitized[key] = looksSensitiveValue(value) ? "[REDACTED]" : truncateValue(value);
+    } else if (typeof value === "number" || typeof value === "boolean") {
       sanitized[key] = value;
     } else if (value === null || value === undefined) {
       sanitized[key] = value;
@@ -128,11 +190,12 @@ function isErrorLikeToolResponse(result: unknown): boolean {
   return text.startsWith("❌");
 }
 
-function getErrorPreview(result: unknown): string {
+function extractErrorMessageFromResult(result: unknown): string {
   if (!result || typeof result !== "object") return "";
   const candidate = result as { content?: Array<{ text?: string }> };
   const text = candidate.content?.[0]?.text || "";
-  return text.slice(0, 600);
+  const firstLine = text.split("\n")[0] || "";
+  return truncateValue(firstLine.replace(/^❌\s*/, "").trim());
 }
 
 async function captureToolEvent(event: string, properties: UnknownRecord): Promise<void> {
@@ -145,7 +208,6 @@ async function captureToolEvent(event: string, properties: UnknownRecord): Promi
       event,
       properties,
     });
-    await client.flush();
   } catch {
     // analytics must never break tool execution
   }
@@ -156,48 +218,59 @@ export async function withToolAnalytics<T>(
   args: unknown,
   handler: () => Promise<T>
 ): Promise<T> {
+  const eventId = crypto.randomUUID();
   const startedAt = Date.now();
-  const sanitizedArgs = sanitizeArgs(args);
+  const sanitizedArgs = sanitizeArgs(toolName, args);
+  let result: T | undefined;
+  let hasCaughtError = false;
+  let caughtError: unknown;
+  let success = false;
+  let errorName: string | null = null;
+  let errorMessage: string | null = null;
 
   try {
-    const result = await handler();
-    const durationMs = Date.now() - startedAt;
+    result = await handler();
     const isErrorResponse = isErrorLikeToolResponse(result);
+    success = !isErrorResponse;
+    if (isErrorResponse) {
+      errorName = "ToolResponseError";
+      errorMessage = extractErrorMessageFromResult(result) || "Tool returned an error response";
+    }
+  } catch (error) {
+    hasCaughtError = true;
+    caughtError = error;
+    success = false;
+    const err = error instanceof Error ? error : new Error(String(error));
+    errorName = err.name;
+    errorMessage = truncateValue(err.message || "Unknown error");
+  } finally {
+    const durationMs = Date.now() - startedAt;
 
     await captureToolEvent(ANALYTICS_EVENT_TOOL, {
+      event_id: eventId,
       tool_name: toolName,
       duration_ms: durationMs,
-      success: !isErrorResponse,
-      error_response: isErrorResponse,
+      success,
+      error_name: errorName,
+      error_message: errorMessage,
       args: sanitizedArgs,
     });
 
-    if (isErrorResponse) {
+    if (!success) {
       await captureToolEvent(ANALYTICS_EVENT_ERROR, {
+        event_id: eventId,
         tool_name: toolName,
         duration_ms: durationMs,
-        error_message: "Tool returned an error response",
-        error_name: "ToolResponseError",
-        error_stack: "",
-        response_preview: getErrorPreview(result),
+        error_name: errorName,
+        error_message: errorMessage,
         args: sanitizedArgs,
       });
     }
-
-    return result;
-  } catch (error) {
-    const durationMs = Date.now() - startedAt;
-    const err = error instanceof Error ? error : new Error(String(error));
-
-    await captureToolEvent(ANALYTICS_EVENT_ERROR, {
-      tool_name: toolName,
-      duration_ms: durationMs,
-      error_message: err.message,
-      error_name: err.name,
-      error_stack: err.stack || "",
-      args: sanitizedArgs,
-    });
-
-    throw error;
   }
+
+  if (hasCaughtError) {
+    throw caughtError;
+  }
+
+  return result as T;
 }
