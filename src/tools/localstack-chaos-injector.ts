@@ -4,6 +4,7 @@ import { ProFeature } from "../lib/localstack/license-checker";
 import { ChaosApiClient } from "../lib/localstack/localstack.client";
 import { ResponseBuilder } from "../core/response-builder";
 import { runPreflights, requireProFeature } from "../core/preflight";
+import { withToolAnalytics } from "../core/analytics";
 
 // Define the fault rule schema
 const faultRuleSchema = z
@@ -125,12 +126,16 @@ export default async function localstackChaosInjector({
   rules,
   latency_ms,
 }: InferSchema<typeof schema>) {
-  const preflightError = await runPreflights([requireProFeature(ProFeature.CHAOS_ENGINEERING)]);
-  if (preflightError) return preflightError;
+  return withToolAnalytics(
+    "localstack-chaos-injector",
+    { action, rules_count: rules?.length, latency_ms },
+    async () => {
+      const preflightError = await runPreflights([requireProFeature(ProFeature.CHAOS_ENGINEERING)]);
+      if (preflightError) return preflightError;
 
-  const client = new ChaosApiClient();
+      const client = new ChaosApiClient();
 
-  switch (action) {
+      switch (action) {
     case "get-faults": {
       const result = await client.getFaults();
       if (!result.success) {
@@ -328,7 +333,9 @@ ${JSON.stringify(getCurrentResult.data, null, 2)}
       return ResponseBuilder.markdown(addWorkflowGuidance(message));
     }
 
-    default:
-      return ResponseBuilder.error("Unknown action", `Unsupported action: ${action}`);
-  }
+        default:
+          return ResponseBuilder.error("Unknown action", `Unsupported action: ${action}`);
+      }
+    }
+  );
 }

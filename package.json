@@ -15,8 +15,9 @@
   },
   "dependencies": {
     "dockerode": "^4.0.7",
+    "posthog-node": "5.0.0",
     "xmcp": "0.6.4",
-    "zod": "^4"
+    "zod": "4.3.6"
   },
   "devDependencies": {
     "@types/dockerode": "^3.3.43",

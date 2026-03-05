@@ -17,6 +17,7 @@ import {
 import { type DeploymentEvent } from "../lib/deployment/deployment-utils";
 import { formatDeploymentReport } from "../lib/deployment/deployment-reporter";
 import { ResponseBuilder } from "../core/response-builder";
+import { withToolAnalytics } from "../core/analytics";
 
 // Define the schema for tool parameters
 export const schema = {
@@ -74,13 +75,17 @@ export default async function localstackDeployer({
   stackName,
   templatePath,
 }: InferSchema<typeof schema>) {
-  if (action === "deploy" || action === "destroy") {
-    const cliError = await ensureLocalStackCli();
-    if (cliError) return cliError;
-  } else {
-    const preflightError = await runPreflights([requireLocalStackRunning()]);
-    if (preflightError) return preflightError;
-  }
+  return withToolAnalytics(
+    "localstack-deployer",
+    { action, projectType, directory, stackName, templatePath, variables },
+    async () => {
+      if (action === "deploy" || action === "destroy") {
+        const cliError = await ensureLocalStackCli();
+        if (cliError) return cliError;
+      } else {
+        const preflightError = await runPreflights([requireLocalStackRunning()]);
+        if (preflightError) return preflightError;
+      }
 
   if (action === "create-stack") {
     if (!stackName) {
@@ -225,16 +230,16 @@ export default async function localstackDeployer({
     }
   }
 
-  let resolvedProjectType: "cdk" | "terraform";
+      let resolvedProjectType: "cdk" | "terraform";
 
-  try {
-    if (!directory) {
-      return ResponseBuilder.error(
-        "Missing Parameter",
-        "The parameter 'directory' is required for actions 'deploy' and 'destroy'."
-      );
-    }
-    const nonNullDirectory = directory as string;
+      try {
+        if (!directory) {
+          return ResponseBuilder.error(
+            "Missing Parameter",
+            "The parameter 'directory' is required for actions 'deploy' and 'destroy'."
+          );
+        }
+        const nonNullDirectory = directory as string;
 
     // Step 1: Project Type Resolution
     if (projectType === "auto") {
@@ -289,22 +294,24 @@ Please review your variables and ensure they don't contain shell metacharacters 
       );
     }
 
-    // Execute Commands Based on Project Type and Action
-    return await executeDeploymentCommands(
-      resolvedProjectType,
-      action,
-      nonNullDirectory,
-      variables
-    );
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    return ResponseBuilder.error(
-      "Deployment Error",
-      `An unexpected error occurred: ${errorMessage}
+        // Execute Commands Based on Project Type and Action
+        return await executeDeploymentCommands(
+          resolvedProjectType,
+          action,
+          nonNullDirectory,
+          variables
+        );
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        return ResponseBuilder.error(
+          "Deployment Error",
+          `An unexpected error occurred: ${errorMessage}
 
 Please check the directory path and ensure all prerequisites are met.`
-    );
-  }
+        );
+      }
+    }
+  );
 }
 
 /**

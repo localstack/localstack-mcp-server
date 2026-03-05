@@ -100,6 +100,7 @@ Here's how to add your LocalStack Auth Token to the environment variables:
 | ------------- | ----------- | ------------- |
 | `LOCALSTACK_AUTH_TOKEN` | The LocalStack Auth Token to use for the MCP server | None |
 | `MAIN_CONTAINER_NAME` | The name of the LocalStack container to use for the MCP server | `localstack-main` |
+| `MCP_ANALYTICS_DISABLED` | Disable MCP analytics when set to `1` | `0` |
 
 ## Contributing
 
