@@ -7,13 +7,13 @@
     "url": "https://github.com/localstack/localstack-mcp-server",
     "source": "github"
   },
-  "version": "0.1.5",
+  "version": "0.2.0",
   "packages": [
     {
       "registry_type": "npm",
       "registry_base_url": "https://registry.npmjs.org",
       "identifier": "@localstack/localstack-mcp-server",
-      "version": "0.1.5",
+      "version": "0.2.0",
       "transport": {
         "type": "stdio"
       },
