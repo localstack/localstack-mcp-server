@@ -44,7 +44,7 @@ For other MCP Clients, refer to the [configuration guide](#configuration).
 - [LocalStack CLI](https://docs.localstack.cloud/getting-started/installation/#localstack-cli) and Docker installed in your system path
 - [`cdklocal`](https://github.com/localstack/aws-cdk-local) or [`tflocal`](https://github.com/localstack/terraform-local) installed in your system path for running infrastructure deployment tooling
 - A [valid LocalStack Auth Token](https://docs.localstack.cloud/aws/getting-started/auth-token/) to enable Pro services, IAM Policy Analyzer, Cloud Pods, Chaos Injector, and Extensions tools (**optional**)
-- [Node.js v22.x](https://nodejs.org/en/download/) installed in your system path
+- [Node.js v22.x](https://nodejs.org/en/download/) or higher installed in your system path
 
 ### Configuration
 
