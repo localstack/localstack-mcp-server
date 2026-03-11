@@ -9,7 +9,17 @@ export default defineConfig({
   testDir: "./tests/mcp",
   timeout: 120000,
   fullyParallel: false,
-  reporter: [["list"]],
+  reporter: [
+    ["list"],
+    [
+      "@gleanwork/mcp-server-tester/reporters/mcpReporter",
+      {
+        outputDir: ".mcp-test-results",
+        autoOpen: false,
+        historyLimit: 20,
+      },
+    ],
+  ],
   projects: [
     {
       name: "localstack-mcp-server",

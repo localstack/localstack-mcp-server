@@ -127,6 +127,10 @@ This repository includes [MCP Server Tester](https://github.com/gleanwork/mcp-se
   export LOCALSTACK_AUTH_TOKEN="<your-localstack-auth-token>"
   yarn test:mcp:evals
 ```
+- Open the latest MCP Server Tester HTML report:
+  ```bash
+  npx mcp-server-tester open
+  ```
 - Run both:
   ```bash
   yarn test:mcp
