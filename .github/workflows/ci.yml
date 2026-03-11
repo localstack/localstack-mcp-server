@@ -25,3 +25,21 @@ jobs:
 
       - name: Build the project
         run: yarn build
+
+  mcp-direct-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: Install dependencies
+        run: yarn
+
+      - name: Run MCP Server Tester
+        run: yarn test:mcp:direct

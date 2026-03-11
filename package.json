@@ -11,7 +11,10 @@
     "dev": "xmcp dev",
     "start": "node dist/stdio.js",
     "format": "prettier --write .",
-    "test": "jest"
+    "test": "jest",
+    "test:mcp:direct": "yarn build && playwright test -c playwright.config.mjs tests/mcp/direct.spec.mjs",
+    "test:mcp:evals": "yarn build && playwright test -c playwright.config.mjs tests/mcp/evals-gemini.spec.mjs",
+    "test:mcp": "yarn test:mcp:direct && yarn test:mcp:evals"
   },
   "dependencies": {
     "dockerode": "^4.0.7",
@@ -20,6 +23,8 @@
     "zod": "4.3.6"
   },
   "devDependencies": {
+    "@gleanwork/mcp-server-tester": "1.0.0-beta.6",
+    "@playwright/test": "^1.58.2",
     "@types/dockerode": "^3.3.43",
     "@types/jest": "^30.0.0",
     "eslint-config-prettier": "^10.1.8",

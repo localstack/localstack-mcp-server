@@ -104,6 +104,8 @@ Here's how to add your LocalStack Auth Token to the environment variables:
 
 ## Contributing
 
+Built on the [XMCP](https://github.com/basementstudio/xmcp) framework, you can add new tools by adding a new file to the `src/tools` directory and documenting it in the `manifest.json` file.
+
 Pull requests are welcomed on GitHub! To get started:
 
 - Install Git and Node.js
@@ -111,7 +113,32 @@ Pull requests are welcomed on GitHub! To get started:
 - Install dependencies with `yarn`
 - Build with `yarn build`
 
-Built on the [XMCP](https://github.com/basementstudio/xmcp) framework, you can add new tools by adding a new file to the `src/tools` directory and documenting it in the `manifest.json` file.
+### MCP Server Tester
+
+This repository includes [MCP Server Tester](https://github.com/gleanwork/mcp-server-tester) for tool validation in direct mode and LLM host mode.
+
+- Run direct MCP tests (deterministic):
+  ```bash
+  yarn test:mcp:direct
+  ```
+- Run Gemini-based MCP host evals:
+  ```bash
+  export GOOGLE_GENERATIVE_AI_API_KEY="<your-gemini-key>"
+  export LOCALSTACK_AUTH_TOKEN="<your-localstack-auth-token>"
+  yarn test:mcp:evals
+```
+- Run both:
+  ```bash
+  yarn test:mcp
+  ```
+
+Notes:
+
+- MCP tests target the local STDIO server command `node dist/stdio.js` by default.
+- `LOCALSTACK_AUTH_TOKEN` is required for the comprehensive Gemini eval suite.
+- You can override the target command with:
+  - `MCP_TEST_COMMAND`
+  - `MCP_TEST_ARGS` (space-separated arguments)
 
 ## License
 

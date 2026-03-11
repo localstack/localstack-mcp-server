@@ -1,0 +1,110 @@
+{
+  "name": "localstack-mcp-gemini-comprehensive",
+  "description": "Scenario-based Gemini evals for LocalStack MCP tools.",
+  "cases": [
+    {
+      "id": "scenario-start-localstack",
+      "mode": "mcp_host",
+      "scenario": "Start LocalStack for AWS and confirm the runtime is running.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.0-flash", "temperature": 0 },
+      "iterations": 5,
+      "expect": {
+        "toolsTriggered": {
+          "calls": [
+            { "name": "localstack-management", "required": true }
+          ],
+          "order": "any"
+        }
+      }
+    },
+    {
+      "id": "scenario-deploy-terraform-project",
+      "mode": "mcp_host",
+      "scenario": "Deploy the Terraform project in data/sample-terraform to LocalStack.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.0-flash", "temperature": 0 },
+      "iterations": 5,
+      "expect": {
+        "toolsTriggered": {
+          "calls": [{ "name": "localstack-deployer", "required": true }],
+          "order": "any"
+        }
+      }
+    },
+    {
+      "id": "scenario-query-s3-buckets",
+      "mode": "mcp_host",
+      "scenario": "Use AWS CLI on LocalStack to list S3 buckets.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.0-flash", "temperature": 0 },
+      "iterations": 5,
+      "expect": {
+        "toolsTriggered": {
+          "calls": [{ "name": "localstack-aws-client", "required": true }],
+          "order": "any"
+        }
+      }
+    },
+    {
+      "id": "scenario-cloud-pods-operation",
+      "mode": "mcp_host",
+      "scenario": "Save the current LocalStack state in a Cloud Pod called mcptester-e2e-pod, then reset state and load that same pod back.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.0-flash", "temperature": 0 },
+      "iterations": 5,
+      "expect": {
+        "toolsTriggered": {
+          "calls": [{ "name": "localstack-cloud-pods", "required": true }],
+          "order": "any"
+        }
+      }
+    },
+    {
+      "id": "discover-docs-tool",
+      "mode": "mcp_host",
+      "scenario": "Find official LocalStack documentation about IAM policy enforcement modes and summarize it.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.0-flash", "temperature": 0 },
+      "iterations": 5,
+      "expect": {
+        "toolsTriggered": { "calls": [{ "name": "localstack-docs", "required": true }], "order": "any" }
+      }
+    },
+    {
+      "id": "discover-logs-analysis-tool",
+      "mode": "mcp_host",
+      "scenario": "Analyze recent LocalStack logs and give me a summary of errors and API call failures.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.0-flash", "temperature": 0 },
+      "iterations": 5,
+      "expect": {
+        "toolsTriggered": { "calls": [{ "name": "localstack-logs-analysis", "required": true }], "order": "any" }
+      }
+    },
+    {
+      "id": "discover-extensions-tool",
+      "mode": "mcp_host",
+      "scenario": "Show me the available LocalStack extensions in the marketplace.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.0-flash", "temperature": 0 },
+      "iterations": 5,
+      "expect": {
+        "toolsTriggered": { "calls": [{ "name": "localstack-extensions", "required": true }], "order": "any" }
+      }
+    },
+    {
+      "id": "discover-chaos-tool",
+      "mode": "mcp_host",
+      "scenario": "Inject 100ms latency and then clear all active chaos faults.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.0-flash", "temperature": 0 },
+      "iterations": 5,
+      "expect": {
+        "toolsTriggered": { "calls": [{ "name": "localstack-chaos-injector", "required": true }], "order": "any" }
+      }
+    },
+    {
+      "id": "discover-iam-tool",
+      "mode": "mcp_host",
+      "scenario": "Check the current IAM enforcement mode in LocalStack and help me switch to SOFT_MODE.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.0-flash", "temperature": 0 },
+      "iterations": 5,
+      "expect": {
+        "toolsTriggered": { "calls": [{ "name": "localstack-iam-policy-analyzer", "required": true }], "order": "any" }
+      }
+    }
+  ]
+}
