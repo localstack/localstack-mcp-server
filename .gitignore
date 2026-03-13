@@ -5,3 +5,9 @@ dist
 .xmcp
 xmcp-env.d.ts
 .mcpregistry*
+playwright-report/
+test-results/
+terraform.tfstate*
+.terraform/
+.terraform.lock.hcl
+.mcp-test-results/
