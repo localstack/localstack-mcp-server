@@ -9,7 +9,13 @@ export interface DependencyCheckResult {
   errorMessage?: string;
 }
 
-export type ProjectType = "cdk" | "terraform" | "cloudformation" | "ambiguous" | "unknown";
+export type ProjectType =
+  | "cdk"
+  | "terraform"
+  | "sam"
+  | "cloudformation"
+  | "ambiguous"
+  | "unknown";
 
 /**
  * Check if the required deployment tool (cdklocal or tflocal) is available in the system PATH
@@ -17,9 +23,10 @@ export type ProjectType = "cdk" | "terraform" | "cloudformation" | "ambiguous" |
  * @returns Promise with availability status and tool information
  */
 export async function checkDependencies(
-  projectType: "cdk" | "terraform"
+  projectType: "cdk" | "terraform" | "sam"
 ): Promise<DependencyCheckResult> {
-  const tool = projectType === "cdk" ? "cdklocal" : "tflocal";
+  const tool =
+    projectType === "cdk" ? "cdklocal" : projectType === "terraform" ? "tflocal" : "samlocal";
 
   try {
     const { stdout, error } = await runCommand(tool, ["--version"], { timeout: 10000 });
@@ -42,7 +49,8 @@ Installation:
 npm install -g aws-cdk-local aws-cdk
 
 After installation, make sure the 'cdklocal' command is available in your PATH.`
-        : `❌ tflocal is not installed or not available in PATH.
+        : projectType === "terraform"
+          ? `❌ tflocal is not installed or not available in PATH.
 
 Please install terraform-local by following the official documentation:
 https://github.com/localstack/terraform-local
@@ -50,7 +58,16 @@ https://github.com/localstack/terraform-local
 Installation:
 pip install terraform-local
 
-After installation, make sure the 'tflocal' command is available in your PATH.`;
+After installation, make sure the 'tflocal' command is available in your PATH.`
+          : `❌ samlocal is not installed or not available in PATH.
+
+Please install aws-sam-cli-local by following the official documentation:
+https://github.com/localstack/aws-sam-cli-local
+
+Installation:
+pip install aws-sam-cli-local
+
+After installation, make sure the 'samlocal' command is available in your PATH.`;
 
     return {
       isAvailable: false,
@@ -84,22 +101,37 @@ export async function inferProjectType(directory: string): Promise<ProjectType> 
       (file) => file.endsWith(".tf") || file.endsWith(".tf.json")
     );
 
-    const hasCloudFormationTemplates = files.some(
-      (file) => file.endsWith(".yaml") || file.endsWith(".yml")
-    );
+    const hasTemplateYaml = files.includes("template.yaml") || files.includes("template.yml");
+    const hasSamConfig = files.includes("samconfig.toml");
+
+    let hasServerlessResources = false;
+    if (hasTemplateYaml) {
+      const samTemplateFile = files.includes("template.yaml") ? "template.yaml" : "template.yml";
+      try {
+        const templateContent = await fs.promises.readFile(path.join(directory, samTemplateFile), "utf-8");
+        hasServerlessResources = /AWS::Serverless::[A-Za-z]+/.test(templateContent);
+      } catch {
+        hasServerlessResources = false;
+      }
+    }
+
+    const hasCloudFormationTemplates = files.some((file) => file.endsWith(".yaml") || file.endsWith(".yml"));
 
     const isCdk = hasCdkJson || hasCdkFiles;
     const isTerraform = hasTerraformFiles;
-    const isCloudFormation = hasCloudFormationTemplates;
+    const isSam = hasSamConfig || hasServerlessResources;
+    const isCloudFormation = hasCloudFormationTemplates && !isSam;
 
     if (
-      [isCdk, isTerraform, isCloudFormation].filter(Boolean).length > 1
+      [isCdk, isTerraform, isSam, isCloudFormation].filter(Boolean).length > 1
     ) {
       return "ambiguous";
     } else if (isCdk) {
       return "cdk";
     } else if (isTerraform) {
       return "terraform";
+    } else if (isSam) {
+      return "sam";
     } else if (isCloudFormation) {
       return "cloudformation";
     } else {

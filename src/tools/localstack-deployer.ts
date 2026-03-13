@@ -27,10 +27,10 @@ export const schema = {
       "The action to perform: 'deploy'/'destroy' for CDK/Terraform, or 'create-stack'/'delete-stack' for CloudFormation."
     ),
   projectType: z
-    .enum(["cdk", "terraform", "auto"]) 
+    .enum(["cdk", "terraform", "sam", "auto"])
     .default("auto")
     .describe(
-      "The type of project. 'auto' (default) infers from files. Specify 'cdk' or 'terraform' to override."
+      "The type of project. 'auto' (default) infers from files. Specify 'cdk', 'terraform', 'cloudformation', or 'sam' to override."
     ),
   directory: z
     .string()
@@ -47,17 +47,35 @@ export const schema = {
   stackName: z
     .string()
     .optional()
-    .describe("The name of the CloudFormation stack. Required for 'create-stack' and 'delete-stack'."),
+    .describe(
+      "The stack name used by CloudFormation and SAM. Required for 'create-stack'/'delete-stack' actions, and optional for SAM deploy/destroy (defaults can be inferred)."
+    ),
   templatePath: z
     .string()
     .optional()
-    .describe("The local file path to the CloudFormation template. Required for 'create-stack' if not discoverable from 'directory'."),
+    .describe(
+      "The local template file path used by CloudFormation and SAM. Required for 'create-stack' if not discoverable from 'directory', and optional for SAM as a template override."
+    ),
+  s3Bucket: z
+    .string()
+    .optional()
+    .describe("S3 bucket name used by SAM deployments. If omitted, SAM can use --resolve-s3."),
+  resolveS3: z
+    .boolean()
+    .optional()
+    .describe("For SAM deployments, whether to use --resolve-s3 when no s3Bucket is provided."),
+  saveParams: z
+    .boolean()
+    .optional()
+    .describe(
+      "For SAM deployments, whether to persist resolved parameters to samconfig.toml using --save-params."
+    ),
 };
 
 // Define tool metadata
 export const metadata: ToolMetadata = {
   name: "localstack-deployer",
-  description: "Deploys or destroys AWS infrastructure on LocalStack using CDK or Terraform.",
+  description: "Deploys or destroys AWS infrastructure on LocalStack using CDK, Terraform, or SAM.",
   annotations: {
     title: "LocalStack Deployer",
     readOnlyHint: false,
@@ -74,12 +92,17 @@ export default async function localstackDeployer({
   variables,
   stackName,
   templatePath,
+  s3Bucket,
+  resolveS3,
+  saveParams,
 }: InferSchema<typeof schema>) {
   return withToolAnalytics(
     "localstack-deployer",
-    { action, projectType, directory, stackName, templatePath, variables },
+    { action, projectType, directory, stackName, templatePath, variables, s3Bucket, resolveS3, saveParams },
     async () => {
       if (action === "deploy" || action === "destroy") {
+        const preflightError = await runPreflights([requireLocalStackRunning()]);
+        if (preflightError) return preflightError;
         const cliError = await ensureLocalStackCli();
         if (cliError) return cliError;
       } else {
@@ -230,7 +253,7 @@ export default async function localstackDeployer({
     }
   }
 
-      let resolvedProjectType: "cdk" | "terraform";
+      let resolvedProjectType: "cdk" | "terraform" | "sam";
 
       try {
         if (!directory) {
@@ -248,10 +271,11 @@ export default async function localstackDeployer({
       if (inferredType === "ambiguous") {
         return ResponseBuilder.error(
           "Ambiguous Project Type",
-          `The directory "${directory}" contains both CDK and Terraform files. Please specify the project type explicitly:
+          `The directory "${directory}" contains multiple infrastructure project types. Please specify the project type explicitly:
 
 - Use \`projectType: 'cdk'\` to deploy as a CDK project
-- Use \`projectType: 'terraform'\` to deploy as a Terraform project`
+- Use \`projectType: 'terraform'\` to deploy as a Terraform project
+- Use \`projectType: 'sam'\` to deploy as a SAM project`
         );
       }
 
@@ -263,14 +287,15 @@ export default async function localstackDeployer({
 Expected files:
 - **CDK**: \`cdk.json\`, \`app.py\`, \`app.js\`, or \`app.ts\`
 - **Terraform**: \`*.tf\` or \`*.tf.json\` files
+- **SAM**: \`samconfig.toml\` or \`template.yaml/.yml\` with \`AWS::Serverless::*\` resources
 
 Please check the directory path or specify the project type explicitly.`
         );
       }
 
-      resolvedProjectType = inferredType as "cdk" | "terraform";
+      resolvedProjectType = inferredType as "cdk" | "terraform" | "sam";
     } else {
-      resolvedProjectType = projectType as "cdk" | "terraform";
+      resolvedProjectType = projectType as "cdk" | "terraform" | "sam";
     }
 
     // Check Dependencies
@@ -299,7 +324,8 @@ Please review your variables and ensure they don't contain shell metacharacters 
           resolvedProjectType,
           action,
           nonNullDirectory,
-          variables
+          variables,
+          { stackName, templatePath, s3Bucket, resolveS3, saveParams }
         );
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -318,17 +344,26 @@ Please check the directory path and ensure all prerequisites are met.`
  * Execute the deployment commands based on project type and action
  */
 async function executeDeploymentCommands(
-  projectType: "cdk" | "terraform",
+  projectType: "cdk" | "terraform" | "sam",
   action: "deploy" | "destroy",
   directory: string,
-  variables?: Record<string, string>
+  variables?: Record<string, string>,
+  samOptions?: {
+    stackName?: string;
+    templatePath?: string;
+    s3Bucket?: string;
+    resolveS3?: boolean;
+    saveParams?: boolean;
+  }
 ) {
   const absoluteDirectory = path.resolve(directory);
   const baseTitle = `🚀 LocalStack ${projectType.toUpperCase()} ${action === "deploy" ? "Deployment" : "Destruction"}`;
   const events =
     projectType === "terraform"
       ? await executeTerraformCommands(action, absoluteDirectory, variables)
-      : await executeCdkCommands(action, absoluteDirectory, variables);
+      : projectType === "sam"
+        ? await executeSamCommands(action, absoluteDirectory, variables, samOptions)
+        : await executeCdkCommands(action, absoluteDirectory, variables);
   const report = formatDeploymentReport(baseTitle, events);
   return ResponseBuilder.markdown(report);
 }
@@ -401,6 +436,148 @@ async function executeTerraformCommands(
       content: `Terraform resources in ${directory} have been destroyed.`,
     });
   }
+  return events;
+}
+
+interface SamConfigDefaults {
+  stackName?: string;
+  s3Bucket?: string;
+  resolveS3?: boolean;
+  saveParams?: boolean;
+  templatePath?: string;
+}
+
+async function loadSamConfigDefaults(directory: string): Promise<SamConfigDefaults> {
+  const configPath = path.join(directory, "samconfig.toml");
+  try {
+    const content = await fs.promises.readFile(configPath, "utf-8");
+
+    const readString = (key: string): string | undefined => {
+      const match = content.match(new RegExp(`${key}\\s*=\\s*"([^"]+)"`));
+      return match?.[1];
+    };
+    const readBoolean = (key: string): boolean | undefined => {
+      const match = content.match(new RegExp(`${key}\\s*=\\s*(true|false)`));
+      return match ? match[1] === "true" : undefined;
+    };
+
+    return {
+      stackName: readString("stack_name"),
+      s3Bucket: readString("s3_bucket"),
+      resolveS3: readBoolean("resolve_s3"),
+      saveParams: readBoolean("save_params"),
+      templatePath: readString("template_file"),
+    };
+  } catch {
+    return {};
+  }
+}
+
+async function executeSamCommands(
+  action: "deploy" | "destroy",
+  directory: string,
+  variables?: Record<string, string>,
+  samOptions?: {
+    stackName?: string;
+    templatePath?: string;
+    s3Bucket?: string;
+    resolveS3?: boolean;
+    saveParams?: boolean;
+  }
+): Promise<DeploymentEvent[]> {
+  const events: DeploymentEvent[] = [];
+  const baseCommand = "samlocal";
+  const defaults = await loadSamConfigDefaults(directory);
+  const inferredStackName = `${path.basename(directory).replace(/[^a-zA-Z0-9-]/g, "-")}-stack`;
+
+  const resolvedStackName = samOptions?.stackName || defaults.stackName || inferredStackName;
+  const resolvedRegion = "us-east-1"; // Not configurable at the moment
+  const resolvedTemplatePath = samOptions?.templatePath || defaults.templatePath;
+  const resolvedS3Bucket = samOptions?.s3Bucket || defaults.s3Bucket;
+  const shouldResolveS3 = samOptions?.resolveS3 ?? defaults.resolveS3 ?? !resolvedS3Bucket;
+  const shouldSaveParams = samOptions?.saveParams ?? defaults.saveParams ?? false;
+
+  if (action === "deploy") {
+    events.push({ type: "header", title: "🏗️ Building SAM Application", content: "" });
+    const buildArgs = ["build", "--cached"];
+    if (resolvedTemplatePath) {
+      buildArgs.push("--template-file", resolvedTemplatePath);
+    }
+    events.push({ type: "command", content: `${baseCommand} ${buildArgs.join(" ")}` });
+    const buildRes = await runCommand(baseCommand, buildArgs, { cwd: directory });
+    events.push({ type: "output", content: stripAnsiCodes(buildRes.stdout) });
+    if (buildRes.stderr) events.push({ type: "warning", content: stripAnsiCodes(buildRes.stderr) });
+    if (buildRes.error) {
+      events.push({
+        type: "error",
+        title: "Error during `samlocal build`",
+        content: buildRes.error.message,
+      });
+      return events;
+    }
+
+    events.push({ type: "header", title: "🚀 Deploying SAM Application", content: "" });
+    const deployArgs = [
+      "deploy",
+      "--no-confirm-changeset",
+      "--no-fail-on-empty-changeset",
+      "--region",
+      resolvedRegion,
+      "--stack-name",
+      resolvedStackName,
+      "--capabilities",
+      "CAPABILITY_IAM",
+      "CAPABILITY_NAMED_IAM",
+    ];
+    if (resolvedTemplatePath) {
+      deployArgs.push("--template-file", resolvedTemplatePath);
+    }
+    if (resolvedS3Bucket) {
+      deployArgs.push("--s3-bucket", resolvedS3Bucket);
+    } else if (shouldResolveS3) {
+      deployArgs.push("--resolve-s3");
+    }
+    if (shouldSaveParams) {
+      deployArgs.push("--save-params");
+    }
+    if (variables && Object.keys(variables).length > 0) {
+      deployArgs.push("--parameter-overrides", ...Object.entries(variables).map(([k, v]) => `${k}=${v}`));
+    }
+
+    events.push({ type: "command", content: `${baseCommand} ${deployArgs.join(" ")}` });
+    const deployRes = await runCommand(baseCommand, deployArgs, {
+      cwd: directory,
+      env: { ...process.env, CI: "true" },
+    });
+    events.push({ type: "output", content: stripAnsiCodes(deployRes.stdout) });
+    if (deployRes.stderr) events.push({ type: "warning", content: stripAnsiCodes(deployRes.stderr) });
+    if (deployRes.error) {
+      events.push({
+        type: "error",
+        title: "Error during `samlocal deploy`",
+        content: deployRes.error.message,
+      });
+      return events;
+    }
+    events.push({ type: "success", content: "SAM application deployed successfully!" });
+  } else {
+    events.push({ type: "header", title: "💥 Deleting SAM Application", content: "" });
+    const deleteArgs = ["delete", "--no-prompts", "--region", resolvedRegion, "--stack-name", resolvedStackName];
+    events.push({ type: "command", content: `${baseCommand} ${deleteArgs.join(" ")}` });
+    const deleteRes = await runCommand(baseCommand, deleteArgs, { cwd: directory });
+    events.push({ type: "output", content: stripAnsiCodes(deleteRes.stdout) });
+    if (deleteRes.stderr) events.push({ type: "warning", content: stripAnsiCodes(deleteRes.stderr) });
+    if (deleteRes.error) {
+      events.push({
+        type: "error",
+        title: "Error during `samlocal delete`",
+        content: deleteRes.error.message,
+      });
+      return events;
+    }
+    events.push({ type: "success", content: `SAM application in ${directory} has been deleted.` });
+  }
+
   return events;
 }
 

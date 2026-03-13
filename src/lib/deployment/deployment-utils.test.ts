@@ -1,4 +1,12 @@
-import { parseCdkOutputs, parseTerraformOutputs, validateVariables } from "./deployment-utils";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import {
+  inferProjectType,
+  parseCdkOutputs,
+  parseTerraformOutputs,
+  validateVariables,
+} from "./deployment-utils";
 
 describe("deployment-utils", () => {
   describe("validateVariables", () => {
@@ -33,6 +41,27 @@ describe("deployment-utils", () => {
       const json = JSON.stringify({});
       const result = parseTerraformOutputs(json);
       expect(result).toContain("No outputs defined");
+    });
+  });
+
+  describe("inferProjectType", () => {
+    it("detects SAM projects via samconfig.toml", async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ls-mcp-samcfg-"));
+      fs.writeFileSync(path.join(dir, "samconfig.toml"), "version = 0.1");
+
+      await expect(inferProjectType(dir)).resolves.toBe("sam");
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    it("detects SAM projects via template with AWS::Serverless resources", async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ls-mcp-samtpl-"));
+      fs.writeFileSync(
+        path.join(dir, "template.yaml"),
+        "Resources:\n  MyFunction:\n    Type: AWS::Serverless::Function\n"
+      );
+
+      await expect(inferProjectType(dir)).resolves.toBe("sam");
+      fs.rmSync(dir, { recursive: true, force: true });
     });
   });
 });
