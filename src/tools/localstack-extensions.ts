@@ -59,6 +59,7 @@ export default async function localstackExtensions({
 }: InferSchema<typeof schema>) {
   return withToolAnalytics("localstack-extensions", { action, name, source }, async () => {
     const checks = [
+      requireAuthToken(),
       requireLocalStackCli(),
       requireLocalStackRunning(),
       requireProFeature(ProFeature.EXTENSIONS),
@@ -94,9 +95,6 @@ function combineOutput(stdout: string, stderr: string): string {
 }
 
 async function handleList() {
-  const authError = requireAuthToken();
-  if (authError) return authError;
-
   const cmd = await runCommand("localstack", ["extensions", "list"], {
     env: { ...process.env },
   });
@@ -122,9 +120,6 @@ async function handleList() {
 }
 
 async function handleInstall(name?: string, source?: string) {
-  const authError = requireAuthToken();
-  if (authError) return authError;
-
   const hasName = !!name;
   const hasSource = !!source;
   if ((hasName && hasSource) || (!hasName && !hasSource)) {
@@ -192,9 +187,6 @@ async function handleInstall(name?: string, source?: string) {
 }
 
 async function handleUninstall(name?: string) {
-  const authError = requireAuthToken();
-  if (authError) return authError;
-
   if (!name) {
     return ResponseBuilder.error(
       "Missing Required Parameter",
@@ -242,13 +234,7 @@ async function handleUninstall(name?: string) {
 }
 
 async function handleAvailable() {
-  const token = process.env.LOCALSTACK_AUTH_TOKEN;
-  if (!token) {
-    return ResponseBuilder.error(
-      "Authentication Failed",
-      "Could not fetch the marketplace. Ensure LOCALSTACK_AUTH_TOKEN is set correctly."
-    );
-  }
+  const token = process.env.LOCALSTACK_AUTH_TOKEN!;
 
   const encoded = Buffer.from(`:${token}`).toString("base64");
   const client = new HttpClient();

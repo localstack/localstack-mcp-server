@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { httpClient } from "../core/http-client";
+import { runPreflights, requireAuthToken } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { withToolAnalytics } from "../core/analytics";
 
@@ -38,6 +39,9 @@ export const metadata: ToolMetadata = {
 export default async function localstackDocs({ query, limit }: InferSchema<typeof schema>) {
   return withToolAnalytics("localstack-docs", { query, limit }, async () => {
     try {
+      const preflightError = await runPreflights([requireAuthToken()]);
+      if (preflightError) return preflightError;
+
       const endpoint = `${CRAWLCHAT_DOCS_ENDPOINT}?query=${encodeURIComponent(query)}`;
       const response = await httpClient.request<CrawlChatDocsResult[]>(endpoint, {
         method: "GET",
