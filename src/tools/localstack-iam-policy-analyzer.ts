@@ -10,7 +10,13 @@ import {
   generateIamPolicy,
   formatPolicyReport,
 } from "../lib/iam/iam-policy.logic";
-import { runPreflights, requireLocalStackCli, requireProFeature } from "../core/preflight";
+import {
+  runPreflights,
+  requireAuthToken,
+  requireLocalStackCli,
+  requireLocalStackRunning,
+  requireProFeature,
+} from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { withToolAnalytics } from "../core/analytics";
 
@@ -51,7 +57,9 @@ export default async function localstackIamPolicyAnalyzer({
 }: InferSchema<typeof schema>) {
   return withToolAnalytics("localstack-iam-policy-analyzer", { action, mode }, async () => {
     const preflightError = await runPreflights([
+      requireAuthToken(),
       requireLocalStackCli(),
+      requireLocalStackRunning(),
       requireProFeature(ProFeature.IAM_ENFORCEMENT),
     ]);
     if (preflightError) return preflightError;
