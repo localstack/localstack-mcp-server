@@ -44,12 +44,9 @@ export default async function localstackManagement({
   envVars,
 }: InferSchema<typeof schema>) {
   return withToolAnalytics("localstack-management", { action, service, envVars }, async () => {
-    const checks = [requireLocalStackCli()];
+    const checks = [requireAuthToken(), requireLocalStackCli()];
 
     if (service === "snowflake") {
-      const authTokenError = requireAuthToken();
-      if (authTokenError) return authTokenError;
-
       // `start` can run when no LocalStack runtime is currently up; validate feature after startup.
       if (action !== "start") checks.push(requireProFeature(ProFeature.SNOWFLAKE));
     }

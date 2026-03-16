@@ -19,8 +19,8 @@
       },
       "environment_variables": [
         {
-          "description": "LocalStack Auth Token (optional for Pro features)",
-          "is_required": false,
+          "description": "LocalStack Auth Token (required for all LocalStack MCP tools)",
+          "is_required": true,
           "format": "string",
           "is_secret": true,
           "name": "LOCALSTACK_AUTH_TOKEN"

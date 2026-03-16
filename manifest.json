@@ -56,6 +56,10 @@
       "description": "Execute SQL queries and commands against the LocalStack Snowflake emulator using the Snowflake CLI"
     },
     {
+      "name": "localstack-ephemeral-instances",
+      "description": "Manage cloud-hosted LocalStack Ephemeral Instances by creating, listing, viewing logs, and deleting instances"
+    },
+    {
       "name": "localstack-docs",
       "description": "Search the LocalStack documentation to find guides, API references, and configuration details"
     }
