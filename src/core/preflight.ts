@@ -1,4 +1,8 @@
-import { ensureLocalStackCli, getLocalStackStatus } from "../lib/localstack/localstack.utils";
+import {
+  ensureLocalStackCli,
+  ensureSnowflakeCli,
+  getLocalStackStatus,
+} from "../lib/localstack/localstack.utils";
 import { checkProFeature, ProFeature } from "../lib/localstack/license-checker";
 import { ResponseBuilder } from "./response-builder";
 
@@ -6,6 +10,11 @@ type ToolResponse = ReturnType<typeof ResponseBuilder.error>;
 
 export const requireLocalStackCli = async (): Promise<ToolResponse | null> => {
   const cliCheck = await ensureLocalStackCli();
+  return cliCheck ? (cliCheck as ToolResponse) : null;
+};
+
+export const requireSnowflakeCli = async (): Promise<ToolResponse | null> => {
+  const cliCheck = await ensureSnowflakeCli();
   return cliCheck ? (cliCheck as ToolResponse) : null;
 };
 

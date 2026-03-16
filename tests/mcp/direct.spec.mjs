@@ -8,6 +8,7 @@ const EXPECTED_TOOLS = [
   "localstack-chaos-injector",
   "localstack-cloud-pods",
   "localstack-extensions",
+  "localstack-snowflake-client",
   "localstack-ephemeral-instances",
   "localstack-aws-client",
   "localstack-docs",
