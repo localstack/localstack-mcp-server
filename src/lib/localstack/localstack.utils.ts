@@ -8,6 +8,12 @@ export interface LocalStackCliCheckResult {
   errorMessage?: string;
 }
 
+export interface SnowflakeCliCheckResult {
+  isAvailable: boolean;
+  version?: string;
+  errorMessage?: string;
+}
+
 /**
  * Check if LocalStack CLI is installed and available in the system PATH
  * @returns Promise with availability status, version (if available), and error message (if not available)
@@ -35,6 +41,36 @@ Installation options:
 - Using Homebrew (macOS): brew install localstack/tap/localstack-cli
 
 After installation, make sure the 'localstack' command is available in your PATH.`,
+    };
+  }
+}
+
+/**
+ * Check if Snowflake CLI is installed and available in the system PATH
+ * @returns Promise with availability status, version (if available), and error message (if not available)
+ */
+export async function checkSnowflakeCli(): Promise<SnowflakeCliCheckResult> {
+  try {
+    await runCommand("snow", ["--help"]);
+    const { stdout: version } = await runCommand("snow", ["--version"]);
+
+    return {
+      isAvailable: true,
+      version: version.trim(),
+    };
+  } catch (error) {
+    return {
+      isAvailable: false,
+      errorMessage: `❌ Snowflake CLI (snow) is not installed or not available in PATH.
+
+Please install the Snowflake CLI by following the official documentation:
+https://docs.localstack.cloud/snowflake/integrations/snow-cli/
+
+Installation options:
+- Using pip: pip install snowflake-cli-labs
+- Using Homebrew (macOS): brew install snowflake-cli
+
+After installation, make sure the 'snow' command is available in your PATH.`,
     };
   }
 }
@@ -227,6 +263,22 @@ export async function startRuntime({
  */
 export async function ensureLocalStackCli() {
   const cliCheck = await checkLocalStackCli();
+
+  if (!cliCheck.isAvailable) {
+    return {
+      content: [{ type: "text", text: cliCheck.errorMessage! }],
+    };
+  }
+
+  return null; // CLI is available, continue with tool execution
+}
+
+/**
+ * Validate Snowflake CLI availability and return early if not available
+ * This is a helper function for tools that require Snowflake CLI
+ */
+export async function ensureSnowflakeCli() {
+  const cliCheck = await checkSnowflakeCli();
 
   if (!cliCheck.isAvailable) {
     return {

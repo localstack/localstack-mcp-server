@@ -52,6 +52,10 @@
       "description": "Install, uninstall, list, and discover LocalStack Extensions from the marketplace"
     },
     {
+      "name": "localstack-snowflake-client",
+      "description": "Execute SQL queries and commands against the LocalStack Snowflake emulator using the Snowflake CLI"
+    },
+    {
       "name": "localstack-docs",
       "description": "Search the LocalStack documentation to find guides, API references, and configuration details"
     }
