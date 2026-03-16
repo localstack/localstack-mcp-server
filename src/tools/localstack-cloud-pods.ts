@@ -3,7 +3,13 @@ import { type ToolMetadata, type InferSchema } from "xmcp";
 import { ProFeature } from "../lib/localstack/license-checker";
 import { CloudPodsApiClient } from "../lib/localstack/localstack.client";
 import { ResponseBuilder } from "../core/response-builder";
-import { runPreflights, requireLocalStackCli, requireProFeature } from "../core/preflight";
+import {
+  runPreflights,
+  requireAuthToken,
+  requireLocalStackRunning,
+  requireLocalStackCli,
+  requireProFeature,
+} from "../core/preflight";
 import { withToolAnalytics } from "../core/analytics";
 
 // Define the schema for tool parameters
@@ -43,6 +49,8 @@ export default async function localstackCloudPods({
 }: InferSchema<typeof schema>) {
   return withToolAnalytics("localstack-cloud-pods", { action, pod_name }, async () => {
     const preflightError = await runPreflights([
+      requireAuthToken(),
+      requireLocalStackRunning(),
       requireLocalStackCli(),
       requireProFeature(ProFeature.CLOUD_PODS),
     ]);

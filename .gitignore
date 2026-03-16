@@ -11,3 +11,4 @@ terraform.tfstate*
 .terraform/
 .terraform.lock.hcl
 .mcp-test-results/
+.DS_Store

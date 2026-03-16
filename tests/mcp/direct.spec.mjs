@@ -12,6 +12,14 @@ const EXPECTED_TOOLS = [
   "localstack-docs",
 ];
 
+function requireEnv(name) {
+  const value = process.env[name];
+  if (!value || !value.trim()) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+}
+
 test("exposes all expected LocalStack MCP tools", async ({ mcp }) => {
   const tools = await mcp.listTools();
   const toolNames = tools.map((tool) => tool.name);
@@ -22,6 +30,8 @@ test("exposes all expected LocalStack MCP tools", async ({ mcp }) => {
 });
 
 test("docs tool returns useful documentation snippets", async ({ mcp }) => {
+  requireEnv("LOCALSTACK_AUTH_TOKEN");
+
   const result = await mcp.callTool("localstack-docs", {
     query: "How to start LocalStack and configure auth token",
     limit: 2,

@@ -20,6 +20,9 @@ This server eliminates custom scripts and manual LocalStack management with dire
 
 This server provides your AI with dedicated tools for managing your LocalStack environment:
 
+> [!NOTE]
+> All tools in this MCP server require `LOCALSTACK_AUTH_TOKEN`.
+
 | Tool Name                                                                         | Description                                                                | Key Features                                                                                                                                                                                                                                                                                                                                                              |
 | :-------------------------------------------------------------------------------- | :------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [`localstack-management`](./src/tools/localstack-management.ts)                   | Manages LocalStack runtime operations for AWS and Snowflake stacks         | - Execute start, stop, restart, and status checks<br/>- Integrate LocalStack authentication tokens<br/>- Inject custom environment variables<br/>- Verify real-time status and perform health monitoring                                                                                                                                  |
@@ -43,42 +46,12 @@ For other MCP Clients, refer to the [configuration guide](#configuration).
 
 - [LocalStack CLI](https://docs.localstack.cloud/getting-started/installation/#localstack-cli) and Docker installed in your system path
 - [`cdklocal`](https://github.com/localstack/aws-cdk-local), [`tflocal`](https://github.com/localstack/terraform-local), or [`samlocal`](https://github.com/localstack/aws-sam-cli-local) installed in your system path for running infrastructure deployment tooling
-- A [valid LocalStack Auth Token](https://docs.localstack.cloud/aws/getting-started/auth-token/) to enable Pro services, IAM Policy Analyzer, Cloud Pods, Chaos Injector, and Extensions tools (**optional**)
+- A [valid LocalStack Auth Token](https://docs.localstack.cloud/aws/getting-started/auth-token/) configured as `LOCALSTACK_AUTH_TOKEN` (**required for all MCP tools**)
 - [Node.js v22.x](https://nodejs.org/en/download/) or higher installed in your system path
 
 ### Configuration
 
 Add the following to your MCP client's configuration file (e.g., `~/.cursor/mcp.json`). This configuration uses `npx` to run the server, which will automatically download & install the package if not already present:
-
-```json
-{
-  "mcpServers": {
-    "localstack-mcp-server": {
-      "command": "npx",
-      "args": ["-y", "@localstack/localstack-mcp-server"]
-    }
-  }
-}
-```
-
-If you installed from source, change `command` and `args` to point to your local build:
-
-```json
-{
-  "mcpServers": {
-    "localstack-mcp-server": {
-      "command": "node",
-      "args": ["/path/to/your/localstack-mcp-server/dist/stdio.js"]
-    }
-  }
-}
-```
-
-#### Enabling Licensed Features
-
-To activate LocalStack licensed features, you need to add your LocalStack Auth Token to the environment variables. You can get your LocalStack Auth Token by following the official [documentation](https://docs.localstack.cloud/aws/getting-started/auth-token/).
-
-Here's how to add your LocalStack Auth Token to the environment variables:
 
 ```json
 {
@@ -94,11 +67,29 @@ Here's how to add your LocalStack Auth Token to the environment variables:
 }
 ```
 
+All LocalStack MCP tools require `LOCALSTACK_AUTH_TOKEN` to be set. You can get your LocalStack Auth Token by following the official [documentation](https://docs.localstack.cloud/aws/getting-started/auth-token/).
+
+If you installed from source, change `command` and `args` to point to your local build:
+
+```json
+{
+  "mcpServers": {
+    "localstack-mcp-server": {
+      "command": "node",
+      "args": ["/path/to/your/localstack-mcp-server/dist/stdio.js"],
+      "env": {
+        "LOCALSTACK_AUTH_TOKEN": "<YOUR_TOKEN>"
+      } 
+    }
+  }
+}
+```
+
 ## LocalStack Configuration
 
 | Variable Name | Description | Default Value |
 | ------------- | ----------- | ------------- |
-| `LOCALSTACK_AUTH_TOKEN` | The LocalStack Auth Token to use for the MCP server | None |
+| `LOCALSTACK_AUTH_TOKEN` (**required**) | The LocalStack Auth Token to use for the MCP server | None |
 | `MAIN_CONTAINER_NAME` | The name of the LocalStack container to use for the MCP server | `localstack-main` |
 | `MCP_ANALYTICS_DISABLED` | Disable MCP analytics when set to `1` | `0` |
 
@@ -139,7 +130,7 @@ This repository includes [MCP Server Tester](https://github.com/gleanwork/mcp-se
 Notes:
 
 - MCP tests target the local STDIO server command `node dist/stdio.js` by default.
-- `LOCALSTACK_AUTH_TOKEN` is required for the comprehensive Gemini eval suite.
+- `LOCALSTACK_AUTH_TOKEN` is required for all MCP tool usage and test suites.
 - You can override the target command with:
   - `MCP_TEST_COMMAND`
   - `MCP_TEST_ARGS` (space-separated arguments)

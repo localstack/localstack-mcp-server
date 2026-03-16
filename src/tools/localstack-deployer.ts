@@ -3,8 +3,11 @@ import { type ToolMetadata, type InferSchema } from "xmcp";
 import { runCommand, stripAnsiCodes } from "../core/command-runner";
 import path from "path";
 import fs from "fs";
-import { ensureLocalStackCli } from "../lib/localstack/localstack.utils";
-import { runPreflights, requireLocalStackRunning } from "../core/preflight";
+import {
+  runPreflights,
+  requireAuthToken,
+  requireLocalStackRunning,
+} from "../core/preflight";
 import { DockerApiClient } from "../lib/docker/docker.client";
 import {
   checkDependencies,
@@ -100,15 +103,8 @@ export default async function localstackDeployer({
     "localstack-deployer",
     { action, projectType, directory, stackName, templatePath, variables, s3Bucket, resolveS3, saveParams },
     async () => {
-      if (action === "deploy" || action === "destroy") {
-        const preflightError = await runPreflights([requireLocalStackRunning()]);
-        if (preflightError) return preflightError;
-        const cliError = await ensureLocalStackCli();
-        if (cliError) return cliError;
-      } else {
-        const preflightError = await runPreflights([requireLocalStackRunning()]);
-        if (preflightError) return preflightError;
-      }
+      const preflightError = await runPreflights([requireAuthToken(), requireLocalStackRunning()]);
+      if (preflightError) return preflightError;
 
   if (action === "create-stack") {
     if (!stackName) {
