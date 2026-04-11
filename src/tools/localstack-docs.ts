@@ -3,7 +3,6 @@ import { type ToolMetadata, type InferSchema } from "xmcp";
 import { httpClient } from "../core/http-client";
 import { runPreflights, requireAuthToken } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
-import { withToolAnalytics } from "../core/analytics";
 
 const CRAWLCHAT_DOCS_ENDPOINT =
   "https://wings.crawlchat.app/mcp/698f2c11e688991df3c7e020";
@@ -37,35 +36,34 @@ export const metadata: ToolMetadata = {
 };
 
 export default async function localstackDocs({ query, limit }: InferSchema<typeof schema>) {
-  return withToolAnalytics("localstack-docs", { query, limit }, async () => {
-    try {
-      const preflightError = await runPreflights([requireAuthToken()]);
-      if (preflightError) return preflightError;
+  try {
+    const preflightError = await runPreflights([requireAuthToken()]);
+    if (preflightError) return preflightError;
 
-      const endpoint = `${CRAWLCHAT_DOCS_ENDPOINT}?query=${encodeURIComponent(query)}`;
-      const response = await httpClient.request<CrawlChatDocsResult[]>(endpoint, {
-        method: "GET",
-        baseUrl: "",
-      });
+    const endpoint = `${CRAWLCHAT_DOCS_ENDPOINT}?query=${encodeURIComponent(query)}`;
+    const response = await httpClient.request<CrawlChatDocsResult[]>(endpoint, {
+      method: "GET",
+      baseUrl: "",
+    });
 
-      if (!Array.isArray(response) || response.length === 0) {
-        return ResponseBuilder.error(
-          "No Results",
-          "No documentation found for your query. Try rephrasing or visit https://docs.localstack.cloud directly."
-        );
-      }
-
-      const results = response
-        .slice(0, limit)
-        .map((item) => ({ content: item.content, url: item.url }));
-
-      const markdown = formatMarkdownResults(query, results);
-      return ResponseBuilder.markdown(markdown);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return ResponseBuilder.error("Docs Search Unavailable", message);
+    if (!Array.isArray(response) || response.length === 0) {
+      return ResponseBuilder.error(
+        "No Results",
+        "No documentation found for your query. Try rephrasing or visit https://docs.localstack.cloud directly."
+      );
     }
-  });
+
+    const results = response
+      .slice(0, limit)
+      .map((item) => ({ content: item.content, url: item.url }));
+
+    const markdown = formatMarkdownResults(query, results);
+    return ResponseBuilder.markdown(markdown);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return ResponseBuilder.error("Docs Search Unavailable", message);
+  }
+  
 }
 
 function formatMarkdownResults(query: string, results: CrawlChatDocsResult[]): string {

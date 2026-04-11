@@ -8,7 +8,6 @@ import {
   requireLocalStackRunning,
 } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
-import { withToolAnalytics } from "../core/analytics";
 
 export const schema = {
   analysisType: z
@@ -57,47 +56,42 @@ export default async function localstackLogsAnalysis({
   operation,
   filter,
 }: InferSchema<typeof schema>) {
-  return withToolAnalytics(
-    "localstack-logs-analysis",
-    { analysisType, lines, service, operation, filter },
-    async () => {
-      const preflightError = await runPreflights([
-        requireAuthToken(),
-        requireLocalStackCli(),
-        requireLocalStackRunning(),
-      ]);
-      if (preflightError) return preflightError;
+  const preflightError = await runPreflights([
+      requireAuthToken(),
+      requireLocalStackCli(),
+      requireLocalStackRunning(),
+    ]);
+    if (preflightError) return preflightError;
 
-      const retriever = new LocalStackLogRetriever();
-      const retrievalFilter = analysisType === "logs" ? filter : undefined;
-      const logResult = await retriever.retrieveLogs(lines, retrievalFilter);
+    const retriever = new LocalStackLogRetriever();
+    const retrievalFilter = analysisType === "logs" ? filter : undefined;
+    const logResult = await retriever.retrieveLogs(lines, retrievalFilter);
 
-      if (!logResult.success) {
-        return ResponseBuilder.error("Log Retrieval Failed", logResult.errorMessage || "Unknown error");
-      }
-
-      switch (analysisType) {
-        case "summary":
-          return await handleSummaryAnalysis(logResult.logs, logResult.totalLines);
-        case "errors":
-          return await handleErrorAnalysis(retriever, logResult.logs, service);
-        case "requests":
-          return await handleRequestAnalysis(retriever, logResult.logs, service, operation);
-        case "logs":
-          return await handleRawLogsAnalysis(
-            logResult.logs,
-            logResult.totalLines,
-            logResult.filteredLines,
-            filter
-          );
-        default:
-          return ResponseBuilder.error(
-            "Unknown analysis type",
-            `❌ Unknown analysis type: ${analysisType}`
-          );
-      }
+    if (!logResult.success) {
+      return ResponseBuilder.error("Log Retrieval Failed", logResult.errorMessage || "Unknown error");
     }
-  );
+
+    switch (analysisType) {
+      case "summary":
+        return await handleSummaryAnalysis(logResult.logs, logResult.totalLines);
+      case "errors":
+        return await handleErrorAnalysis(retriever, logResult.logs, service);
+      case "requests":
+        return await handleRequestAnalysis(retriever, logResult.logs, service, operation);
+      case "logs":
+        return await handleRawLogsAnalysis(
+          logResult.logs,
+          logResult.totalLines,
+          logResult.filteredLines,
+          filter
+        );
+      default:
+        return ResponseBuilder.error(
+          "Unknown analysis type",
+          `❌ Unknown analysis type: ${analysisType}`
+        );
+    }
+  
 }
 
 /**

@@ -93,7 +93,8 @@ If you installed from source, change `command` and `args` to point to your local
 | ------------- | ----------- | ------------- |
 | `LOCALSTACK_AUTH_TOKEN` (**required**) | The LocalStack Auth Token to use for the MCP server | None |
 | `MAIN_CONTAINER_NAME` | The name of the LocalStack container to use for the MCP server | `localstack-main` |
-| `MCP_ANALYTICS_DISABLED` | Disable MCP analytics when set to `1` | `0` |
+| `AGNOST_ORG_ID` | Agnost organization ID for MCP analytics ([get yours](https://app.agnost.ai)) | None |
+| `AGNOST_ANALYTICS_DISABLED` | Disable MCP analytics when set to `1` | `0` |
 
 ## Contributing
 

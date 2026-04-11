@@ -3,7 +3,6 @@ import { type ToolMetadata, type InferSchema } from "xmcp";
 import { runCommand, stripAnsiCodes } from "../core/command-runner";
 import { runPreflights, requireLocalStackCli, requireAuthToken } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
-import { withToolAnalytics } from "../core/analytics";
 
 export const schema = {
   action: z
@@ -59,37 +58,25 @@ export default async function localstackEphemeralInstances({
   cloudPod,
   envVars,
 }: InferSchema<typeof schema>) {
-  return withToolAnalytics(
-    "localstack-ephemeral-instances",
-    {
-      action,
-      name,
-      lifetime,
-      extension,
-      cloudPod,
-      envVarKeys: envVars ? Object.keys(envVars) : [],
-    },
-    async () => {
-      const authError = requireAuthToken();
-      if (authError) return authError;
+  const authError = requireAuthToken();
+    if (authError) return authError;
 
-      const preflightError = await runPreflights([requireLocalStackCli()]);
-      if (preflightError) return preflightError;
+    const preflightError = await runPreflights([requireLocalStackCli()]);
+    if (preflightError) return preflightError;
 
-      switch (action) {
-        case "create":
-          return await handleCreate({ name, lifetime, extension, cloudPod, envVars });
-        case "list":
-          return await handleList();
-        case "logs":
-          return await handleLogs({ name });
-        case "delete":
-          return await handleDelete({ name });
-        default:
-          return ResponseBuilder.error("Unknown action", `Unsupported action: ${action}`);
-      }
+    switch (action) {
+      case "create":
+        return await handleCreate({ name, lifetime, extension, cloudPod, envVars });
+      case "list":
+        return await handleList();
+      case "logs":
+        return await handleLogs({ name });
+      case "delete":
+        return await handleDelete({ name });
+      default:
+        return ResponseBuilder.error("Unknown action", `Unsupported action: ${action}`);
     }
-  );
+  
 }
 
 function cleanOutput(stdout: string, stderr: string): { stdout: string; stderr: string; combined: string } {

@@ -7,7 +7,7 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "xmcp build",
+    "build": "xmcp build && node scripts/inject-agnost.mjs",
     "dev": "xmcp dev",
     "start": "node dist/stdio.js",
     "format": "prettier --write .",
@@ -17,8 +17,8 @@
     "test:mcp": "yarn test:mcp:direct && yarn test:mcp:evals"
   },
   "dependencies": {
+    "agnost": "^0.1.10",
     "dockerode": "^4.0.7",
-    "posthog-node": "5.0.0",
     "xmcp": "0.6.4",
     "zod": "4.3.6"
   },

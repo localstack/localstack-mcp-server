@@ -9,7 +9,6 @@ import {
   requireLocalStackRunning,
   requireProFeature,
 } from "../core/preflight";
-import { withToolAnalytics } from "../core/analytics";
 
 // Define the fault rule schema
 const faultRuleSchema = z
@@ -131,220 +130,215 @@ export default async function localstackChaosInjector({
   rules,
   latency_ms,
 }: InferSchema<typeof schema>) {
-  return withToolAnalytics(
-    "localstack-chaos-injector",
-    { action, rules_count: rules?.length, latency_ms },
-    async () => {
-      const preflightError = await runPreflights([
-        requireAuthToken(),
-        requireLocalStackRunning(),
-        requireProFeature(ProFeature.CHAOS_ENGINEERING),
-      ]);
-      if (preflightError) return preflightError;
+  const preflightError = await runPreflights([
+      requireAuthToken(),
+      requireLocalStackRunning(),
+      requireProFeature(ProFeature.CHAOS_ENGINEERING),
+    ]);
+    if (preflightError) return preflightError;
 
-      const client = new ChaosApiClient();
+    const client = new ChaosApiClient();
 
-      switch (action) {
-    case "get-faults": {
-      const result = await client.getFaults();
-      if (!result.success) {
-        return { content: [{ type: "text", text: result.message }] };
-      }
-
-      const formattedRules = formatFaultRules(result.data);
-      return { content: [{ type: "text", text: formattedRules }] };
+    switch (action) {
+  case "get-faults": {
+    const result = await client.getFaults();
+    if (!result.success) {
+      return { content: [{ type: "text", text: result.message }] };
     }
 
-    case "clear-all-faults": {
-      const result = await client.setFaults([]);
-      if (!result.success) {
-        return ResponseBuilder.error("Chaos API Error", result.message);
-      }
+    const formattedRules = formatFaultRules(result.data);
+    return { content: [{ type: "text", text: formattedRules }] };
+  }
 
-      return ResponseBuilder.success(
-        "All chaos faults have been cleared. The system is now operating normally."
+  case "clear-all-faults": {
+    const result = await client.setFaults([]);
+    if (!result.success) {
+      return ResponseBuilder.error("Chaos API Error", result.message);
+    }
+
+    return ResponseBuilder.success(
+      "All chaos faults have been cleared. The system is now operating normally."
+    );
+  }
+
+  case "inject-faults": {
+    if (!rules || rules.length === 0) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "❌ **Error:** The `inject-faults` action requires the `rules` parameter to be specified.",
+          },
+        ],
+      };
+    }
+
+    const setResult = await client.setFaults(rules);
+    if (!setResult.success) {
+      return ResponseBuilder.error("Chaos API Error", setResult.message);
+    }
+
+    // Get current state to confirm
+    const getCurrentResult = await client.getFaults();
+    if (!getCurrentResult.success) {
+      return ResponseBuilder.error("Chaos API Error", getCurrentResult.message);
+    }
+
+    const message = `✅ New chaos faults have been injected (overwriting any previous rules). The current active faults are:
+
+${formatFaultRules(getCurrentResult.data)}`;
+
+    return ResponseBuilder.markdown(addWorkflowGuidance(message));
+  }
+
+  case "add-fault-rule": {
+    if (!rules || rules.length === 0) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "❌ **Error:** The `add-fault-rule` action requires the `rules` parameter to be specified.",
+          },
+        ],
+      };
+    }
+
+    const addResult = await client.addFaultRules(rules);
+    if (!addResult.success) {
+      return ResponseBuilder.error("Chaos API Error", addResult.message);
+    }
+
+    // Get current state to confirm
+    const getCurrentResult = await client.getFaults();
+    if (!getCurrentResult.success) {
+      return ResponseBuilder.error("Chaos API Error", getCurrentResult.message);
+    }
+
+    const message = `✅ New fault rule(s) have been added. The current active faults are:
+
+${formatFaultRules(getCurrentResult.data)}`;
+
+    return ResponseBuilder.markdown(addWorkflowGuidance(message));
+  }
+
+  case "remove-fault-rule": {
+    if (!rules || rules.length === 0) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "❌ **Error:** The `remove-fault-rule` action requires the `rules` parameter to be specified.",
+          },
+        ],
+      };
+    }
+
+    // First get current rules to check if the rule exists
+    const getCurrentResult = await client.getFaults();
+    if (!getCurrentResult.success) {
+      return ResponseBuilder.error("Chaos API Error", getCurrentResult.message);
+    }
+
+    // Check if all rules to remove exist in current configuration
+    const currentRules = getCurrentResult.data || [];
+    const rulesToRemove = rules;
+
+    for (const ruleToRemove of rulesToRemove) {
+      const ruleExists = currentRules.some((currentRule: any) =>
+        rulesMatch(currentRule, ruleToRemove)
       );
-    }
-
-    case "inject-faults": {
-      if (!rules || rules.length === 0) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "❌ **Error:** The `inject-faults` action requires the `rules` parameter to be specified.",
-            },
-          ],
-        };
-      }
-
-      const setResult = await client.setFaults(rules);
-      if (!setResult.success) {
-        return ResponseBuilder.error("Chaos API Error", setResult.message);
-      }
-
-      // Get current state to confirm
-      const getCurrentResult = await client.getFaults();
-      if (!getCurrentResult.success) {
-        return ResponseBuilder.error("Chaos API Error", getCurrentResult.message);
-      }
-
-      const message = `✅ New chaos faults have been injected (overwriting any previous rules). The current active faults are:
-
-${formatFaultRules(getCurrentResult.data)}`;
-
-      return ResponseBuilder.markdown(addWorkflowGuidance(message));
-    }
-
-    case "add-fault-rule": {
-      if (!rules || rules.length === 0) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "❌ **Error:** The `add-fault-rule` action requires the `rules` parameter to be specified.",
-            },
-          ],
-        };
-      }
-
-      const addResult = await client.addFaultRules(rules);
-      if (!addResult.success) {
-        return ResponseBuilder.error("Chaos API Error", addResult.message);
-      }
-
-      // Get current state to confirm
-      const getCurrentResult = await client.getFaults();
-      if (!getCurrentResult.success) {
-        return ResponseBuilder.error("Chaos API Error", getCurrentResult.message);
-      }
-
-      const message = `✅ New fault rule(s) have been added. The current active faults are:
-
-${formatFaultRules(getCurrentResult.data)}`;
-
-      return ResponseBuilder.markdown(addWorkflowGuidance(message));
-    }
-
-    case "remove-fault-rule": {
-      if (!rules || rules.length === 0) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "❌ **Error:** The `remove-fault-rule` action requires the `rules` parameter to be specified.",
-            },
-          ],
-        };
-      }
-
-      // First get current rules to check if the rule exists
-      const getCurrentResult = await client.getFaults();
-      if (!getCurrentResult.success) {
-        return ResponseBuilder.error("Chaos API Error", getCurrentResult.message);
-      }
-
-      // Check if all rules to remove exist in current configuration
-      const currentRules = getCurrentResult.data || [];
-      const rulesToRemove = rules;
-
-      for (const ruleToRemove of rulesToRemove) {
-        const ruleExists = currentRules.some((currentRule: any) =>
-          rulesMatch(currentRule, ruleToRemove)
-        );
-        if (!ruleExists) {
-          return ResponseBuilder.markdown(`⚠️ The specified rule was not found in the current configuration. No changes were made.
+      if (!ruleExists) {
+        return ResponseBuilder.markdown(`⚠️ The specified rule was not found in the current configuration. No changes were made.
 
 Current configuration:
 ${formatFaultRules(currentRules)}`);
-        }
       }
+    }
 
-      // Rule exists, proceed with removal
-      const removeResult = await client.removeFaultRules(rulesToRemove);
-      if (!removeResult.success) {
-        return ResponseBuilder.error("Chaos API Error", removeResult.message);
-      }
+    // Rule exists, proceed with removal
+    const removeResult = await client.removeFaultRules(rulesToRemove);
+    if (!removeResult.success) {
+      return ResponseBuilder.error("Chaos API Error", removeResult.message);
+    }
 
-      // Get current state after removal to confirm
-      const getUpdatedResult = await client.getFaults();
-      if (!getUpdatedResult.success) {
-        return ResponseBuilder.error("Chaos API Error", getUpdatedResult.message);
-      }
+    // Get current state after removal to confirm
+    const getUpdatedResult = await client.getFaults();
+    if (!getUpdatedResult.success) {
+      return ResponseBuilder.error("Chaos API Error", getUpdatedResult.message);
+    }
 
-      const message = `✅ The specified fault rule(s) have been removed. The current active faults are:
+    const message = `✅ The specified fault rule(s) have been removed. The current active faults are:
 
 ${formatFaultRules(getUpdatedResult.data)}`;
 
-      return ResponseBuilder.markdown(message);
+    return ResponseBuilder.markdown(message);
+  }
+
+  case "get-latency": {
+    const result = await client.getEffects();
+    if (!result.success) {
+      return ResponseBuilder.error("Chaos API Error", result.message);
     }
 
-    case "get-latency": {
-      const result = await client.getEffects();
-      if (!result.success) {
-        return ResponseBuilder.error("Chaos API Error", result.message);
-      }
+    const latency = (result.data as any)?.latency || 0;
+    return ResponseBuilder.markdown(`The current network latency is ${latency}ms.`);
+  }
 
-      const latency = (result.data as any)?.latency || 0;
-      return ResponseBuilder.markdown(`The current network latency is ${latency}ms.`);
+  case "clear-latency": {
+    const result = await client.setEffects({ latency: 0 });
+    if (!result.success) {
+      return ResponseBuilder.error("Chaos API Error", result.message);
     }
 
-    case "clear-latency": {
-      const result = await client.setEffects({ latency: 0 });
-      if (!result.success) {
-        return ResponseBuilder.error("Chaos API Error", result.message);
-      }
+    // Get current state to confirm
+    const getCurrentResult = await client.getEffects();
+    if (!getCurrentResult.success) {
+      return ResponseBuilder.error("Chaos API Error", getCurrentResult.message);
+    }
 
-      // Get current state to confirm
-      const getCurrentResult = await client.getEffects();
-      if (!getCurrentResult.success) {
-        return ResponseBuilder.error("Chaos API Error", getCurrentResult.message);
-      }
-
-      const message = `✅ Network latency has been cleared. The current effects are:
+    const message = `✅ Network latency has been cleared. The current effects are:
 
 \`\`\`json
 ${JSON.stringify(getCurrentResult.data, null, 2)}
 \`\`\``;
 
-      return ResponseBuilder.markdown(message);
+    return ResponseBuilder.markdown(message);
+  }
+
+  case "inject-latency": {
+    if (latency_ms === undefined || latency_ms === null) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "❌ **Error:** The `inject-latency` action requires the `latency_ms` parameter to be specified.",
+          },
+        ],
+      };
     }
 
-    case "inject-latency": {
-      if (latency_ms === undefined || latency_ms === null) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "❌ **Error:** The `inject-latency` action requires the `latency_ms` parameter to be specified.",
-            },
-          ],
-        };
-      }
+    const result = await client.setEffects({ latency: latency_ms });
+    if (!result.success) {
+      return ResponseBuilder.error("Chaos API Error", result.message);
+    }
 
-      const result = await client.setEffects({ latency: latency_ms });
-      if (!result.success) {
-        return ResponseBuilder.error("Chaos API Error", result.message);
-      }
+    // Get current state to confirm
+    const getCurrentResult = await client.getEffects();
+    if (!getCurrentResult.success) {
+      return ResponseBuilder.error("Chaos API Error", getCurrentResult.message);
+    }
 
-      // Get current state to confirm
-      const getCurrentResult = await client.getEffects();
-      if (!getCurrentResult.success) {
-        return ResponseBuilder.error("Chaos API Error", getCurrentResult.message);
-      }
-
-      const message = `✅ Latency of ${latency_ms}ms has been injected. The current network effects are:
+    const message = `✅ Latency of ${latency_ms}ms has been injected. The current network effects are:
 
 \`\`\`json
 ${JSON.stringify(getCurrentResult.data, null, 2)}
 \`\`\``;
 
-      return ResponseBuilder.markdown(addWorkflowGuidance(message));
-    }
+    return ResponseBuilder.markdown(addWorkflowGuidance(message));
+  }
 
-        default:
-          return ResponseBuilder.error("Unknown action", `Unsupported action: ${action}`);
-      }
+      default:
+        return ResponseBuilder.error("Unknown action", `Unsupported action: ${action}`);
     }
-  );
+  
 }

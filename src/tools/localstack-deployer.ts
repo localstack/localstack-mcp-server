@@ -20,7 +20,6 @@ import {
 import { type DeploymentEvent } from "../lib/deployment/deployment-utils";
 import { formatDeploymentReport } from "../lib/deployment/deployment-reporter";
 import { ResponseBuilder } from "../core/response-builder";
-import { withToolAnalytics } from "../core/analytics";
 
 // Define the schema for tool parameters
 export const schema = {
@@ -99,186 +98,182 @@ export default async function localstackDeployer({
   resolveS3,
   saveParams,
 }: InferSchema<typeof schema>) {
-  return withToolAnalytics(
-    "localstack-deployer",
-    { action, projectType, directory, stackName, templatePath, variables, s3Bucket, resolveS3, saveParams },
-    async () => {
-      const preflightError = await runPreflights([requireAuthToken(), requireLocalStackRunning()]);
-      if (preflightError) return preflightError;
+  const preflightError = await runPreflights([requireAuthToken(), requireLocalStackRunning()]);
+    if (preflightError) return preflightError;
 
   if (action === "create-stack") {
-    if (!stackName) {
+  if (!stackName) {
+    return ResponseBuilder.error(
+      "Missing Parameter",
+      "The parameter 'stackName' is required for action 'create-stack'."
+    );
+  }
+  let resolvedTemplatePath = templatePath;
+  if (!resolvedTemplatePath) {
+    if (!directory) {
       return ResponseBuilder.error(
         "Missing Parameter",
-        "The parameter 'stackName' is required for action 'create-stack'."
+        "Provide 'templatePath' or a 'directory' containing a single .yaml/.yml CloudFormation template."
       );
     }
-    let resolvedTemplatePath = templatePath;
-    if (!resolvedTemplatePath) {
-      if (!directory) {
-        return ResponseBuilder.error(
-          "Missing Parameter",
-          "Provide 'templatePath' or a 'directory' containing a single .yaml/.yml CloudFormation template."
-        );
-      }
-      try {
-        const files = await fs.promises.readdir(directory);
-        const yamlFiles = files.filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"));
-        if (yamlFiles.length === 0) {
-          return ResponseBuilder.error(
-            "Template Not Found",
-            `No .yaml/.yml template found in directory '${directory}'.`
-          );
-        }
-        if (yamlFiles.length > 1) {
-          return ResponseBuilder.error(
-            "Multiple Templates Found",
-            `Multiple .yaml/.yml templates found in '${directory}'. Please specify 'templatePath'.\n\nFound:\n${yamlFiles
-              .map((f) => `- ${f}`)
-              .join("\n")}`
-          );
-        }
-        resolvedTemplatePath = path.join(directory, yamlFiles[0]);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return ResponseBuilder.error(
-          "Directory Read Error",
-          `Failed to read directory '${directory}'. ${message}`
-        );
-      }
-    }
-
-    let templateBody = "";
     try {
-      templateBody = await fs.promises.readFile(resolvedTemplatePath, "utf-8");
+      const files = await fs.promises.readdir(directory);
+      const yamlFiles = files.filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"));
+      if (yamlFiles.length === 0) {
+        return ResponseBuilder.error(
+          "Template Not Found",
+          `No .yaml/.yml template found in directory '${directory}'.`
+        );
+      }
+      if (yamlFiles.length > 1) {
+        return ResponseBuilder.error(
+          "Multiple Templates Found",
+          `Multiple .yaml/.yml templates found in '${directory}'. Please specify 'templatePath'.\n\nFound:\n${yamlFiles
+            .map((f) => `- ${f}`)
+            .join("\n")}`
+        );
+      }
+      resolvedTemplatePath = path.join(directory, yamlFiles[0]);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return ResponseBuilder.error(
-        "Template Read Error",
-        `Failed to read template file at '${resolvedTemplatePath}'. ${message}`
+        "Directory Read Error",
+        `Failed to read directory '${directory}'. ${message}`
       );
     }
+  }
+
+  let templateBody = "";
+  try {
+    templateBody = await fs.promises.readFile(resolvedTemplatePath, "utf-8");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return ResponseBuilder.error(
+      "Template Read Error",
+      `Failed to read template file at '${resolvedTemplatePath}'. ${message}`
+    );
+  }
+
+  try {
+    const dockerClient = new DockerApiClient();
+    const containerId = await dockerClient.findLocalStackContainer();
+
+    const tempPath = `/tmp/ls-cfn-${Date.now()}.yaml`;
+    const writeRes = await dockerClient.executeInContainer(
+      containerId,
+      ["/bin/sh", "-c", `cat > ${tempPath}`],
+      templateBody
+    );
+    if (writeRes.exitCode !== 0) {
+      return ResponseBuilder.error(
+        "Template Upload Failed",
+        writeRes.stderr || `Failed to write template to ${tempPath}`
+      );
+    }
+
+    const createCmd = [
+      "awslocal",
+      "cloudformation",
+      "create-stack",
+      "--stack-name",
+      stackName,
+      "--template-body",
+      `file://${tempPath}`,
+    ];
+    const createRes = await dockerClient.executeInContainer(containerId, createCmd);
 
     try {
-      const dockerClient = new DockerApiClient();
-      const containerId = await dockerClient.findLocalStackContainer();
+      await dockerClient.executeInContainer(containerId, ["/bin/sh", "-c", `rm -f ${tempPath}`]);
+    } catch {}
 
-      const tempPath = `/tmp/ls-cfn-${Date.now()}.yaml`;
-      const writeRes = await dockerClient.executeInContainer(
-        containerId,
-        ["/bin/sh", "-c", `cat > ${tempPath}`],
-        templateBody
-      );
-      if (writeRes.exitCode !== 0) {
-        return ResponseBuilder.error(
-          "Template Upload Failed",
-          writeRes.stderr || `Failed to write template to ${tempPath}`
-        );
-      }
-
-      const createCmd = [
-        "awslocal",
-        "cloudformation",
-        "create-stack",
-        "--stack-name",
-        stackName,
-        "--template-body",
-        `file://${tempPath}`,
-      ];
-      const createRes = await dockerClient.executeInContainer(containerId, createCmd);
-
-      try {
-        await dockerClient.executeInContainer(containerId, ["/bin/sh", "-c", `rm -f ${tempPath}`]);
-      } catch {}
-
-      if (createRes.exitCode === 0) {
-        return ResponseBuilder.markdown(
-          (createRes.stdout && createRes.stdout.trim())
-            ? createRes.stdout
-            : `Stack '${stackName}' creation initiated.\n\nTip: Use the 'localstack-aws-client' tool with 'cloudformation describe-stacks' to monitor stack status and wait for CREATE_COMPLETE.`
-        );
-      }
-      return ResponseBuilder.error(
-        "CloudFormation create-stack failed",
-        createRes.stderr || "Unknown error"
-      );
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      return ResponseBuilder.error(
-        "CloudFormation Error",
-        `An unexpected error occurred: ${errorMessage}`
+    if (createRes.exitCode === 0) {
+      return ResponseBuilder.markdown(
+        (createRes.stdout && createRes.stdout.trim())
+          ? createRes.stdout
+          : `Stack '${stackName}' creation initiated.\n\nTip: Use the 'localstack-aws-client' tool with 'cloudformation describe-stacks' to monitor stack status and wait for CREATE_COMPLETE.`
       );
     }
+    return ResponseBuilder.error(
+      "CloudFormation create-stack failed",
+      createRes.stderr || "Unknown error"
+    );
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return ResponseBuilder.error(
+      "CloudFormation Error",
+      `An unexpected error occurred: ${errorMessage}`
+    );
+  }
   }
 
   if (action === "delete-stack") {
-    if (!stackName) {
-      return ResponseBuilder.error(
-        "Missing Parameter",
-        "The parameter 'stackName' is required for action 'delete-stack'."
+  if (!stackName) {
+    return ResponseBuilder.error(
+      "Missing Parameter",
+      "The parameter 'stackName' is required for action 'delete-stack'."
+    );
+  }
+  try {
+    const dockerClient = new DockerApiClient();
+    const containerId = await dockerClient.findLocalStackContainer();
+    const command = [
+      "awslocal",
+      "cloudformation",
+      "delete-stack",
+      "--stack-name",
+      stackName,
+    ];
+    const result = await dockerClient.executeInContainer(containerId, command);
+    if (result.exitCode === 0) {
+      return ResponseBuilder.markdown(
+        (result.stdout && result.stdout.trim())
+          ? result.stdout
+          : `Stack '${stackName}' deletion initiated.\n\nTip: Use the 'localstack-aws-client' tool with 'cloudformation describe-stacks' to monitor deletion status until DELETE_COMPLETE.`
       );
     }
-    try {
-      const dockerClient = new DockerApiClient();
-      const containerId = await dockerClient.findLocalStackContainer();
-      const command = [
-        "awslocal",
-        "cloudformation",
-        "delete-stack",
-        "--stack-name",
-        stackName,
-      ];
-      const result = await dockerClient.executeInContainer(containerId, command);
-      if (result.exitCode === 0) {
-        return ResponseBuilder.markdown(
-          (result.stdout && result.stdout.trim())
-            ? result.stdout
-            : `Stack '${stackName}' deletion initiated.\n\nTip: Use the 'localstack-aws-client' tool with 'cloudformation describe-stacks' to monitor deletion status until DELETE_COMPLETE.`
-        );
-      }
-      return ResponseBuilder.error(
-        "CloudFormation delete-stack failed",
-        result.stderr || "Unknown error"
-      );
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      return ResponseBuilder.error(
-        "CloudFormation Error",
-        `An unexpected error occurred: ${errorMessage}`
-      );
-    }
+    return ResponseBuilder.error(
+      "CloudFormation delete-stack failed",
+      result.stderr || "Unknown error"
+    );
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return ResponseBuilder.error(
+      "CloudFormation Error",
+      `An unexpected error occurred: ${errorMessage}`
+    );
+  }
   }
 
-      let resolvedProjectType: "cdk" | "terraform" | "sam";
+    let resolvedProjectType: "cdk" | "terraform" | "sam";
 
-      try {
-        if (!directory) {
-          return ResponseBuilder.error(
-            "Missing Parameter",
-            "The parameter 'directory' is required for actions 'deploy' and 'destroy'."
-          );
-        }
-        const nonNullDirectory = directory as string;
-
-    // Step 1: Project Type Resolution
-    if (projectType === "auto") {
-      const inferredType = await inferProjectType(nonNullDirectory);
-
-      if (inferredType === "ambiguous") {
+    try {
+      if (!directory) {
         return ResponseBuilder.error(
-          "Ambiguous Project Type",
-          `The directory "${directory}" contains multiple infrastructure project types. Please specify the project type explicitly:
+          "Missing Parameter",
+          "The parameter 'directory' is required for actions 'deploy' and 'destroy'."
+        );
+      }
+      const nonNullDirectory = directory as string;
+
+  // Step 1: Project Type Resolution
+  if (projectType === "auto") {
+    const inferredType = await inferProjectType(nonNullDirectory);
+
+    if (inferredType === "ambiguous") {
+      return ResponseBuilder.error(
+        "Ambiguous Project Type",
+        `The directory "${directory}" contains multiple infrastructure project types. Please specify the project type explicitly:
 
 - Use \`projectType: 'cdk'\` to deploy as a CDK project
 - Use \`projectType: 'terraform'\` to deploy as a Terraform project
 - Use \`projectType: 'sam'\` to deploy as a SAM project`
-        );
-      }
+      );
+    }
 
-      if (inferredType === "unknown") {
-        return ResponseBuilder.error(
-          "Unknown Project Type",
-          `The directory "${directory}" does not appear to contain recognizable infrastructure-as-code files.
+    if (inferredType === "unknown") {
+      return ResponseBuilder.error(
+        "Unknown Project Type",
+        `The directory "${directory}" does not appear to contain recognizable infrastructure-as-code files.
 
 Expected files:
 - **CDK**: \`cdk.json\`, \`app.py\`, \`app.js\`, or \`app.ts\`
@@ -286,54 +281,53 @@ Expected files:
 - **SAM**: \`samconfig.toml\` or \`template.yaml/.yml\` with \`AWS::Serverless::*\` resources
 
 Please check the directory path or specify the project type explicitly.`
-        );
-      }
-
-      resolvedProjectType = inferredType as "cdk" | "terraform" | "sam";
-    } else {
-      resolvedProjectType = projectType as "cdk" | "terraform" | "sam";
+      );
     }
 
-    // Check Dependencies
-    const dependencyCheck = await checkDependencies(resolvedProjectType);
-    if (!dependencyCheck.isAvailable) {
-      return ResponseBuilder.error("Dependency Not Available", dependencyCheck.errorMessage!);
-    }
+    resolvedProjectType = inferredType as "cdk" | "terraform" | "sam";
+  } else {
+    resolvedProjectType = projectType as "cdk" | "terraform" | "sam";
+  }
 
-    // Security Validation
-    const validationErrors = validateVariables(variables);
-    if (validationErrors.length > 0) {
-      return ResponseBuilder.error(
-        "Security Violation Detected",
-        `🛡️ **Security Violation Detected**
+  // Check Dependencies
+  const dependencyCheck = await checkDependencies(resolvedProjectType);
+  if (!dependencyCheck.isAvailable) {
+    return ResponseBuilder.error("Dependency Not Available", dependencyCheck.errorMessage!);
+  }
+
+  // Security Validation
+  const validationErrors = validateVariables(variables);
+  if (validationErrors.length > 0) {
+    return ResponseBuilder.error(
+      "Security Violation Detected",
+      `🛡️ **Security Violation Detected**
 
 Command injection attempt prevented. The following issues were found:
 
 ${validationErrors.map((error) => `- ${error}`).join("\n")}
 
 Please review your variables and ensure they don't contain shell metacharacters or invalid identifiers.`
-      );
-    }
+    );
+  }
 
-        // Execute Commands Based on Project Type and Action
-        return await executeDeploymentCommands(
-          resolvedProjectType,
-          action,
-          nonNullDirectory,
-          variables,
-          { stackName, templatePath, s3Bucket, resolveS3, saveParams }
-        );
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        return ResponseBuilder.error(
-          "Deployment Error",
-          `An unexpected error occurred: ${errorMessage}
+      // Execute Commands Based on Project Type and Action
+      return await executeDeploymentCommands(
+        resolvedProjectType,
+        action,
+        nonNullDirectory,
+        variables,
+        { stackName, templatePath, s3Bucket, resolveS3, saveParams }
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return ResponseBuilder.error(
+        "Deployment Error",
+        `An unexpected error occurred: ${errorMessage}
 
 Please check the directory path and ensure all prerequisites are met.`
-        );
-      }
+      );
     }
-  );
+  
 }
 
 /**

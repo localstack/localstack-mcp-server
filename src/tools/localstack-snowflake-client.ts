@@ -4,7 +4,6 @@ import { runCommand } from "../core/command-runner";
 import { runPreflights, requireSnowflakeCli, requireProFeature } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { ProFeature } from "../lib/localstack/license-checker";
-import { withToolAnalytics } from "../core/analytics";
 
 const SNOWFLAKE_CONNECTION_NAME = "localstack";
 
@@ -106,54 +105,53 @@ export default async function localstackSnowflakeClient({
   warehouse,
   role,
 }: InferSchema<typeof schema>) {
-  return withToolAnalytics("localstack-snowflake-client", { action }, async () => {
-    const preflightError = await runPreflights([
-      requireSnowflakeCli(),
-      requireProFeature(ProFeature.SNOWFLAKE),
-      requireSnowflakeConnectionProfile(),
-    ]);
-    if (preflightError) return preflightError;
+  const preflightError = await runPreflights([
+    requireSnowflakeCli(),
+    requireProFeature(ProFeature.SNOWFLAKE),
+    requireSnowflakeConnectionProfile(),
+  ]);
+  if (preflightError) return preflightError;
 
-    if (action === "check-connection") {
-      const result = await runCommand(
-        "snow",
-        ["connection", "test", "--connection", SNOWFLAKE_CONNECTION_NAME],
-        { env: { ...process.env } }
-      );
+  if (action === "check-connection") {
+    const result = await runCommand(
+      "snow",
+      ["connection", "test", "--connection", SNOWFLAKE_CONNECTION_NAME],
+      { env: { ...process.env } }
+    );
 
-      if (result.exitCode === 0) {
-        return ResponseBuilder.markdown(result.stdout || "");
-      }
-
-      return ResponseBuilder.error("Connection Check Failed", (result.stderr || result.stdout || "").trim());
-    }
-
-    const hasQuery = !!query;
-    const hasFilePath = !!file_path;
-    if ((hasQuery && hasFilePath) || (!hasQuery && !hasFilePath)) {
-      return ResponseBuilder.error(
-        "Invalid Parameters",
-        "Provide exactly one of `query` or `file_path` when action is `execute`."
-      );
-    }
-
-    const args = ["sql", "--connection", SNOWFLAKE_CONNECTION_NAME];
-    if (query) args.push("--query", query);
-    if (file_path) args.push("-f", file_path);
-    if (database) args.push("--dbname", database);
-    if (schemaName) args.push("--schemaname", schemaName);
-    if (warehouse) args.push("--warehouse", warehouse);
-    if (role) args.push("--rolename", role);
-
-    const result = await runCommand("snow", args, { env: { ...process.env } });
     if (result.exitCode === 0) {
       return ResponseBuilder.markdown(result.stdout || "");
     }
 
-    const rawError = (result.stderr || result.stdout || result.error?.message || "Unknown error").trim();
+    return ResponseBuilder.error("Connection Check Failed", (result.stderr || result.stdout || "").trim());
+  }
+
+  const hasQuery = !!query;
+  const hasFilePath = !!file_path;
+  if ((hasQuery && hasFilePath) || (!hasQuery && !hasFilePath)) {
     return ResponseBuilder.error(
-      "Command Failed",
-      `${rawError}\n\nCheck Snowflake feature coverage: https://docs.localstack.cloud/snowflake/feature-coverage/`
+      "Invalid Parameters",
+      "Provide exactly one of `query` or `file_path` when action is `execute`."
     );
-  });
+  }
+
+  const args = ["sql", "--connection", SNOWFLAKE_CONNECTION_NAME];
+  if (query) args.push("--query", query);
+  if (file_path) args.push("-f", file_path);
+  if (database) args.push("--dbname", database);
+  if (schemaName) args.push("--schemaname", schemaName);
+  if (warehouse) args.push("--warehouse", warehouse);
+  if (role) args.push("--rolename", role);
+
+  const result = await runCommand("snow", args, { env: { ...process.env } });
+  if (result.exitCode === 0) {
+    return ResponseBuilder.markdown(result.stdout || "");
+  }
+
+  const rawError = (result.stderr || result.stdout || result.error?.message || "Unknown error").trim();
+  return ResponseBuilder.error(
+    "Command Failed",
+    `${rawError}\n\nCheck Snowflake feature coverage: https://docs.localstack.cloud/snowflake/feature-coverage/`
+  );
+  
 }

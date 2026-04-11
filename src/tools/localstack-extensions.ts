@@ -11,7 +11,6 @@ import {
 } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { ProFeature } from "../lib/localstack/license-checker";
-import { withToolAnalytics } from "../core/analytics";
 
 export const schema = {
   action: z
@@ -57,30 +56,29 @@ export default async function localstackExtensions({
   name,
   source,
 }: InferSchema<typeof schema>) {
-  return withToolAnalytics("localstack-extensions", { action, name, source }, async () => {
-    const checks = [
-      requireAuthToken(),
-      requireLocalStackCli(),
-      requireLocalStackRunning(),
-      requireProFeature(ProFeature.EXTENSIONS),
-    ];
+  const checks = [
+    requireAuthToken(),
+    requireLocalStackCli(),
+    requireLocalStackRunning(),
+    requireProFeature(ProFeature.EXTENSIONS),
+  ];
 
-    const preflightError = await runPreflights(checks);
-    if (preflightError) return preflightError;
+  const preflightError = await runPreflights(checks);
+  if (preflightError) return preflightError;
 
-    switch (action) {
-      case "list":
-        return await handleList();
-      case "install":
-        return await handleInstall(name, source);
-      case "uninstall":
-        return await handleUninstall(name);
-      case "available":
-        return await handleAvailable();
-      default:
-        return ResponseBuilder.error("Unknown action", `Unsupported action: ${action}`);
-    }
-  });
+  switch (action) {
+    case "list":
+      return await handleList();
+    case "install":
+      return await handleInstall(name, source);
+    case "uninstall":
+      return await handleUninstall(name);
+    case "available":
+      return await handleAvailable();
+    default:
+      return ResponseBuilder.error("Unknown action", `Unsupported action: ${action}`);
+  }
+  
 }
 
 function cleanOutput(stdout: string, stderr: string) {

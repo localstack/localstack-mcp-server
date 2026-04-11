@@ -9,7 +9,6 @@ import { runCommand } from "../core/command-runner";
 import { runPreflights, requireLocalStackCli, requireProFeature, requireAuthToken } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { ProFeature } from "../lib/localstack/license-checker";
-import { withToolAnalytics } from "../core/analytics";
 
 export const schema = {
   action: z
@@ -43,33 +42,32 @@ export default async function localstackManagement({
   service,
   envVars,
 }: InferSchema<typeof schema>) {
-  return withToolAnalytics("localstack-management", { action, service, envVars }, async () => {
-    const checks = [requireAuthToken(), requireLocalStackCli()];
+  const checks = [requireAuthToken(), requireLocalStackCli()];
 
-    if (service === "snowflake") {
-      // `start` can run when no LocalStack runtime is currently up; validate feature after startup.
-      if (action !== "start") checks.push(requireProFeature(ProFeature.SNOWFLAKE));
-    }
+  if (service === "snowflake") {
+    // `start` can run when no LocalStack runtime is currently up; validate feature after startup.
+    if (action !== "start") checks.push(requireProFeature(ProFeature.SNOWFLAKE));
+  }
 
-    const preflightError = await runPreflights(checks);
-    if (preflightError) return preflightError;
+  const preflightError = await runPreflights(checks);
+  if (preflightError) return preflightError;
 
-    switch (action) {
-      case "start":
-        return await handleStart({ envVars, service });
-      case "stop":
-        return await handleStop();
-      case "restart":
-        return await handleRestart();
-      case "status":
-        return await handleStatus({ service });
-      default:
-        return ResponseBuilder.error(
-          "Unknown action",
-          `❌ Unknown action: ${action}. Supported actions: start, stop, restart, status`
-        );
-    }
-  });
+  switch (action) {
+    case "start":
+      return await handleStart({ envVars, service });
+    case "stop":
+      return await handleStop();
+    case "restart":
+      return await handleRestart();
+    case "status":
+      return await handleStatus({ service });
+    default:
+      return ResponseBuilder.error(
+        "Unknown action",
+        `❌ Unknown action: ${action}. Supported actions: start, stop, restart, status`
+      );
+  }
+  
 }
 
 // Handle start action
