@@ -27,7 +27,6 @@ jobs:
         run: yarn build
 
   mcp-direct-tests:
-    if: ${{ secrets.LOCALSTACK_AUTH_TOKEN != '' }}
     runs-on: ubuntu-latest
     env:
       LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
@@ -46,3 +45,5 @@ jobs:
 
       - name: Run MCP Server Tester
         run: yarn test:mcp:direct
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
