@@ -73,7 +73,7 @@ describe("DockerApiClient", () => {
 
   test("findLocalStackContainer returns id when found", async () => {
     const mocks = getDockerMocks();
-    mocks.listContainers.mockResolvedValueOnce([{ Id: "abc123", Names: ["/localstack-main"] }]);
+    mocks.listContainers.mockResolvedValueOnce([{ Id: "abc123", Names: ["/localstack-aws"] }]);
 
     const client = new DockerApiClient();
     await expect(client.findLocalStackContainer()).resolves.toBe("abc123");
@@ -84,7 +84,7 @@ describe("DockerApiClient", () => {
 
     const mocks = getDockerMocks();
     mocks.listContainers.mockResolvedValueOnce([
-      { Id: "not-this", Names: ["/localstack-main"] },
+      { Id: "not-this", Names: ["/localstack-aws"] },
       { Id: "xyz999", Names: ["/my-custom-localstack"] },
     ]);
 
@@ -98,13 +98,13 @@ describe("DockerApiClient", () => {
 
     const client = new DockerApiClient();
     await expect(client.findLocalStackContainer()).rejects.toThrow(
-      /Could not find a running LocalStack container named "localstack-main"/i
+      /Could not find a running LocalStack container named "localstack-aws"/i
     );
   });
 
   test("executeInContainer returns stdout on success", async () => {
     const mocks = getDockerMocks();
-    mocks.listContainers.mockResolvedValueOnce([{ Id: "abc123", Names: ["/localstack-main"] }]);
+    mocks.listContainers.mockResolvedValueOnce([{ Id: "abc123", Names: ["/localstack-aws"] }]);
 
     // prepare exec.inspect to return 0
     mocks.execInspect.mockResolvedValueOnce({ ExitCode: 0 });
@@ -136,7 +136,7 @@ describe("DockerApiClient", () => {
 
   test("executeInContainer returns stderr on failure", async () => {
     const mocks = getDockerMocks();
-    mocks.listContainers.mockResolvedValueOnce([{ Id: "abc123", Names: ["/localstack-main"] }]);
+    mocks.listContainers.mockResolvedValueOnce([{ Id: "abc123", Names: ["/localstack-aws"] }]);
     mocks.execInspect.mockResolvedValueOnce({ ExitCode: 2 });
 
     const client = new DockerApiClient();

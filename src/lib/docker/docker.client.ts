@@ -39,7 +39,7 @@ export class DockerApiClient {
     const configuredName = (
       process.env.MAIN_CONTAINER_NAME ||
       process.env.LOCALSTACK_MAIN_CONTAINER_NAME ||
-      "localstack-main"
+      "localstack-aws"
     ).trim();
 
     const byConfiguredName = (running || []).find((c) =>

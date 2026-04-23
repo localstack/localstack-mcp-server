@@ -92,7 +92,7 @@ If you installed from source, change `command` and `args` to point to your local
 | Variable Name | Description | Default Value |
 | ------------- | ----------- | ------------- |
 | `LOCALSTACK_AUTH_TOKEN` (**required**) | The LocalStack Auth Token to use for the MCP server | None |
-| `MAIN_CONTAINER_NAME` | The name of the LocalStack container to use for the MCP server | `localstack-main` |
+| `MAIN_CONTAINER_NAME` | The name of the LocalStack container to use for the MCP server | `localstack-aws` |
 | `MCP_ANALYTICS_DISABLED` | Disable MCP analytics when set to `1` | `0` |
 
 ## Contributing
