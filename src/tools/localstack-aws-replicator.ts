@@ -39,7 +39,7 @@ export const schema = {
     .trim()
     .optional()
     .describe(
-      "Resource identifier to replicate. For BATCH SSM parameter replication, this must be a path prefix such as /dev/."
+      "Resource identifier for the resource to replicate, such as a VPC ID (vpc-...), SSM parameter name, IAM role name, or ECR repository name. For BATCH SSM parameter replication, this must be a path prefix such as /dev/."
     ),
   resource_arn: z
     .string()
@@ -52,7 +52,7 @@ export const schema = {
     .trim()
     .optional()
     .describe(
-      "Optional LocalStack target AWS account id override. This is sent as the target AWS access key id for LocalStack account routing."
+      "Optional LocalStack target AWS account id override. LocalStack defaults to account 000000000000, so this is only needed when replicating into a non-default account namespace."
     ),
   target_region_name: z
     .string()
@@ -112,10 +112,11 @@ export default async function localstackAwsReplicator(args: AwsReplicatorArgs) {
 }
 
 async function handleStart(client: AwsReplicatorApiClient, args: AwsReplicatorArgs) {
-  const validationError = validateStartArgs(args);
+  const sourceAwsConfig = getSourceAwsConfigFromEnv();
+  const validationError = validateStartArgs(args, sourceAwsConfig);
   if (validationError) return validationError;
 
-  const request = buildStartReplicationJobRequest(args);
+  const request = buildStartReplicationJobRequest(args, sourceAwsConfig.config);
   const result = await client.startJob(request);
   if (!result.success) {
     return ResponseBuilder.error("AWS Replicator Error", result.message);
@@ -158,7 +159,18 @@ async function handleListSupportedResources(client: AwsReplicatorApiClient) {
   return ResponseBuilder.markdown(formatSupportedResources(result.data));
 }
 
-function validateStartArgs(args: AwsReplicatorArgs) {
+type SourceAwsConfigResult = { config: AwsConfig; missing: string[] };
+
+function validateStartArgs(args: AwsReplicatorArgs, sourceAwsConfig: SourceAwsConfigResult) {
+  const missingSourceFields = sourceAwsConfig.missing.map((field) => `\`${field}\``);
+
+  if (missingSourceFields.length > 0) {
+    return ResponseBuilder.error(
+      "Missing Source AWS Configuration",
+      `Configure ${missingSourceFields.join(", ")} in the MCP server environment. The Replicator uses these credentials to read the source AWS account.`
+    );
+  }
+
   const hasArn = Boolean(args.resource_arn?.trim());
   const hasTypeAndIdentifier = Boolean(args.resource_type?.trim() && args.resource_identifier?.trim());
 
@@ -176,21 +188,12 @@ function validateStartArgs(args: AwsReplicatorArgs) {
     );
   }
 
-  const sourceAwsConfig = getSourceAwsConfigFromEnv();
-  const missingSourceFields = sourceAwsConfig.missing.map((field) => `\`${field}\``);
-
-  if (missingSourceFields.length > 0) {
-    return ResponseBuilder.error(
-      "Missing Source AWS Configuration",
-      `Configure ${missingSourceFields.join(", ")} in the MCP server environment. The Replicator uses these credentials to read the source AWS account.`
-    );
-  }
-
   return null;
 }
 
 export function buildStartReplicationJobRequest(
-  args: AwsReplicatorArgs
+  args: AwsReplicatorArgs,
+  sourceAwsConfig: AwsConfig = getSourceAwsConfigFromEnv().config
 ): StartReplicationJobRequest {
   const replicationJobConfig =
     args.resource_arn?.trim()
@@ -200,8 +203,7 @@ export function buildStartReplicationJobRequest(
           resource_identifier: args.resource_identifier!.trim(),
         };
 
-  const sourceAwsConfig = getSourceAwsConfigFromEnv().config;
-  const targetAwsConfig = getTargetAwsConfig(args);
+  const targetAwsConfig = getTargetAwsConfig(args, sourceAwsConfig.region_name);
 
   return {
     replication_type: args.replication_type,
@@ -215,7 +217,7 @@ function firstNonEmpty(...values: Array<string | undefined>): string | undefined
   return values.find((value) => value?.trim())?.trim();
 }
 
-function getSourceAwsConfigFromEnv(): { config: AwsConfig; missing: string[] } {
+function getSourceAwsConfigFromEnv(): SourceAwsConfigResult {
   const config: AwsConfig = {
     aws_access_key_id: firstNonEmpty(
       process.env.AWS_REPLICATOR_SOURCE_AWS_ACCESS_KEY_ID,
@@ -256,7 +258,10 @@ function getSourceAwsConfigFromEnv(): { config: AwsConfig; missing: string[] } {
   return { config, missing };
 }
 
-function getTargetAwsConfig(args: AwsReplicatorArgs): AwsConfig | undefined {
+function getTargetAwsConfig(
+  args: AwsReplicatorArgs,
+  sourceRegionName?: string
+): AwsConfig | undefined {
   const targetAccountId = firstNonEmpty(
     args.target_account_id,
     process.env.AWS_REPLICATOR_TARGET_ACCOUNT_ID,
@@ -277,7 +282,7 @@ function getTargetAwsConfig(args: AwsReplicatorArgs): AwsConfig | undefined {
     aws_secret_access_key: firstNonEmpty(
       process.env.AWS_REPLICATOR_TARGET_AWS_SECRET_ACCESS_KEY
     ) || "test",
-    region_name: targetRegionName || getSourceAwsConfigFromEnv().config.region_name,
+    region_name: targetRegionName || sourceRegionName,
   };
 
   const targetSessionToken = firstNonEmpty(process.env.AWS_REPLICATOR_TARGET_AWS_SESSION_TOKEN);
