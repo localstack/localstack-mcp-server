@@ -8,6 +8,7 @@ export enum ProFeature {
   CLOUD_PODS = "localstack.platform.plugin/pods",
   CHAOS_ENGINEERING = "localstack.platform.plugin/chaos",
   EXTENSIONS = "localstack.platform.plugin/extensions",
+  REPLICATOR = "localstack.platform.plugin/replicator",
   SNOWFLAKE = "localstack.aws.provider/snowflake:pro",
 }
 
