@@ -4,6 +4,39 @@ export type ApiResult<T> =
   | { success: true; data: T }
   | { success: false; message: string; statusCode?: number };
 
+export interface AwsConfig {
+  aws_access_key_id?: string;
+  aws_secret_access_key?: string;
+  aws_session_token?: string;
+  region_name?: string;
+  endpoint_url?: string;
+}
+
+export interface ReplicationJobConfig {
+  resource_type?: string;
+  resource_identifier?: string;
+  resource_arn?: string;
+}
+
+export interface StartReplicationJobRequest {
+  replication_type: "SINGLE_RESOURCE" | "BATCH";
+  replication_job_config: ReplicationJobConfig;
+  source_aws_config: AwsConfig;
+  target_aws_config?: AwsConfig;
+}
+
+export interface ReplicationJobResponse {
+  job_id: string;
+  state: string;
+  error_message?: string | null;
+  type?: string;
+  replication_type?: string;
+  replication_config?: Record<string, unknown>;
+  replication_job_config?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
 // Chaos API Client
 export class ChaosApiClient {
   private async makeRequest(
@@ -132,5 +165,44 @@ export class CloudPodsApiClient {
   }
   resetState() {
     return this.makeRequest("/_localstack/state/reset", "POST", false, {});
+  }
+}
+
+// AWS Replicator API Client
+export class AwsReplicatorApiClient {
+  private async makeRequest<T>(
+    endpoint: string,
+    method: "GET" | "POST",
+    body?: unknown
+  ): Promise<ApiResult<T>> {
+    try {
+      const data = await httpClient.request<T>(`/_localstack/replicator/jobs${endpoint}`, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+        timeout: 300000,
+      });
+      return { success: true, data };
+    } catch (error) {
+      if (error instanceof HttpError) {
+        return {
+          success: false,
+          message: `❌ **Error:** The LocalStack AWS Replicator API returned an error (Status ${error.status}):\n\`\`\`\n${error.body}\n\`\`\``,
+          statusCode: error.status,
+        };
+      }
+      return {
+        success: false,
+        message: `❌ **Error:** Failed to communicate with LocalStack AWS Replicator API: ${error instanceof Error ? error.message : "Unknown error"}`,
+      };
+    }
+  }
+
+  startJob(request: StartReplicationJobRequest) {
+    return this.makeRequest<ReplicationJobResponse>("", "POST", request);
+  }
+
+  getJobStatus(jobId: string) {
+    return this.makeRequest<ReplicationJobResponse>(`/${encodeURIComponent(jobId)}`, "GET");
   }
 }

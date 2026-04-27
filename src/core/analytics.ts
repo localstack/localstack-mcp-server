@@ -17,6 +17,15 @@ const SHUTDOWN_TIMEOUT_MS = 1000;
 
 export const TOOL_ARG_ALLOWLIST: Record<string, string[]> = {
   "localstack-aws-client": ["command"],
+  "localstack-aws-replicator": [
+    "action",
+    "replication_type",
+    "resource_type",
+    "has_resource_identifier",
+    "has_resource_arn",
+    "target_account_id",
+    "target_region_name",
+  ],
   "localstack-chaos-injector": ["action", "rules_count", "latency_ms"],
   "localstack-cloud-pods": ["action", "pod_name"],
   "localstack-deployer": [

@@ -24,6 +24,34 @@
           "format": "string",
           "is_secret": true,
           "name": "LOCALSTACK_AUTH_TOKEN"
+        },
+        {
+          "description": "Source AWS access key used by AWS Replicator to read external AWS resources",
+          "is_required": false,
+          "format": "string",
+          "is_secret": true,
+          "name": "AWS_ACCESS_KEY_ID"
+        },
+        {
+          "description": "Source AWS secret access key used by AWS Replicator to read external AWS resources",
+          "is_required": false,
+          "format": "string",
+          "is_secret": true,
+          "name": "AWS_SECRET_ACCESS_KEY"
+        },
+        {
+          "description": "Optional source AWS session token used by AWS Replicator for temporary credentials",
+          "is_required": false,
+          "format": "string",
+          "is_secret": true,
+          "name": "AWS_SESSION_TOKEN"
+        },
+        {
+          "description": "Source AWS region used by AWS Replicator",
+          "is_required": false,
+          "format": "string",
+          "is_secret": false,
+          "name": "AWS_DEFAULT_REGION"
         }
       ]
     }

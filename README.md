@@ -15,6 +15,7 @@ This server eliminates custom scripts and manual LocalStack management with dire
 - Manage LocalStack state snapshots via [Cloud Pods](https://docs.localstack.cloud/aws/capabilities/state-management/cloud-pods/) for development workflows. (requires active license)
 - Install, remove, list, and discover [LocalStack Extensions](https://docs.localstack.cloud/aws/capabilities/extensions/) from the marketplace. (requires active license)
 - Launch and manage [Ephemeral Instances](https://docs.localstack.cloud/aws/capabilities/cloud-sandbox/ephemeral-instances/) for remote LocalStack testing workflows.
+- Replicate external AWS resources into LocalStack with [AWS Replicator](https://docs.localstack.cloud/aws/tooling/aws-replicator/) so IaC stacks can resolve shared dependencies locally.
 - Connect AI assistants and dev tools for automated cloud testing workflows.
 
 ## Tools Reference
@@ -35,6 +36,7 @@ This server provides your AI with dedicated tools for managing your LocalStack e
 | [`localstack-extensions`](./src/tools/localstack-extensions.ts)                   | Installs, uninstalls, lists, and discovers LocalStack Extensions           | - Manage installed extensions via CLI actions (`list`, `install`, `uninstall`)<br/>- Browse the LocalStack Extensions marketplace (`available`)<br/>- Requires a valid LocalStack Auth Token support                                                                                                                        |
 | [`localstack-ephemeral-instances`](./src/tools/localstack-ephemeral-instances.ts) | Manages cloud-hosted LocalStack Ephemeral Instances                        | - Create temporary cloud-hosted LocalStack instances and get an endpoint URL<br/>- List available ephemeral instances, fetch logs, and delete instances<br/>- Supports lifetime, extension preload, Cloud Pod preload, and custom env vars on create<br/>- Requires a valid LocalStack Auth Token and LocalStack CLI                                                                                                                        |
 | [`localstack-aws-client`](./src/tools/localstack-aws-client.ts)                   | Runs AWS CLI commands inside the LocalStack for AWS container              | - Executes commands via `awslocal` inside the running container<br/>- Sanitizes commands to block shell chaining<br/>- Auto-detects LocalStack coverage errors and links to docs                                                                                                                                                                                            |
+| [`localstack-aws-replicator`](./src/tools/localstack-aws-replicator.ts)           | Replicates external AWS resources into a running LocalStack instance       | - Start single-resource replication jobs with a resource type and identifier or ARN<br/>- Start batch replication jobs, such as SSM parameters under a path prefix<br/>- Poll job status by job ID<br/>- Reads source AWS credentials from the MCP server environment and supports optional target account or region overrides                                               |
 | [`localstack-docs`](./src/tools/localstack-docs.ts)                               | Searches LocalStack documentation through CrawlChat                        | - Queries LocalStack docs through a public CrawlChat collection<br/>- Returns focused snippets with source links only<br/>- Helps answer coverage, configuration, and setup questions without requiring LocalStack runtime                                                                                                                                                |
 
 ## Installation
@@ -94,6 +96,10 @@ If you installed from source, change `command` and `args` to point to your local
 | `LOCALSTACK_AUTH_TOKEN` (**required**) | The LocalStack Auth Token to use for the MCP server | None |
 | `MAIN_CONTAINER_NAME` | The name of the LocalStack container to use for the MCP server | `localstack-main` |
 | `MCP_ANALYTICS_DISABLED` | Disable MCP analytics when set to `1` | `0` |
+| `AWS_ACCESS_KEY_ID` (**required for AWS Replicator tool**) | Source AWS access key used by AWS Replicator to read external AWS resources | None |
+| `AWS_SECRET_ACCESS_KEY` (**required for AWS Replicator tool**) | Source AWS secret access key used by AWS Replicator to read external AWS resources | None |
+| `AWS_SESSION_TOKEN` (**required for AWS Replicator tool**) | Optional source AWS session token used by AWS Replicator for temporary credentials | None |
+| `AWS_DEFAULT_REGION` (**required for AWS Replicator tool**) | Source AWS region used by AWS Replicator | None |
 
 ## Contributing
 
@@ -119,7 +125,7 @@ This repository includes [MCP Server Tester](https://github.com/gleanwork/mcp-se
   export GOOGLE_GENERATIVE_AI_API_KEY="<your-gemini-key>"
   export LOCALSTACK_AUTH_TOKEN="<your-localstack-auth-token>"
   yarn test:mcp:evals
-```
+  ```
 - Open the latest MCP Server Tester HTML report:
   ```bash
   npx mcp-server-tester open
