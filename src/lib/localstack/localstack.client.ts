@@ -37,6 +37,14 @@ export interface ReplicationJobResponse {
   [key: string]: unknown;
 }
 
+export interface ReplicationSupportedResource {
+  resource_type?: string;
+  service?: string;
+  identifier?: string;
+  policy_statements?: unknown[];
+  [key: string]: unknown;
+}
+
 // Chaos API Client
 export class ChaosApiClient {
   private async makeRequest(
@@ -176,7 +184,7 @@ export class AwsReplicatorApiClient {
     body?: unknown
   ): Promise<ApiResult<T>> {
     try {
-      const data = await httpClient.request<T>(`/_localstack/replicator/jobs${endpoint}`, {
+      const data = await httpClient.request<T>(`/_localstack/replicator${endpoint}`, {
         method,
         headers: { "Content-Type": "application/json" },
         body: body ? JSON.stringify(body) : undefined,
@@ -199,10 +207,18 @@ export class AwsReplicatorApiClient {
   }
 
   startJob(request: StartReplicationJobRequest) {
-    return this.makeRequest<ReplicationJobResponse>("", "POST", request);
+    return this.makeRequest<ReplicationJobResponse>("/jobs", "POST", request);
+  }
+
+  listJobs() {
+    return this.makeRequest<ReplicationJobResponse[]>("/jobs", "GET");
   }
 
   getJobStatus(jobId: string) {
-    return this.makeRequest<ReplicationJobResponse>(`/${encodeURIComponent(jobId)}`, "GET");
+    return this.makeRequest<ReplicationJobResponse>(`/jobs/${encodeURIComponent(jobId)}`, "GET");
+  }
+
+  listSupportedResources() {
+    return this.makeRequest<ReplicationSupportedResource[]>("/resources", "GET");
   }
 }

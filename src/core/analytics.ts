@@ -23,8 +23,6 @@ export const TOOL_ARG_ALLOWLIST: Record<string, string[]> = {
     "resource_type",
     "has_resource_identifier",
     "has_resource_arn",
-    "target_account_id",
-    "target_region_name",
   ],
   "localstack-chaos-injector": ["action", "rules_count", "latency_ms"],
   "localstack-cloud-pods": ["action", "pod_name"],

@@ -13,13 +13,16 @@ import {
   AwsReplicatorApiClient,
   type AwsConfig,
   type ReplicationJobResponse,
+  type ReplicationSupportedResource,
   type StartReplicationJobRequest,
 } from "../lib/localstack/localstack.client";
 
 export const schema = {
   action: z
-    .enum(["start", "status"])
-    .describe("The AWS Replicator action to perform: start a job or check job status."),
+    .enum(["start", "status", "list", "list-resources"])
+    .describe(
+      "The AWS Replicator action to perform: start a job, check job status, list jobs, or list supported resource types."
+    ),
   replication_type: z
     .enum(["SINGLE_RESOURCE", "BATCH"])
     .default("SINGLE_RESOURCE")
@@ -81,8 +84,6 @@ export default async function localstackAwsReplicator(args: AwsReplicatorArgs) {
       resource_type: args.resource_type,
       has_resource_identifier: Boolean(args.resource_identifier),
       has_resource_arn: Boolean(args.resource_arn),
-      target_account_id: args.target_account_id,
-      target_region_name: args.target_region_name,
     },
     async () => {
       const preflightError = await runPreflights([
@@ -99,6 +100,10 @@ export default async function localstackAwsReplicator(args: AwsReplicatorArgs) {
           return await handleStart(client, args);
         case "status":
           return await handleStatus(client, args.job_id);
+        case "list":
+          return await handleListJobs(client);
+        case "list-resources":
+          return await handleListSupportedResources(client);
         default:
           return ResponseBuilder.error("Unknown action", `Unsupported action: ${args.action}`);
       }
@@ -133,6 +138,24 @@ async function handleStatus(client: AwsReplicatorApiClient, jobId?: string) {
   }
 
   return ResponseBuilder.markdown(formatReplicationJob("AWS Replicator Job Status", result.data));
+}
+
+async function handleListJobs(client: AwsReplicatorApiClient) {
+  const result = await client.listJobs();
+  if (!result.success) {
+    return ResponseBuilder.error("AWS Replicator Error", result.message);
+  }
+
+  return ResponseBuilder.markdown(formatReplicationJobs(result.data));
+}
+
+async function handleListSupportedResources(client: AwsReplicatorApiClient) {
+  const result = await client.listSupportedResources();
+  if (!result.success) {
+    return ResponseBuilder.error("AWS Replicator Error", result.message);
+  }
+
+  return ResponseBuilder.markdown(formatSupportedResources(result.data));
 }
 
 function validateStartArgs(args: AwsReplicatorArgs) {
@@ -293,5 +316,44 @@ export function formatReplicationJob(title: string, job: ReplicationJobResponse)
 
   markdown += `\n### Raw Response\n\n\`\`\`json\n${JSON.stringify(job, null, 2)}\n\`\`\``;
 
+  return markdown;
+}
+
+export function formatReplicationJobs(jobs: ReplicationJobResponse[]): string {
+  if (!jobs.length) {
+    return "## AWS Replicator Jobs\n\nNo replication jobs found.";
+  }
+
+  let markdown = `## AWS Replicator Jobs\n\nFound **${jobs.length}** replication job(s).\n\n`;
+  for (const job of jobs) {
+    markdown += `- **${job.job_id || "N/A"}** — \`${job.state || "UNKNOWN"}\` (${job.type || job.replication_type || "UNKNOWN"})`;
+    if (job.error_message) {
+      markdown += ` — ${job.error_message}`;
+    }
+    markdown += "\n";
+  }
+
+  markdown += `\n### Raw Response\n\n\`\`\`json\n${JSON.stringify(jobs, null, 2)}\n\`\`\``;
+  return markdown;
+}
+
+export function formatSupportedResources(resources: ReplicationSupportedResource[]): string {
+  if (!resources.length) {
+    return "## AWS Replicator Supported Resources\n\nNo supported resources were returned by LocalStack.";
+  }
+
+  let markdown = `## AWS Replicator Supported Resources\n\nFound **${resources.length}** supported resource type(s).\n\n`;
+  for (const resource of resources) {
+    markdown += `- **${resource.resource_type || "Unknown"}**`;
+    if (resource.service) {
+      markdown += ` (${resource.service})`;
+    }
+    if (resource.identifier) {
+      markdown += ` — identifier: \`${resource.identifier}\``;
+    }
+    markdown += "\n";
+  }
+
+  markdown += `\n### Raw Response\n\n\`\`\`json\n${JSON.stringify(resources, null, 2)}\n\`\`\``;
   return markdown;
 }

@@ -1,6 +1,8 @@
 import {
   buildStartReplicationJobRequest,
   formatReplicationJob,
+  formatReplicationJobs,
+  formatSupportedResources,
 } from "../../tools/localstack-aws-replicator";
 
 describe("localstack-aws-replicator", () => {
@@ -95,6 +97,44 @@ describe("localstack-aws-replicator", () => {
       expect(formatted).toContain("`job-123`");
       expect(formatted).toContain("resources_succeeded");
       expect(formatted).toContain("AWS::SSM::Parameter");
+    });
+  });
+
+  describe("formatReplicationJobs", () => {
+    it("summarizes listed jobs and includes the raw response", () => {
+      const formatted = formatReplicationJobs([
+        {
+          job_id: "job-123",
+          state: "SUCCEEDED",
+          type: "SINGLE_RESOURCE",
+          replication_config: {
+            resource_type: "AWS::EC2::VPC",
+            resource_identifier: "vpc-123",
+          },
+        },
+      ]);
+
+      expect(formatted).toContain("AWS Replicator Jobs");
+      expect(formatted).toContain("job-123");
+      expect(formatted).toContain("SUCCEEDED");
+      expect(formatted).toContain("Raw Response");
+    });
+  });
+
+  describe("formatSupportedResources", () => {
+    it("summarizes supported resource types and identifiers", () => {
+      const formatted = formatSupportedResources([
+        {
+          resource_type: "AWS::SSM::Parameter",
+          service: "ssm",
+          identifier: "Name",
+        },
+      ]);
+
+      expect(formatted).toContain("AWS Replicator Supported Resources");
+      expect(formatted).toContain("AWS::SSM::Parameter");
+      expect(formatted).toContain("identifier: `Name`");
+      expect(formatted).toContain("Raw Response");
     });
   });
 });
