@@ -70,6 +70,10 @@
     {
       "name": "localstack-docs",
       "description": "Search the LocalStack documentation to find guides, API references, and configuration details"
+    },
+    {
+      "name": "localstack-app-inspector",
+      "description": "Query and manage App Inspector traces, spans, and events to review deployed LocalStack applications"
     }
   ],
   "prompts": [
