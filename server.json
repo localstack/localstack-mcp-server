@@ -87,6 +87,13 @@
           "format": "string",
           "is_secret": false,
           "name": "AWS_REPLICATOR_SOURCE_ENDPOINT_URL"
+        },
+        {
+          "description": "Set to 1 in the LocalStack container environment to enable App Inspector by default across restarts. The MCP tool can also toggle App Inspector at runtime.",
+          "is_required": false,
+          "format": "string",
+          "is_secret": false,
+          "name": "APP_INSPECTOR"
         }
       ]
     }
