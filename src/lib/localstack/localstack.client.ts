@@ -45,6 +45,19 @@ export interface ReplicationSupportedResource {
   [key: string]: unknown;
 }
 
+export interface AppInspectorStatusResponse {
+  status: string;
+  note?: string;
+}
+
+export interface AppInspectorSetStatusResponse {
+  status: string;
+  changed: boolean;
+}
+
+export type AppInspectorStatus = "enabled" | "disabled";
+export type AppInspectorQuery = Record<string, string | number | undefined>;
+
 // Chaos API Client
 export class ChaosApiClient {
   private async makeRequest(
@@ -220,5 +233,109 @@ export class AwsReplicatorApiClient {
 
   listSupportedResources() {
     return this.makeRequest<ReplicationSupportedResource[]>("/resources", "GET");
+  }
+}
+
+// App Inspector API Client
+export class AppInspectorApiClient {
+  private buildQueryString(params: AppInspectorQuery): string {
+    const parts = Object.entries(params)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
+    return parts.length ? `?${parts.join("&")}` : "";
+  }
+
+  private async makeRequest<T>(
+    endpoint: string,
+    method: "GET" | "PUT" | "DELETE",
+    body?: unknown
+  ): Promise<ApiResult<T>> {
+    try {
+      const data = await httpClient.request<T>(`/_localstack/appinspector${endpoint}`, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      return { success: true, data };
+    } catch (error) {
+      if (error instanceof HttpError) {
+        return {
+          success: false,
+          message: error.body || error.message,
+          statusCode: error.status,
+        };
+      }
+      return {
+        success: false,
+        message: `Failed to communicate with LocalStack App Inspector API: ${error instanceof Error ? error.message : "Unknown error"}`,
+      };
+    }
+  }
+
+  getStatus() {
+    return this.makeRequest<AppInspectorStatusResponse>("/status", "GET");
+  }
+
+  setStatus(status: AppInspectorStatus) {
+    return this.makeRequest<AppInspectorSetStatusResponse>("/status", "PUT", { status });
+  }
+
+  listTraces(query: AppInspectorQuery) {
+    return this.makeRequest<any>(`/v1/traces${this.buildQueryString(query)}`, "GET");
+  }
+
+  getTrace(traceId: string) {
+    return this.makeRequest<any>(`/v1/traces/${encodeURIComponent(traceId)}`, "GET");
+  }
+
+  deleteTraces(traceIds?: string[]) {
+    return this.makeRequest<{ deleted_count: number }>(
+      "/v1/traces",
+      "DELETE",
+      traceIds ? { trace_ids: traceIds } : {}
+    );
+  }
+
+  listSpans(traceId: string, query: AppInspectorQuery) {
+    return this.makeRequest<any>(
+      `/v1/traces/${encodeURIComponent(traceId)}/spans${this.buildQueryString(query)}`,
+      "GET"
+    );
+  }
+
+  getSpan(traceId: string, spanId: string) {
+    return this.makeRequest<any>(
+      `/v1/traces/${encodeURIComponent(traceId)}/spans/${encodeURIComponent(spanId)}`,
+      "GET"
+    );
+  }
+
+  deleteSpans(traceId: string, spanIds?: string[]) {
+    return this.makeRequest<{ deleted_count: number }>(
+      `/v1/traces/${encodeURIComponent(traceId)}/spans`,
+      "DELETE",
+      spanIds ? { span_ids: spanIds } : {}
+    );
+  }
+
+  listEvents(traceId: string, spanId: string, query: AppInspectorQuery) {
+    return this.makeRequest<any>(
+      `/v1/traces/${encodeURIComponent(traceId)}/spans/${encodeURIComponent(spanId)}/events${this.buildQueryString(query)}`,
+      "GET"
+    );
+  }
+
+  getEvent(traceId: string, spanId: string, eventId: string) {
+    return this.makeRequest<any>(
+      `/v1/traces/${encodeURIComponent(traceId)}/spans/${encodeURIComponent(spanId)}/events/${encodeURIComponent(eventId)}`,
+      "GET"
+    );
+  }
+
+  listIamEvents(traceId: string, spanId: string, query: AppInspectorQuery) {
+    return this.makeRequest<any>(
+      `/v1/traces/${encodeURIComponent(traceId)}/spans/${encodeURIComponent(spanId)}/events/iam${this.buildQueryString(query)}`,
+      "GET"
+    );
   }
 }

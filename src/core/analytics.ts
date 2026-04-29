@@ -26,6 +26,18 @@ export const TOOL_ARG_ALLOWLIST: Record<string, string[]> = {
     "has_resource_identifier",
     "has_resource_arn",
   ],
+  "localstack-app-inspector": [
+    "action",
+    "target_status",
+    "has_trace_id",
+    "has_span_id",
+    "has_event_id",
+    "trace_ids_count",
+    "span_ids_count",
+    "limit",
+    "has_pagination_token",
+    "filter_keys",
+  ],
   "localstack-chaos-injector": ["action", "rules_count", "latency_ms"],
   "localstack-cloud-pods": ["action", "pod_name"],
   "localstack-deployer": [

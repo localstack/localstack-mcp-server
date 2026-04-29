@@ -70,6 +70,10 @@
     {
       "name": "localstack-docs",
       "description": "Search the LocalStack documentation to find guides, API references, and configuration details"
+    },
+    {
+      "name": "localstack-app-inspector",
+      "description": "Inspect LocalStack application traces, spans, events, payload metadata, and IAM policy evaluations"
     }
   ],
   "prompts": [
@@ -152,6 +156,23 @@
       "description": "Check AWS Replicator job status",
       "arguments": ["job_id"],
       "text": "Check the AWS Replicator job status for ${arguments.job_id}."
+    },
+    {
+      "name": "app-inspector-enable",
+      "description": "Enable App Inspector on the running LocalStack instance",
+      "text": "Enable LocalStack App Inspector so I can capture traces, spans, events, payload metadata, and IAM policy evaluations for the next AWS workload I run locally."
+    },
+    {
+      "name": "app-inspector-inspect-application-flow",
+      "description": "Inspect recent LocalStack application flows with App Inspector",
+      "arguments": ["description"],
+      "text": "Use LocalStack App Inspector to investigate ${arguments.description}. Check whether App Inspector is enabled, list recent traces, identify relevant spans, then inspect events and IAM policy evaluation events for the AWS service flow."
+    },
+    {
+      "name": "app-inspector-service-traces",
+      "description": "Find App Inspector traces for a specific AWS service",
+      "arguments": ["service_name"],
+      "text": "List recent App Inspector traces for the ${arguments.service_name} service, then help me drill into spans and events that explain what happened in LocalStack."
     },
     {
       "name": "cloud-pods",
