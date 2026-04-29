@@ -11,6 +11,7 @@ const EXPECTED_TOOLS = [
   "localstack-snowflake-client",
   "localstack-ephemeral-instances",
   "localstack-aws-client",
+  "localstack-aws-replicator",
   "localstack-docs",
 ];
 

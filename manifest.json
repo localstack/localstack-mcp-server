@@ -60,6 +60,14 @@
       "description": "Manage cloud-hosted LocalStack Ephemeral Instances by creating, listing, viewing logs, and deleting instances"
     },
     {
+      "name": "localstack-aws-client",
+      "description": "Runs AWS CLI commands inside the running LocalStack container"
+    },
+    {
+      "name": "localstack-aws-replicator",
+      "description": "Replicates external AWS resources into a running LocalStack instance using the AWS Replicator HTTP API"
+    },
+    {
       "name": "localstack-docs",
       "description": "Search the LocalStack documentation to find guides, API references, and configuration details"
     }
@@ -126,6 +134,24 @@
       "description": "Runs AWS CLI commands inside the LocalStack container",
       "arguments": ["description"],
       "text": "Please query the LocalStack container for ${arguments.description}."
+    },
+    {
+      "name": "aws-replicator-start",
+      "description": "Start an AWS Replicator job",
+      "arguments": ["resource_type", "resource_identifier"],
+      "text": "Start an AWS Replicator job for ${arguments.resource_type} ${arguments.resource_identifier} into LocalStack using the AWS credentials configured in the MCP server environment."
+    },
+    {
+      "name": "aws-replicator-start-by-arn",
+      "description": "Start an AWS Replicator job from a resource ARN",
+      "arguments": ["resource_arn"],
+      "text": "Start an AWS Replicator job for the resource ARN ${arguments.resource_arn} into LocalStack using the AWS credentials configured in the MCP server environment."
+    },
+    {
+      "name": "aws-replicator-status",
+      "description": "Check AWS Replicator job status",
+      "arguments": ["job_id"],
+      "text": "Check the AWS Replicator job status for ${arguments.job_id}."
     },
     {
       "name": "cloud-pods",

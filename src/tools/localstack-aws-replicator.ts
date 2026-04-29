@@ -1,0 +1,392 @@
+import { z } from "zod";
+import { type ToolMetadata, type InferSchema } from "xmcp";
+import { ResponseBuilder } from "../core/response-builder";
+import {
+  runPreflights,
+  requireAuthToken,
+  requireLocalStackRunning,
+  requireProFeature,
+} from "../core/preflight";
+import { withToolAnalytics } from "../core/analytics";
+import { ProFeature } from "../lib/localstack/license-checker";
+import {
+  AwsReplicatorApiClient,
+  type AwsConfig,
+  type ReplicationJobResponse,
+  type ReplicationSupportedResource,
+  type StartReplicationJobRequest,
+} from "../lib/localstack/localstack.client";
+
+export const schema = {
+  action: z
+    .enum(["start", "status", "list", "list-resources"])
+    .describe(
+      "The AWS Replicator action to perform: start a job, check job status, list jobs, or list supported resource types."
+    ),
+  replication_type: z
+    .enum(["SINGLE_RESOURCE", "BATCH"])
+    .default("SINGLE_RESOURCE")
+    .describe(
+      "Replication job type. Use SINGLE_RESOURCE for one resource, or BATCH for supported batch jobs such as SSM parameters under a path prefix."
+    ),
+  resource_type: z
+    .string()
+    .trim()
+    .optional()
+    .describe(
+      "CloudFormation resource type to replicate, e.g. AWS::EC2::VPC or AWS::SSM::Parameter. Use this with resource_identifier, or provide resource_arn instead."
+    ),
+  resource_identifier: z
+    .string()
+    .trim()
+    .optional()
+    .describe(
+      "CloudControl identifier for the resource to replicate, such as a VPC ID (vpc-...), SSM parameter name, IAM role name, or ECR repository name. Required when using resource_type and mutually exclusive with resource_arn. For BATCH SSM parameter replication, this must be a path prefix such as /dev/."
+    ),
+  resource_arn: z
+    .string()
+    .trim()
+    .optional()
+    .describe(
+      "Full ARN of the resource to replicate. Only supported for SINGLE_RESOURCE jobs and mutually exclusive with resource_type/resource_identifier."
+    ),
+  job_id: z.string().trim().optional().describe("Replication job id. Required for the status action."),
+  target_account_id: z
+    .string()
+    .trim()
+    .optional()
+    .describe(
+      "Optional LocalStack target AWS account id override. LocalStack defaults to account 000000000000, so this is only needed when replicating into a non-default account namespace."
+    ),
+  target_region_name: z
+    .string()
+    .trim()
+    .optional()
+    .describe("Optional LocalStack target AWS region override. Defaults to the source region."),
+};
+
+export const metadata: ToolMetadata = {
+  name: "localstack-aws-replicator",
+  description:
+    "Replicate external AWS resources into a running LocalStack instance using the AWS Replicator HTTP API.",
+  annotations: {
+    title: "LocalStack AWS Replicator",
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+  },
+};
+
+export type AwsReplicatorArgs = InferSchema<typeof schema>;
+
+export default async function localstackAwsReplicator(args: AwsReplicatorArgs) {
+  return withToolAnalytics(
+    "localstack-aws-replicator",
+    {
+      action: args.action,
+      replication_type: args.replication_type,
+      resource_target_kind: getResourceTargetKind(args),
+      resource_type: args.resource_type,
+      resource_arn_service: getArnService(args.resource_arn),
+      has_resource_identifier: Boolean(args.resource_identifier),
+      has_resource_arn: Boolean(args.resource_arn),
+    },
+    async () => {
+      const preflightError = await runPreflights([
+        requireAuthToken(),
+        requireLocalStackRunning(),
+        requireProFeature(ProFeature.REPLICATOR),
+      ]);
+      if (preflightError) return preflightError;
+
+      const client = new AwsReplicatorApiClient();
+
+      switch (args.action) {
+        case "start":
+          return await handleStart(client, args);
+        case "status":
+          return await handleStatus(client, args.job_id);
+        case "list":
+          return await handleListJobs(client);
+        case "list-resources":
+          return await handleListSupportedResources(client);
+        default:
+          return ResponseBuilder.error("Unknown action", `Unsupported action: ${args.action}`);
+      }
+    }
+  );
+}
+
+async function handleStart(client: AwsReplicatorApiClient, args: AwsReplicatorArgs) {
+  const sourceAwsConfig = getSourceAwsConfigFromEnv();
+  const validationError = validateStartArgs(args, sourceAwsConfig);
+  if (validationError) return validationError;
+
+  const request = buildStartReplicationJobRequest(args, sourceAwsConfig.config);
+  const result = await client.startJob(request);
+  if (!result.success) {
+    return ResponseBuilder.error("AWS Replicator Error", result.message);
+  }
+
+  return ResponseBuilder.markdown(formatReplicationJob("AWS Replicator Job Started", result.data));
+}
+
+async function handleStatus(client: AwsReplicatorApiClient, jobId?: string) {
+  if (!jobId?.trim()) {
+    return ResponseBuilder.error(
+      "Missing Required Parameter",
+      "The `status` action requires the `job_id` parameter."
+    );
+  }
+
+  const result = await client.getJobStatus(jobId.trim());
+  if (!result.success) {
+    return ResponseBuilder.error("AWS Replicator Error", result.message);
+  }
+
+  return ResponseBuilder.markdown(formatReplicationJob("AWS Replicator Job Status", result.data));
+}
+
+async function handleListJobs(client: AwsReplicatorApiClient) {
+  const result = await client.listJobs();
+  if (!result.success) {
+    return ResponseBuilder.error("AWS Replicator Error", result.message);
+  }
+
+  return ResponseBuilder.markdown(formatReplicationJobs(result.data));
+}
+
+async function handleListSupportedResources(client: AwsReplicatorApiClient) {
+  const result = await client.listSupportedResources();
+  if (!result.success) {
+    return ResponseBuilder.error("AWS Replicator Error", result.message);
+  }
+
+  return ResponseBuilder.markdown(formatSupportedResources(result.data));
+}
+
+type SourceAwsConfigResult = { config: AwsConfig; missing: string[] };
+
+function validateStartArgs(args: AwsReplicatorArgs, sourceAwsConfig: SourceAwsConfigResult) {
+  const missingSourceFields = sourceAwsConfig.missing.map((field) => `\`${field}\``);
+
+  if (missingSourceFields.length > 0) {
+    return ResponseBuilder.error(
+      "Missing Source AWS Configuration",
+      `Configure ${missingSourceFields.join(", ")} in the MCP server environment. The Replicator uses these credentials to read the source AWS account.`
+    );
+  }
+
+  const hasArn = Boolean(args.resource_arn?.trim());
+  const hasTypeAndIdentifier = Boolean(args.resource_type?.trim() && args.resource_identifier?.trim());
+
+  if (args.replication_type === "BATCH" && hasArn) {
+    return ResponseBuilder.error(
+      "Invalid Parameters",
+      "`resource_arn` is only supported for `SINGLE_RESOURCE` replication jobs."
+    );
+  }
+
+  if (hasArn === hasTypeAndIdentifier) {
+    return ResponseBuilder.error(
+      "Invalid Parameters",
+      "Provide exactly one resource target: either `resource_arn`, or both `resource_type` and `resource_identifier`."
+    );
+  }
+
+  return null;
+}
+
+export function buildStartReplicationJobRequest(
+  args: AwsReplicatorArgs,
+  sourceAwsConfig: AwsConfig = getSourceAwsConfigFromEnv().config
+): StartReplicationJobRequest {
+  const replicationJobConfig =
+    args.resource_arn?.trim()
+      ? { resource_arn: args.resource_arn.trim() }
+      : {
+          resource_type: args.resource_type!.trim(),
+          resource_identifier: args.resource_identifier!.trim(),
+        };
+
+  const targetAwsConfig = getTargetAwsConfig(args, sourceAwsConfig.region_name);
+
+  return {
+    replication_type: args.replication_type,
+    replication_job_config: replicationJobConfig,
+    source_aws_config: sourceAwsConfig,
+    ...(targetAwsConfig ? { target_aws_config: targetAwsConfig } : {}),
+  };
+}
+
+function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
+  return values.find((value) => value?.trim())?.trim();
+}
+
+function getSourceAwsConfigFromEnv(): SourceAwsConfigResult {
+  const hasReplicatorSourceConfig = Boolean(
+    firstNonEmpty(
+      process.env.AWS_REPLICATOR_SOURCE_AWS_ACCESS_KEY_ID,
+      process.env.AWS_REPLICATOR_SOURCE_AWS_SECRET_ACCESS_KEY,
+      process.env.AWS_REPLICATOR_SOURCE_AWS_SESSION_TOKEN,
+      process.env.AWS_REPLICATOR_SOURCE_REGION_NAME,
+      process.env.AWS_REPLICATOR_SOURCE_ENDPOINT_URL
+    )
+  );
+
+  const config: AwsConfig = {
+    aws_access_key_id: hasReplicatorSourceConfig
+      ? firstNonEmpty(process.env.AWS_REPLICATOR_SOURCE_AWS_ACCESS_KEY_ID)
+      : firstNonEmpty(process.env.AWS_ACCESS_KEY_ID),
+    aws_secret_access_key: hasReplicatorSourceConfig
+      ? firstNonEmpty(process.env.AWS_REPLICATOR_SOURCE_AWS_SECRET_ACCESS_KEY)
+      : firstNonEmpty(process.env.AWS_SECRET_ACCESS_KEY),
+    region_name: hasReplicatorSourceConfig
+      ? firstNonEmpty(process.env.AWS_REPLICATOR_SOURCE_REGION_NAME)
+      : firstNonEmpty(process.env.AWS_DEFAULT_REGION, process.env.AWS_REGION),
+  };
+
+  const sessionToken = hasReplicatorSourceConfig
+    ? firstNonEmpty(process.env.AWS_REPLICATOR_SOURCE_AWS_SESSION_TOKEN)
+    : firstNonEmpty(process.env.AWS_SESSION_TOKEN);
+  if (sessionToken) {
+    config.aws_session_token = sessionToken;
+  }
+
+  const endpointUrl = hasReplicatorSourceConfig
+    ? firstNonEmpty(process.env.AWS_REPLICATOR_SOURCE_ENDPOINT_URL)
+    : firstNonEmpty(process.env.AWS_ENDPOINT_URL);
+  if (endpointUrl) {
+    config.endpoint_url = endpointUrl;
+  }
+
+  const missing: string[] = [];
+  if (!config.aws_access_key_id) {
+    missing.push(
+      hasReplicatorSourceConfig
+        ? "AWS_REPLICATOR_SOURCE_AWS_ACCESS_KEY_ID"
+        : "AWS_ACCESS_KEY_ID"
+    );
+  }
+  if (!config.aws_secret_access_key) {
+    missing.push(
+      hasReplicatorSourceConfig
+        ? "AWS_REPLICATOR_SOURCE_AWS_SECRET_ACCESS_KEY"
+        : "AWS_SECRET_ACCESS_KEY"
+    );
+  }
+  if (!config.region_name) {
+    missing.push(
+      hasReplicatorSourceConfig ? "AWS_REPLICATOR_SOURCE_REGION_NAME" : "AWS_DEFAULT_REGION"
+    );
+  }
+
+  return { config, missing };
+}
+
+function getTargetAwsConfig(
+  args: AwsReplicatorArgs,
+  sourceRegionName?: string
+): AwsConfig | undefined {
+  const targetAccountId = firstNonEmpty(
+    args.target_account_id,
+    process.env.AWS_REPLICATOR_TARGET_ACCOUNT_ID,
+    process.env.AWS_REPLICATOR_TARGET_AWS_ACCESS_KEY_ID
+  );
+  const targetRegionName = firstNonEmpty(
+    args.target_region_name,
+    process.env.AWS_REPLICATOR_TARGET_REGION_NAME
+  );
+
+  if (!targetAccountId && !targetRegionName) {
+    return undefined;
+  }
+
+  const config: AwsConfig = {
+    aws_access_key_id: targetAccountId || "test",
+    aws_secret_access_key: firstNonEmpty(
+      process.env.AWS_REPLICATOR_TARGET_AWS_SECRET_ACCESS_KEY
+    ) || "test",
+    region_name: targetRegionName || sourceRegionName,
+  };
+
+  return config;
+}
+
+function getResourceTargetKind(args: AwsReplicatorArgs): "arn" | "type_identifier" | "unknown" {
+  if (args.resource_arn?.trim()) return "arn";
+  if (args.resource_type?.trim() || args.resource_identifier?.trim()) return "type_identifier";
+  return "unknown";
+}
+
+function getArnService(resourceArn?: string): string | undefined {
+  const parts = resourceArn?.trim().split(":");
+  return parts && parts.length >= 3 && parts[0] === "arn" ? parts[2] : undefined;
+}
+
+export function formatReplicationJob(title: string, job: ReplicationJobResponse): string {
+  const state = job.state || "UNKNOWN";
+  const jobType = job.type || job.replication_type || "UNKNOWN";
+  const config = job.replication_config || job.replication_job_config;
+  const result = job.result;
+
+  let markdown = `## ${title}\n\n`;
+  markdown += `- **Job ID:** \`${job.job_id || "N/A"}\`\n`;
+  markdown += `- **State:** \`${state}\`\n`;
+  markdown += `- **Type:** \`${jobType}\`\n`;
+
+  if (job.error_message) {
+    markdown += `- **Error:** ${job.error_message}\n`;
+  }
+
+  if (config) {
+    markdown += `\n### Replication Config\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\`\n`;
+  }
+
+  if (result) {
+    markdown += `\n### Result\n\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\n`;
+  }
+
+  markdown += `\n### Raw Response\n\n\`\`\`json\n${JSON.stringify(job, null, 2)}\n\`\`\``;
+
+  return markdown;
+}
+
+export function formatReplicationJobs(jobs: ReplicationJobResponse[]): string {
+  if (!jobs.length) {
+    return "## AWS Replicator Jobs\n\nNo replication jobs found.";
+  }
+
+  let markdown = `## AWS Replicator Jobs\n\nFound **${jobs.length}** replication job(s).\n\n`;
+  for (const job of jobs) {
+    markdown += `- **${job.job_id || "N/A"}** — \`${job.state || "UNKNOWN"}\` (${job.type || job.replication_type || "UNKNOWN"})`;
+    if (job.error_message) {
+      markdown += ` — ${job.error_message}`;
+    }
+    markdown += "\n";
+  }
+
+  markdown += `\n### Raw Response\n\n\`\`\`json\n${JSON.stringify(jobs, null, 2)}\n\`\`\``;
+  return markdown;
+}
+
+export function formatSupportedResources(resources: ReplicationSupportedResource[]): string {
+  if (!resources.length) {
+    return "## AWS Replicator Supported Resources\n\nNo supported resources were returned by LocalStack.";
+  }
+
+  let markdown = `## AWS Replicator Supported Resources\n\nFound **${resources.length}** supported resource type(s).\n\n`;
+  for (const resource of resources) {
+    markdown += `- **${resource.resource_type || "Unknown"}**`;
+    if (resource.service) {
+      markdown += ` (${resource.service})`;
+    }
+    if (resource.identifier) {
+      markdown += ` — identifier: \`${resource.identifier}\``;
+    }
+    markdown += "\n";
+  }
+
+  markdown += `\n### Raw Response\n\n\`\`\`json\n${JSON.stringify(resources, null, 2)}\n\`\`\``;
+  return markdown;
+}
