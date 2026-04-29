@@ -94,7 +94,7 @@ If you installed from source, change `command` and `args` to point to your local
 | Variable Name | Description | Default Value |
 | ------------- | ----------- | ------------- |
 | `LOCALSTACK_AUTH_TOKEN` (**required**) | The LocalStack Auth Token to use for the MCP server | None |
-| `MAIN_CONTAINER_NAME` | The name of the LocalStack container to use for the MCP server | `localstack-main` |
+| `MAIN_CONTAINER_NAME` | The name of the LocalStack container to use for the MCP server | `localstack-aws` |
 | `MCP_ANALYTICS_DISABLED` | Disable MCP analytics when set to `1` | `0` |
 | `AWS_ACCESS_KEY_ID` (**required for AWS Replicator tool**) | Source AWS access key used by AWS Replicator to read external AWS resources | None |
 | `AWS_SECRET_ACCESS_KEY` (**required for AWS Replicator tool**) | Source AWS secret access key used by AWS Replicator to read external AWS resources | None |
