@@ -1,12 +1,11 @@
 import {
   buildAppInspectorAnalyticsArgs,
   buildQueryString,
-  formatAppInspectorHttpError,
+  formatAppInspectorApiError,
   formatEventList,
   formatSpanList,
   formatTraceList,
 } from "../../tools/localstack-app-inspector";
-import { HttpError } from "../../core/http-client";
 
 describe("localstack-app-inspector", () => {
   describe("buildQueryString", () => {
@@ -91,11 +90,13 @@ describe("localstack-app-inspector", () => {
     });
   });
 
-  describe("formatAppInspectorHttpError", () => {
+  describe("formatAppInspectorApiError", () => {
     it("turns disabled App Inspector responses into actionable guidance", () => {
-      const formatted = formatAppInspectorHttpError(
-        new HttpError(503, "Service Unavailable", "AppInspector is not enabled", "disabled")
-      );
+      const formatted = formatAppInspectorApiError({
+        success: false,
+        statusCode: 503,
+        message: "AppInspector is not enabled",
+      });
 
       expect(formatted.content[0].text).toContain("App Inspector Disabled");
       expect(formatted.content[0].text).toContain("set-status");

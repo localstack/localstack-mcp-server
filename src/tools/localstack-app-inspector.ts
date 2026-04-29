@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
-import { httpClient, HttpError } from "../core/http-client";
 import {
   runPreflights,
   requireAuthToken,
@@ -10,9 +9,11 @@ import {
 import { ResponseBuilder } from "../core/response-builder";
 import { withToolAnalytics } from "../core/analytics";
 import { ProFeature } from "../lib/localstack/license-checker";
-
-const API_PREFIX = "/_localstack/appinspector";
-const API_V1 = `${API_PREFIX}/v1`;
+import {
+  AppInspectorApiClient,
+  type ApiResult,
+  type AppInspectorQuery,
+} from "../lib/localstack/localstack.client";
 
 export const schema = {
   action: z
@@ -116,6 +117,8 @@ export const schema = {
     .describe("Filter events by event type, e.g. iam.policy_evaluation."),
 };
 
+export type AppInspectorArgs = InferSchema<typeof schema>;
+
 export const metadata: ToolMetadata = {
   name: "localstack-app-inspector",
   description:
@@ -128,7 +131,7 @@ export const metadata: ToolMetadata = {
   },
 };
 
-export default async function localstackAppInspector(params: InferSchema<typeof schema>) {
+export default async function localstackAppInspector(params: AppInspectorArgs) {
   const { action } = params;
   return withToolAnalytics(
     "localstack-app-inspector",
@@ -141,38 +144,33 @@ export default async function localstackAppInspector(params: InferSchema<typeof 
       ]);
       if (preflightError) return preflightError;
 
-      try {
-        switch (action) {
-          case "get-status":
-            return await handleGetStatus();
-          case "set-status":
-            return await handleSetStatus(params);
-          case "list-traces":
-            return await handleListTraces(params);
-          case "get-trace":
-            return await handleGetTrace(params);
-          case "delete-traces":
-            return await handleDeleteTraces(params);
-          case "list-spans":
-            return await handleListSpans(params);
-          case "get-span":
-            return await handleGetSpan(params);
-          case "delete-spans":
-            return await handleDeleteSpans(params);
-          case "list-events":
-            return await handleListEvents(params);
-          case "get-event":
-            return await handleGetEvent(params);
-          case "list-iam-events":
-            return await handleListIamEvents(params);
-          default:
-            return ResponseBuilder.error("Unknown action", `Unknown action: ${action}`);
-        }
-      } catch (err) {
-        if (err instanceof HttpError) {
-          return formatAppInspectorHttpError(err);
-        }
-        throw err;
+      const client = new AppInspectorApiClient();
+
+      switch (action) {
+        case "get-status":
+          return await handleGetStatus(client);
+        case "set-status":
+          return await handleSetStatus(client, params);
+        case "list-traces":
+          return await handleListTraces(client, params);
+        case "get-trace":
+          return await handleGetTrace(client, params);
+        case "delete-traces":
+          return await handleDeleteTraces(client, params);
+        case "list-spans":
+          return await handleListSpans(client, params);
+        case "get-span":
+          return await handleGetSpan(client, params);
+        case "delete-spans":
+          return await handleDeleteSpans(client, params);
+        case "list-events":
+          return await handleListEvents(client, params);
+        case "get-event":
+          return await handleGetEvent(client, params);
+        case "list-iam-events":
+          return await handleListIamEvents(client, params);
+        default:
+          return ResponseBuilder.error("Unknown action", `Unknown action: ${action}`);
       }
     }
   );
@@ -180,158 +178,154 @@ export default async function localstackAppInspector(params: InferSchema<typeof 
 
 // ─── Status ──────────────────────────────────────────────────────────────────
 
-async function handleGetStatus() {
-  const data = await httpClient.request<{ status: string; note?: string }>(`${API_PREFIX}/status`);
-  let result = `## App Inspector Status\n\n**Status:** ${data.status}`;
-  if (data.note) result += `\n\n${data.note}`;
-  return ResponseBuilder.markdown(result);
+async function handleGetStatus(client: AppInspectorApiClient) {
+  const result = await client.getStatus();
+  if (!result.success) return formatAppInspectorApiError(result);
+
+  let response = `## App Inspector Status\n\n**Status:** ${result.data.status}`;
+  if (result.data.note) response += `\n\n${result.data.note}`;
+  return ResponseBuilder.markdown(response);
 }
 
-async function handleSetStatus(params: InferSchema<typeof schema>) {
+async function handleSetStatus(client: AppInspectorApiClient, params: AppInspectorArgs) {
   if (!params.status) {
     return ResponseBuilder.error(
       "Missing Parameter",
       '`status` is required for set-status ("enabled" or "disabled")'
     );
   }
-  const data = await httpClient.request<{ status: string; changed: boolean }>(
-    `${API_PREFIX}/status`,
-    {
-      method: "PUT",
-      body: JSON.stringify({ status: params.status }),
-      headers: { "Content-Type": "application/json" },
-    }
-  );
-  const changed = data.changed ? "Status changed." : "Status was already set.";
+  const result = await client.setStatus(params.status);
+  if (!result.success) return formatAppInspectorApiError(result);
+
+  const changed = result.data.changed ? "Status changed." : "Status was already set.";
   return ResponseBuilder.markdown(
-    `## App Inspector Status Updated\n\n**Status:** ${data.status}\n\n${changed}`
+    `## App Inspector Status Updated\n\n**Status:** ${result.data.status}\n\n${changed}`
   );
 }
 
 // ─── Traces ──────────────────────────────────────────────────────────────────
 
-async function handleListTraces(params: InferSchema<typeof schema>) {
-  const qs = buildQueryString(buildTraceFilters(params));
-  const data = await httpClient.request<any>(`${API_V1}/traces${qs}`);
-  return ResponseBuilder.markdown(formatTraceList(data));
+async function handleListTraces(client: AppInspectorApiClient, params: AppInspectorArgs) {
+  const result = await client.listTraces(buildTraceFilters(params));
+  if (!result.success) return formatAppInspectorApiError(result);
+  return ResponseBuilder.markdown(formatTraceList(result.data));
 }
 
-async function handleGetTrace(params: InferSchema<typeof schema>) {
+async function handleGetTrace(client: AppInspectorApiClient, params: AppInspectorArgs) {
   if (!params.trace_id) {
     return ResponseBuilder.error("Missing Parameter", "`trace_id` is required for get-trace");
   }
-  const data = await httpClient.request<any>(`${API_V1}/traces/${params.trace_id}`);
+  const result = await client.getTrace(params.trace_id);
+  if (!result.success) return formatAppInspectorApiError(result);
+
   return ResponseBuilder.markdown(
-    `## Trace: ${params.trace_id}\n\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``
+    `## Trace: ${params.trace_id}\n\n\`\`\`json\n${JSON.stringify(result.data, null, 2)}\n\`\`\``
   );
 }
 
-async function handleDeleteTraces(params: InferSchema<typeof schema>) {
-  const body = params.trace_ids ? { trace_ids: params.trace_ids } : {};
-  const data = await httpClient.request<{ deleted_count: number }>(`${API_V1}/traces`, {
-    method: "DELETE",
-    body: JSON.stringify(body),
-    headers: { "Content-Type": "application/json" },
-  });
+async function handleDeleteTraces(client: AppInspectorApiClient, params: AppInspectorArgs) {
+  const result = await client.deleteTraces(params.trace_ids);
+  if (!result.success) return formatAppInspectorApiError(result);
+
   const scope = params.trace_ids ? `${params.trace_ids.length} trace(s)` : "all traces";
   return ResponseBuilder.markdown(
-    `## Traces Deleted\n\nDeleted ${data.deleted_count} trace(s) (requested: ${scope}).`
+    `## Traces Deleted\n\nDeleted ${result.data.deleted_count} trace(s) (requested: ${scope}).`
   );
 }
 
 // ─── Spans ───────────────────────────────────────────────────────────────────
 
-async function handleListSpans(params: InferSchema<typeof schema>) {
+async function handleListSpans(client: AppInspectorApiClient, params: AppInspectorArgs) {
   if (!params.trace_id) {
     return ResponseBuilder.error("Missing Parameter", "`trace_id` is required for list-spans");
   }
-  const qs = buildQueryString(buildSpanFilters(params));
-  const data = await httpClient.request<any>(`${API_V1}/traces/${params.trace_id}/spans${qs}`);
-  return ResponseBuilder.markdown(formatSpanList(data, params.trace_id));
+  const result = await client.listSpans(params.trace_id, buildSpanFilters(params));
+  if (!result.success) return formatAppInspectorApiError(result);
+  return ResponseBuilder.markdown(formatSpanList(result.data, params.trace_id));
 }
 
-async function handleGetSpan(params: InferSchema<typeof schema>) {
+async function handleGetSpan(client: AppInspectorApiClient, params: AppInspectorArgs) {
   if (!params.trace_id || !params.span_id) {
     return ResponseBuilder.error(
       "Missing Parameter",
       "`trace_id` and `span_id` are required for get-span"
     );
   }
-  const data = await httpClient.request<any>(
-    `${API_V1}/traces/${params.trace_id}/spans/${params.span_id}`
-  );
+  const result = await client.getSpan(params.trace_id, params.span_id);
+  if (!result.success) return formatAppInspectorApiError(result);
+
   return ResponseBuilder.markdown(
-    `## Span: ${params.span_id}\n\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``
+    `## Span: ${params.span_id}\n\n\`\`\`json\n${JSON.stringify(result.data, null, 2)}\n\`\`\``
   );
 }
 
-async function handleDeleteSpans(params: InferSchema<typeof schema>) {
+async function handleDeleteSpans(client: AppInspectorApiClient, params: AppInspectorArgs) {
   if (!params.trace_id) {
     return ResponseBuilder.error("Missing Parameter", "`trace_id` is required for delete-spans");
   }
-  const body = params.span_ids ? { span_ids: params.span_ids } : {};
-  const data = await httpClient.request<{ deleted_count: number }>(
-    `${API_V1}/traces/${params.trace_id}/spans`,
-    {
-      method: "DELETE",
-      body: JSON.stringify(body),
-      headers: { "Content-Type": "application/json" },
-    }
-  );
+  const result = await client.deleteSpans(params.trace_id, params.span_ids);
+  if (!result.success) return formatAppInspectorApiError(result);
+
   const scope = params.span_ids ? `${params.span_ids.length} span(s)` : "all spans in trace";
   return ResponseBuilder.markdown(
-    `## Spans Deleted\n\nDeleted ${data.deleted_count} span(s) (requested: ${scope}).`
+    `## Spans Deleted\n\nDeleted ${result.data.deleted_count} span(s) (requested: ${scope}).`
   );
 }
 
 // ─── Events ──────────────────────────────────────────────────────────────────
 
-async function handleListEvents(params: InferSchema<typeof schema>) {
+async function handleListEvents(client: AppInspectorApiClient, params: AppInspectorArgs) {
   if (!params.trace_id || !params.span_id) {
     return ResponseBuilder.error(
       "Missing Parameter",
       "`trace_id` and `span_id` are required for list-events"
     );
   }
-  const qs = buildQueryString(buildEventFilters(params));
-  const data = await httpClient.request<any>(
-    `${API_V1}/traces/${params.trace_id}/spans/${params.span_id}/events${qs}`
+  const result = await client.listEvents(
+    params.trace_id,
+    params.span_id,
+    buildEventFilters(params)
   );
-  return ResponseBuilder.markdown(formatEventList(data, params.span_id));
+  if (!result.success) return formatAppInspectorApiError(result);
+  return ResponseBuilder.markdown(formatEventList(result.data, params.span_id));
 }
 
-async function handleGetEvent(params: InferSchema<typeof schema>) {
+async function handleGetEvent(client: AppInspectorApiClient, params: AppInspectorArgs) {
   if (!params.trace_id || !params.span_id || !params.event_id) {
     return ResponseBuilder.error(
       "Missing Parameter",
       "`trace_id`, `span_id`, and `event_id` are required for get-event"
     );
   }
-  const data = await httpClient.request<any>(
-    `${API_V1}/traces/${params.trace_id}/spans/${params.span_id}/events/${params.event_id}`
-  );
+  const result = await client.getEvent(params.trace_id, params.span_id, params.event_id);
+  if (!result.success) return formatAppInspectorApiError(result);
+
   return ResponseBuilder.markdown(
-    `## Event: ${params.event_id}\n\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``
+    `## Event: ${params.event_id}\n\n\`\`\`json\n${JSON.stringify(result.data, null, 2)}\n\`\`\``
   );
 }
 
-async function handleListIamEvents(params: InferSchema<typeof schema>) {
+async function handleListIamEvents(client: AppInspectorApiClient, params: AppInspectorArgs) {
   if (!params.trace_id || !params.span_id) {
     return ResponseBuilder.error(
       "Missing Parameter",
       "`trace_id` and `span_id` are required for list-iam-events"
     );
   }
-  const qs = buildQueryString(buildEventFilters(params));
-  const data = await httpClient.request<any>(
-    `${API_V1}/traces/${params.trace_id}/spans/${params.span_id}/events/iam${qs}`
+  const result = await client.listIamEvents(
+    params.trace_id,
+    params.span_id,
+    buildEventFilters(params)
   );
-  return ResponseBuilder.markdown(formatEventList(data, params.span_id, "IAM Policy Evaluation "));
+  if (!result.success) return formatAppInspectorApiError(result);
+  return ResponseBuilder.markdown(
+    formatEventList(result.data, params.span_id, "IAM Policy Evaluation ")
+  );
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-export function buildAppInspectorAnalyticsArgs(params: InferSchema<typeof schema>) {
+export function buildAppInspectorAnalyticsArgs(params: AppInspectorArgs) {
   const filterKeys = Object.entries(buildFilters(params))
     .filter(([, value]) => value !== undefined)
     .map(([key]) => key)
@@ -350,19 +344,22 @@ export function buildAppInspectorAnalyticsArgs(params: InferSchema<typeof schema
   };
 }
 
-export function formatAppInspectorHttpError(err: HttpError) {
-  if (err.status === 403 || err.status === 503) {
+export function formatAppInspectorApiError(result: ApiResult<unknown>) {
+  if (result.success) return ResponseBuilder.error("Unexpected App Inspector Result");
+
+  if (result.statusCode === 403 || result.statusCode === 503) {
     return ResponseBuilder.error(
       "App Inspector Disabled",
       'App Inspector is not enabled. Use the `set-status` action with `status: "enabled"` to turn it on.'
     );
   }
-  return ResponseBuilder.error(`HTTP ${err.status}`, err.body || err.message);
+  return ResponseBuilder.error(
+    result.statusCode ? `HTTP ${result.statusCode}` : "App Inspector API Error",
+    result.message
+  );
 }
 
-function buildFilters(
-  params: InferSchema<typeof schema>
-): Record<string, string | number | undefined> {
+function buildFilters(params: AppInspectorArgs): AppInspectorQuery {
   return {
     limit: params.limit,
     pagination_token: params.pagination_token,
@@ -385,9 +382,7 @@ function buildFilters(
   };
 }
 
-function buildTraceFilters(
-  params: InferSchema<typeof schema>
-): Record<string, string | number | undefined> {
+function buildTraceFilters(params: AppInspectorArgs): AppInspectorQuery {
   return {
     limit: params.limit,
     pagination_token: params.pagination_token,
@@ -406,9 +401,7 @@ function buildTraceFilters(
   };
 }
 
-function buildSpanFilters(
-  params: InferSchema<typeof schema>
-): Record<string, string | number | undefined> {
+function buildSpanFilters(params: AppInspectorArgs): AppInspectorQuery {
   return {
     limit: params.limit,
     pagination_token: params.pagination_token,
@@ -427,9 +420,7 @@ function buildSpanFilters(
   };
 }
 
-function buildEventFilters(
-  params: InferSchema<typeof schema>
-): Record<string, string | number | undefined> {
+function buildEventFilters(params: AppInspectorArgs): AppInspectorQuery {
   return {
     limit: params.limit,
     pagination_token: params.pagination_token,
@@ -439,7 +430,7 @@ function buildEventFilters(
   };
 }
 
-export function buildQueryString(params: Record<string, string | number | undefined>): string {
+export function buildQueryString(params: AppInspectorQuery): string {
   const parts = Object.entries(params)
     .filter(([, v]) => v !== undefined)
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
