@@ -52,6 +52,41 @@
           "format": "string",
           "is_secret": false,
           "name": "AWS_DEFAULT_REGION"
+        },
+        {
+          "description": "Optional Replicator-specific source AWS access key. Use this instead of AWS_ACCESS_KEY_ID when the Replicator source account should be isolated from generic AWS config.",
+          "is_required": false,
+          "format": "string",
+          "is_secret": true,
+          "name": "AWS_REPLICATOR_SOURCE_AWS_ACCESS_KEY_ID"
+        },
+        {
+          "description": "Optional Replicator-specific source AWS secret access key. Use with AWS_REPLICATOR_SOURCE_AWS_ACCESS_KEY_ID.",
+          "is_required": false,
+          "format": "string",
+          "is_secret": true,
+          "name": "AWS_REPLICATOR_SOURCE_AWS_SECRET_ACCESS_KEY"
+        },
+        {
+          "description": "Optional Replicator-specific source AWS session token for temporary credentials.",
+          "is_required": false,
+          "format": "string",
+          "is_secret": true,
+          "name": "AWS_REPLICATOR_SOURCE_AWS_SESSION_TOKEN"
+        },
+        {
+          "description": "Optional Replicator-specific source AWS region. Use with the AWS_REPLICATOR_SOURCE_* credential group.",
+          "is_required": false,
+          "format": "string",
+          "is_secret": false,
+          "name": "AWS_REPLICATOR_SOURCE_REGION_NAME"
+        },
+        {
+          "description": "Optional Replicator-specific source AWS endpoint URL for advanced source-account scenarios.",
+          "is_required": false,
+          "format": "string",
+          "is_secret": false,
+          "name": "AWS_REPLICATOR_SOURCE_ENDPOINT_URL"
         }
       ]
     }

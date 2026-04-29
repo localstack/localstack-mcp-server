@@ -20,7 +20,9 @@ export const TOOL_ARG_ALLOWLIST: Record<string, string[]> = {
   "localstack-aws-replicator": [
     "action",
     "replication_type",
+    "resource_target_kind",
     "resource_type",
+    "resource_arn_service",
     "has_resource_identifier",
     "has_resource_arn",
   ],

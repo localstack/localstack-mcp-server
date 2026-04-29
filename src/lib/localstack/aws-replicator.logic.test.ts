@@ -75,6 +75,44 @@ describe("localstack-aws-replicator", () => {
         },
       });
     });
+
+    it("does not mix prefixed source credentials with generic AWS session values", () => {
+      process.env.AWS_REPLICATOR_SOURCE_AWS_ACCESS_KEY_ID = "replicator-key";
+      process.env.AWS_REPLICATOR_SOURCE_AWS_SECRET_ACCESS_KEY = "replicator-secret";
+      process.env.AWS_REPLICATOR_SOURCE_REGION_NAME = "eu-west-1";
+      process.env.AWS_SESSION_TOKEN = "generic-token";
+
+      const request = buildStartReplicationJobRequest({
+        action: "start",
+        replication_type: "SINGLE_RESOURCE",
+        resource_type: "AWS::SSM::Parameter",
+        resource_identifier: "my-param",
+      } as any);
+
+      expect(request.source_aws_config).toEqual({
+        aws_access_key_id: "replicator-key",
+        aws_secret_access_key: "replicator-secret",
+        region_name: "eu-west-1",
+      });
+    });
+
+    it("does not allow a target endpoint URL override", () => {
+      process.env.AWS_REPLICATOR_TARGET_ENDPOINT_URL = "https://not-localstack.example.com";
+
+      const request = buildStartReplicationJobRequest({
+        action: "start",
+        replication_type: "SINGLE_RESOURCE",
+        resource_type: "AWS::EC2::VPC",
+        resource_identifier: "vpc-123",
+        target_region_name: "eu-central-1",
+      } as any);
+
+      expect(request.target_aws_config).toEqual({
+        aws_access_key_id: "test",
+        aws_secret_access_key: "test",
+        region_name: "eu-central-1",
+      });
+    });
   });
 
   describe("formatReplicationJob", () => {

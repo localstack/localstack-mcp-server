@@ -33,19 +33,23 @@ export const schema = {
     .string()
     .trim()
     .optional()
-    .describe("CloudFormation resource type to replicate, e.g. AWS::EC2::VPC or AWS::SSM::Parameter."),
+    .describe(
+      "CloudFormation resource type to replicate, e.g. AWS::EC2::VPC or AWS::SSM::Parameter. Use this with resource_identifier, or provide resource_arn instead."
+    ),
   resource_identifier: z
     .string()
     .trim()
     .optional()
     .describe(
-      "Resource identifier for the resource to replicate, such as a VPC ID (vpc-...), SSM parameter name, IAM role name, or ECR repository name. For BATCH SSM parameter replication, this must be a path prefix such as /dev/."
+      "CloudControl identifier for the resource to replicate, such as a VPC ID (vpc-...), SSM parameter name, IAM role name, or ECR repository name. Required when using resource_type and mutually exclusive with resource_arn. For BATCH SSM parameter replication, this must be a path prefix such as /dev/."
     ),
   resource_arn: z
     .string()
     .trim()
     .optional()
-    .describe("Full ARN of the resource to replicate. Only supported for SINGLE_RESOURCE jobs."),
+    .describe(
+      "Full ARN of the resource to replicate. Only supported for SINGLE_RESOURCE jobs and mutually exclusive with resource_type/resource_identifier."
+    ),
   job_id: z.string().trim().optional().describe("Replication job id. Required for the status action."),
   target_account_id: z
     .string()
@@ -81,7 +85,9 @@ export default async function localstackAwsReplicator(args: AwsReplicatorArgs) {
     {
       action: args.action,
       replication_type: args.replication_type,
+      resource_target_kind: getResourceTargetKind(args),
       resource_type: args.resource_type,
+      resource_arn_service: getArnService(args.resource_arn),
       has_resource_identifier: Boolean(args.resource_identifier),
       has_resource_arn: Boolean(args.resource_arn),
     },
@@ -218,42 +224,62 @@ function firstNonEmpty(...values: Array<string | undefined>): string | undefined
 }
 
 function getSourceAwsConfigFromEnv(): SourceAwsConfigResult {
-  const config: AwsConfig = {
-    aws_access_key_id: firstNonEmpty(
+  const hasReplicatorSourceConfig = Boolean(
+    firstNonEmpty(
       process.env.AWS_REPLICATOR_SOURCE_AWS_ACCESS_KEY_ID,
-      process.env.AWS_ACCESS_KEY_ID
-    ),
-    aws_secret_access_key: firstNonEmpty(
       process.env.AWS_REPLICATOR_SOURCE_AWS_SECRET_ACCESS_KEY,
-      process.env.AWS_SECRET_ACCESS_KEY
-    ),
-    region_name: firstNonEmpty(
+      process.env.AWS_REPLICATOR_SOURCE_AWS_SESSION_TOKEN,
       process.env.AWS_REPLICATOR_SOURCE_REGION_NAME,
-      process.env.AWS_DEFAULT_REGION,
-      process.env.AWS_REGION
-    ),
+      process.env.AWS_REPLICATOR_SOURCE_ENDPOINT_URL
+    )
+  );
+
+  const config: AwsConfig = {
+    aws_access_key_id: hasReplicatorSourceConfig
+      ? firstNonEmpty(process.env.AWS_REPLICATOR_SOURCE_AWS_ACCESS_KEY_ID)
+      : firstNonEmpty(process.env.AWS_ACCESS_KEY_ID),
+    aws_secret_access_key: hasReplicatorSourceConfig
+      ? firstNonEmpty(process.env.AWS_REPLICATOR_SOURCE_AWS_SECRET_ACCESS_KEY)
+      : firstNonEmpty(process.env.AWS_SECRET_ACCESS_KEY),
+    region_name: hasReplicatorSourceConfig
+      ? firstNonEmpty(process.env.AWS_REPLICATOR_SOURCE_REGION_NAME)
+      : firstNonEmpty(process.env.AWS_DEFAULT_REGION, process.env.AWS_REGION),
   };
 
-  const sessionToken = firstNonEmpty(
-    process.env.AWS_REPLICATOR_SOURCE_AWS_SESSION_TOKEN,
-    process.env.AWS_SESSION_TOKEN
-  );
+  const sessionToken = hasReplicatorSourceConfig
+    ? firstNonEmpty(process.env.AWS_REPLICATOR_SOURCE_AWS_SESSION_TOKEN)
+    : firstNonEmpty(process.env.AWS_SESSION_TOKEN);
   if (sessionToken) {
     config.aws_session_token = sessionToken;
   }
 
-  const endpointUrl = firstNonEmpty(
-    process.env.AWS_REPLICATOR_SOURCE_ENDPOINT_URL,
-    process.env.AWS_ENDPOINT_URL
-  );
+  const endpointUrl = hasReplicatorSourceConfig
+    ? firstNonEmpty(process.env.AWS_REPLICATOR_SOURCE_ENDPOINT_URL)
+    : firstNonEmpty(process.env.AWS_ENDPOINT_URL);
   if (endpointUrl) {
     config.endpoint_url = endpointUrl;
   }
 
   const missing: string[] = [];
-  if (!config.aws_access_key_id) missing.push("AWS_ACCESS_KEY_ID");
-  if (!config.aws_secret_access_key) missing.push("AWS_SECRET_ACCESS_KEY");
-  if (!config.region_name) missing.push("AWS_DEFAULT_REGION");
+  if (!config.aws_access_key_id) {
+    missing.push(
+      hasReplicatorSourceConfig
+        ? "AWS_REPLICATOR_SOURCE_AWS_ACCESS_KEY_ID"
+        : "AWS_ACCESS_KEY_ID"
+    );
+  }
+  if (!config.aws_secret_access_key) {
+    missing.push(
+      hasReplicatorSourceConfig
+        ? "AWS_REPLICATOR_SOURCE_AWS_SECRET_ACCESS_KEY"
+        : "AWS_SECRET_ACCESS_KEY"
+    );
+  }
+  if (!config.region_name) {
+    missing.push(
+      hasReplicatorSourceConfig ? "AWS_REPLICATOR_SOURCE_REGION_NAME" : "AWS_DEFAULT_REGION"
+    );
+  }
 
   return { config, missing };
 }
@@ -271,9 +297,8 @@ function getTargetAwsConfig(
     args.target_region_name,
     process.env.AWS_REPLICATOR_TARGET_REGION_NAME
   );
-  const targetEndpointUrl = firstNonEmpty(process.env.AWS_REPLICATOR_TARGET_ENDPOINT_URL);
 
-  if (!targetAccountId && !targetRegionName && !targetEndpointUrl) {
+  if (!targetAccountId && !targetRegionName) {
     return undefined;
   }
 
@@ -285,15 +310,18 @@ function getTargetAwsConfig(
     region_name: targetRegionName || sourceRegionName,
   };
 
-  const targetSessionToken = firstNonEmpty(process.env.AWS_REPLICATOR_TARGET_AWS_SESSION_TOKEN);
-  if (targetSessionToken) {
-    config.aws_session_token = targetSessionToken;
-  }
-  if (targetEndpointUrl) {
-    config.endpoint_url = targetEndpointUrl;
-  }
-
   return config;
+}
+
+function getResourceTargetKind(args: AwsReplicatorArgs): "arn" | "type_identifier" | "unknown" {
+  if (args.resource_arn?.trim()) return "arn";
+  if (args.resource_type?.trim() || args.resource_identifier?.trim()) return "type_identifier";
+  return "unknown";
+}
+
+function getArnService(resourceArn?: string): string | undefined {
+  const parts = resourceArn?.trim().split(":");
+  return parts && parts.length >= 3 && parts[0] === "arn" ? parts[2] : undefined;
 }
 
 export function formatReplicationJob(title: string, job: ReplicationJobResponse): string {

@@ -100,6 +100,8 @@ If you installed from source, change `command` and `args` to point to your local
 | `AWS_SECRET_ACCESS_KEY` (**required for AWS Replicator tool**) | Source AWS secret access key used by AWS Replicator to read external AWS resources | None |
 | `AWS_DEFAULT_REGION` (**required for AWS Replicator tool**) | Source AWS region used by AWS Replicator | None |
 
+For AWS Replicator-specific source credentials, you can use the `AWS_REPLICATOR_SOURCE_` prefixed variants instead of the unprefixed variants. Do not mix the prefixed and unprefixed source credential groups; when any `AWS_REPLICATOR_SOURCE_` variable is set, the Replicator tool reads the source configuration only from that group.
+
 ## Contributing
 
 Built on the [XMCP](https://github.com/basementstudio/xmcp) framework, you can add new tools by adding a new file to the `src/tools` directory and documenting it in the `manifest.json` file.

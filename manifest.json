@@ -142,6 +142,12 @@
       "text": "Start an AWS Replicator job for ${arguments.resource_type} ${arguments.resource_identifier} into LocalStack using the AWS credentials configured in the MCP server environment."
     },
     {
+      "name": "aws-replicator-start-by-arn",
+      "description": "Start an AWS Replicator job from a resource ARN",
+      "arguments": ["resource_arn"],
+      "text": "Start an AWS Replicator job for the resource ARN ${arguments.resource_arn} into LocalStack using the AWS credentials configured in the MCP server environment."
+    },
+    {
       "name": "aws-replicator-status",
       "description": "Check AWS Replicator job status",
       "arguments": ["job_id"],
