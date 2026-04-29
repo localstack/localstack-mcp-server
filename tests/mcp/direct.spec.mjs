@@ -13,6 +13,7 @@ const EXPECTED_TOOLS = [
   "localstack-aws-client",
   "localstack-aws-replicator",
   "localstack-docs",
+  "localstack-app-inspector",
 ];
 
 function requireEnv(name) {
