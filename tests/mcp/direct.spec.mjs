@@ -7,6 +7,7 @@ const EXPECTED_TOOLS = [
   "localstack-iam-policy-analyzer",
   "localstack-chaos-injector",
   "localstack-cloud-pods",
+  "localstack-state-management",
   "localstack-extensions",
   "localstack-snowflake-client",
   "localstack-ephemeral-instances",

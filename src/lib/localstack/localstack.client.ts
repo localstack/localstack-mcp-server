@@ -1,3 +1,4 @@
+import { LOCALSTACK_BASE_URL } from "../../core/config";
 import { httpClient, HttpError } from "../../core/http-client";
 
 export type ApiResult<T> =
@@ -57,6 +58,13 @@ export interface AppInspectorSetStatusResponse {
 
 export type AppInspectorStatus = "enabled" | "disabled";
 export type AppInspectorQuery = Record<string, string | number | undefined>;
+
+export interface StateExportResult {
+  content: Buffer;
+  services: string[];
+  size: number;
+  contentLength?: number;
+}
 
 // Chaos API Client
 export class ChaosApiClient {
@@ -184,8 +192,116 @@ export class CloudPodsApiClient {
   deletePod(podName: string) {
     return this.makeRequest(`/_localstack/pods/${encodeURIComponent(podName)}`, "DELETE", true, {});
   }
-  resetState() {
-    return this.makeRequest("/_localstack/state/reset", "POST", false, {});
+}
+
+// Local file-based State Management API Client
+export class StateManagementApiClient {
+  private async requestResponse(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<ApiResult<Response>> {
+    try {
+      const response = await fetch(`${LOCALSTACK_BASE_URL}${endpoint}`, options);
+      if (!response.ok) {
+        return {
+          success: false,
+          message: await response.text(),
+          statusCode: response.status,
+        };
+      }
+      return { success: true, data: response };
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to communicate with LocalStack State Management API: ${error instanceof Error ? error.message : "Unknown error"}`,
+      };
+    }
+  }
+
+  private serviceQuery(services?: string[]) {
+    if (!services || services.length === 0) return "";
+    return `?services=${encodeURIComponent(services.join(","))}`;
+  }
+
+  async exportState(services?: string[]): Promise<ApiResult<StateExportResult>> {
+    const result = await this.requestResponse(
+      `/_localstack/pods/state${this.serviceQuery(services)}`,
+      {
+        method: "GET",
+      }
+    );
+    if (!result.success) return result;
+
+    const response = result.data;
+    const content = Buffer.from(await response.arrayBuffer());
+    const exportedServices = (response.headers.get("x-localstack-pod-services") ?? "")
+      .split(",")
+      .map((service) => service.trim())
+      .filter(Boolean);
+    const size = Number(response.headers.get("x-localstack-pod-size") ?? content.length);
+    const contentLength = Number(response.headers.get("content-length") ?? content.length);
+
+    return {
+      success: true,
+      data: {
+        content,
+        services: exportedServices,
+        size: Number.isNaN(size) ? content.length : size,
+        contentLength: Number.isNaN(contentLength) ? undefined : contentLength,
+      },
+    };
+  }
+
+  async importState(content: Buffer): Promise<ApiResult<string>> {
+    const body = content.buffer.slice(
+      content.byteOffset,
+      content.byteOffset + content.byteLength
+    ) as ArrayBuffer;
+    const result = await this.requestResponse("/_localstack/pods", {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body,
+    });
+    if (!result.success) return result;
+    return { success: true, data: await result.data.text() };
+  }
+
+  async resetState(services?: string[]): Promise<ApiResult<void>> {
+    if (!services || services.length === 0) {
+      const result = await this.requestResponse("/_localstack/state/reset", { method: "POST" });
+      return result.success ? { success: true, data: undefined } : result;
+    }
+
+    for (const service of services) {
+      const result = await this.requestResponse(
+        `/_localstack/state/${encodeURIComponent(service)}/reset`,
+        { method: "POST" }
+      );
+      if (!result.success) return result;
+    }
+
+    return { success: true, data: undefined };
+  }
+
+  async inspectState(): Promise<ApiResult<unknown>> {
+    try {
+      const data = await httpClient.request<unknown>("/_localstack/pods/state/metamodel", {
+        method: "GET",
+      });
+      return { success: true, data };
+    } catch (error) {
+      if (error instanceof HttpError) {
+        return {
+          success: false,
+          message: error.body || error.message,
+          statusCode: error.status,
+        };
+      }
+      return {
+        success: false,
+        message: `Failed to communicate with LocalStack State Management API: ${error instanceof Error ? error.message : "Unknown error"}`,
+      };
+    }
   }
 }
 
