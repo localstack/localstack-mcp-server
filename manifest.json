@@ -45,7 +45,11 @@
     },
     {
       "name": "localstack-cloud-pods",
-      "description": "Manages LocalStack state snapshots (Cloud Pods) for saving, loading, deleting, and resetting"
+      "description": "Manages remote LocalStack Cloud Pods for saving, loading, and deleting cloud-backed state snapshots"
+    },
+    {
+      "name": "localstack-state-management",
+      "description": "Exports, imports, resets, and inspects LocalStack state with local file-based workflows on disk"
     },
     {
       "name": "localstack-extensions",
@@ -176,9 +180,33 @@
     },
     {
       "name": "cloud-pods",
-      "description": "Manage LocalStack state snapshots (Cloud Pods) for saving, loading, deleting, and resetting",
+      "description": "Manage remote LocalStack Cloud Pods for saving, loading, and deleting cloud-backed snapshots",
       "arguments": ["action", "pod_name"],
-      "text": "Please ${arguments.action} Cloud Pod in the LocalStack container with the pod name ${arguments.pod_name}."
+      "text": "Please ${arguments.action} Cloud Pod in the LocalStack container with the pod name ${arguments.pod_name}. Use Cloud Pods for remote cloud-backed snapshots; use LocalStack state management for local export/import files on disk."
+    },
+    {
+      "name": "localstack-state-export",
+      "description": "Export LocalStack state to a local file on disk",
+      "arguments": ["file_path", "services"],
+      "text": "Export my running LocalStack state to the local file ${arguments.file_path}. If services are provided (${arguments.services}), export only those services. Use this local file workflow instead of Cloud Pods because I want a disk file."
+    },
+    {
+      "name": "localstack-state-import",
+      "description": "Import LocalStack state from a local file on disk",
+      "arguments": ["file_path"],
+      "text": "Import LocalStack state from the local file ${arguments.file_path}. This is for local file-based restore; use Cloud Pods instead when I want remote cloud-backed snapshots."
+    },
+    {
+      "name": "localstack-state-inspect",
+      "description": "Inspect current LocalStack state locally",
+      "arguments": ["services"],
+      "text": "Inspect the current LocalStack state in JSON format. If services are provided (${arguments.services}), show only those services. Explain that this is local runtime state inspection and not a Cloud Pods remote snapshot operation."
+    },
+    {
+      "name": "localstack-state-reset",
+      "description": "Reset LocalStack state locally",
+      "arguments": ["services"],
+      "text": "Reset LocalStack state. If services are provided (${arguments.services}), reset only those services; otherwise reset all service state. Warn me that this is destructive and separate from deleting Cloud Pods."
     },
     {
       "name": "extensions-list",
