@@ -82,6 +82,19 @@
   ],
   "prompts": [
     {
+      "name": "infrastructure-tester",
+      "description": "Deploy IaC to LocalStack, validate resources with live evidence, then write and run deterministic integration tests",
+      "arguments": [
+        "iac_path",
+        "iac_type",
+        "test_language",
+        "test_framework",
+        "mode",
+        "services_focus"
+      ],
+      "text": "Run the Infrastructure Tester workflow for ${arguments.iac_path}. Detect or use ${arguments.iac_type}, validate deployed resources, and if mode is ${arguments.mode}, generate and run ${arguments.test_language}/${arguments.test_framework} integration tests focused on ${arguments.services_focus}."
+    },
+    {
       "name": "localstack-start",
       "description": "Start LocalStack",
       "arguments": ["auth_token"],

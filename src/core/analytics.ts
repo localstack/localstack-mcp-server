@@ -8,6 +8,8 @@ type UnknownRecord = Record<string, unknown>;
 
 const ANALYTICS_EVENT_TOOL = "mcp_tool_executed";
 const ANALYTICS_EVENT_ERROR = "mcp_tool_error";
+const ANALYTICS_EVENT_PROMPT = "mcp_prompt_invoked";
+const ANALYTICS_EVENT_PROMPT_ERROR = "mcp_prompt_error";
 const DEFAULT_POSTHOG_API_KEY = "phc_avw42FXoCcfAZUS67wftg93WOBeftfJuAhGHMAubGDB";
 const DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com";
 const ANALYTICS_ID_DIR = path.join(os.homedir(), ".localstack", "mcp");
@@ -300,6 +302,74 @@ export async function withToolAnalytics<T>(
       await captureToolEvent(ANALYTICS_EVENT_ERROR, {
         event_id: eventId,
         tool_name: toolName,
+        duration_ms: durationMs,
+        error_name: errorName,
+        error_message: errorMessage,
+        args: sanitizedArgs,
+      });
+    }
+  }
+
+  if (hasCaughtError) {
+    throw caughtError;
+  }
+
+  return result as T;
+}
+
+function sanitizePromptArgs(args: unknown): UnknownRecord {
+  const argsKeys =
+    args && typeof args === "object"
+      ? Object.keys(args as UnknownRecord)
+          .filter((key) => Object.prototype.hasOwnProperty.call(args, key))
+          .sort()
+      : [];
+
+  return { keys: argsKeys };
+}
+
+export async function withPromptAnalytics<T>(
+  promptName: string,
+  args: unknown,
+  handler: () => Promise<T>
+): Promise<T> {
+  const eventId = crypto.randomUUID();
+  const startedAt = Date.now();
+  const sanitizedArgs = sanitizePromptArgs(args);
+  let result: T | undefined;
+  let hasCaughtError = false;
+  let caughtError: unknown;
+  let success = false;
+  let errorName: string | null = null;
+  let errorMessage: string | null = null;
+
+  try {
+    result = await handler();
+    success = true;
+  } catch (error) {
+    hasCaughtError = true;
+    caughtError = error;
+    success = false;
+    const err = error instanceof Error ? error : new Error(String(error));
+    errorName = err.name;
+    errorMessage = truncateValue(err.message || "Unknown error");
+  } finally {
+    const durationMs = Date.now() - startedAt;
+
+    await captureToolEvent(ANALYTICS_EVENT_PROMPT, {
+      event_id: eventId,
+      prompt_name: promptName,
+      duration_ms: durationMs,
+      success,
+      error_name: errorName,
+      error_message: errorMessage,
+      args: sanitizedArgs,
+    });
+
+    if (!success) {
+      await captureToolEvent(ANALYTICS_EVENT_PROMPT_ERROR, {
+        event_id: eventId,
+        prompt_name: promptName,
         duration_ms: durationMs,
         error_name: errorName,
         error_message: errorMessage,
