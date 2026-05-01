@@ -18,6 +18,7 @@ This server eliminates custom scripts and manual LocalStack management with dire
 - Launch and manage [Ephemeral Instances](https://docs.localstack.cloud/aws/capabilities/cloud-sandbox/ephemeral-instances/) for remote LocalStack testing workflows.
 - Replicate external AWS resources into LocalStack with [AWS Replicator](https://docs.localstack.cloud/aws/tooling/aws-replicator/) so IaC stacks can resolve shared dependencies locally.
 - Inspect LocalStack application flows with [App Inspector](https://docs.localstack.cloud/aws/capabilities/web-app/app-inspector/) traces, spans, events, payload metadata, and IAM policy evaluations.
+- Start repeatable LocalStack workflows from ready-made MCP prompts, including infrastructure validation and integration test generation.
 - Connect AI assistants and dev tools for automated cloud testing workflows.
 
 ## Tools Reference
@@ -42,6 +43,14 @@ This server provides your AI with dedicated tools for managing your LocalStack e
 | [`localstack-aws-replicator`](./src/tools/localstack-aws-replicator.ts)           | Replicates external AWS resources into a running LocalStack instance       | - Start single-resource replication jobs with a resource type and identifier or ARN<br/>- Start batch replication jobs, such as SSM parameters under a path prefix<br/>- Poll job status by job ID and list existing jobs<br/>- List resource types supported by the running Replicator extension<br/>- Reads source AWS credentials from the MCP server environment and supports optional target account or region overrides                                        |
 | [`localstack-app-inspector`](./src/tools/localstack-app-inspector.ts)             | Inspects LocalStack application traces, spans, events, and IAM evaluations | - Enable or disable App Inspector for the running LocalStack instance<br/>- List and inspect traces to understand AWS service-to-service flows<br/>- Drill into spans, events, payload metadata, and IAM policy evaluation events<br/>- Filter by service, region, operation, resource, ARN, status, and time range<br/>- Requires a valid LocalStack Auth Token and the App Inspector feature in the connected LocalStack license                                   |
 | [`localstack-docs`](./src/tools/localstack-docs.ts)                               | Searches LocalStack documentation through CrawlChat                        | - Queries LocalStack docs through a public CrawlChat collection<br/>- Returns focused snippets with source links only<br/>- Helps answer coverage, configuration, and setup questions without requiring LocalStack runtime                                                                                                                                                                                                                                           |
+
+## Prompts
+
+Prompts are user-selected workflow templates exposed by MCP clients as slash commands or quick actions. They frame multi-step LocalStack tasks so the assistant follows the same phases, evidence requirements, and reporting format every time.
+
+| Prompt Name             | Description                                                                                                                                                               | Arguments                                                                                      |
+| :---------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :--------------------------------------------------------------------------------------------- |
+| `infrastructure-tester` | Deploys an IaC project to LocalStack, validates declared resources with live AWS probes and App Inspector evidence, then writes and runs deterministic integration tests. | `iac_path` (required), `iac_type`, `test_language`, `test_framework`, `mode`, `services_focus` |
 
 ## Installation
 
