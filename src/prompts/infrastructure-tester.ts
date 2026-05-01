@@ -6,32 +6,32 @@ export const schema = {
   iac_path: z
     .string()
     .min(1)
-    .describe("Path to the IaC root directory, e.g. ./infra, ./cdk, or ./terraform."),
+    .describe("Where is the IaC project? Example: ./infra, ./cdk, or ./terraform."),
   iac_type: z
     .string()
     .optional()
-    .describe("IaC framework: cdk, terraform, sam, cloudformation, or auto. Defaults to auto."),
+    .describe("What IaC framework is it? Use auto, cdk, terraform, sam, or cloudformation."),
   test_language: z
     .string()
     .optional()
-    .describe("Language for generated integration tests. Defaults to typescript."),
+    .describe("What language should the integration tests use? Defaults to typescript."),
   test_framework: z
     .string()
     .optional()
-    .describe("Test framework. Defaults from the test language, e.g. jest or pytest."),
+    .describe("What test framework should be used? Defaults from the test language."),
   mode: z
     .string()
     .optional()
-    .describe("validate-only runs deployment validation only; full also writes and runs tests."),
+    .describe("Run validation only, or also write and run tests? Use 'validate-only' or 'full'."),
   services_focus: z
     .string()
     .optional()
-    .describe("Comma-separated AWS services to focus on. Empty means all discovered services."),
+    .describe("Which AWS services should get extra attention? Example: s3,lambda,dynamodb."),
   user_focus: z
     .string()
     .optional()
     .describe(
-      "What should this test run focus on? For example: a service, resource path, workflow, or concern to prioritize. Optional."
+      "Anything specific to focus on? Example: a resource path, workflow, service, or bug."
     ),
 };
 
