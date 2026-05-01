@@ -11,6 +11,7 @@ export enum ProFeature {
   EXTENSIONS = "localstack.platform.plugin/extensions",
   REPLICATOR = "localstack.platform.plugin/replicator",
   SNOWFLAKE = "localstack.aws.provider/snowflake:pro",
+  STATE_MANAGEMENT = "localstack.platform.plugin/snapshot",
 }
 
 export interface LicenseCheckResult {

@@ -40,6 +40,7 @@ export const TOOL_ARG_ALLOWLIST: Record<string, string[]> = {
   ],
   "localstack-chaos-injector": ["action", "rules_count", "latency_ms"],
   "localstack-cloud-pods": ["action", "pod_name"],
+  "localstack-state-management": ["action", "has_file_path", "services_count"],
   "localstack-deployer": [
     "action",
     "projectType",

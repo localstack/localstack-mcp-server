@@ -14,7 +14,11 @@ import { withToolAnalytics } from "../core/analytics";
 
 // Define the schema for tool parameters
 export const schema = {
-  action: z.enum(["save", "load", "delete", "reset"]).describe("The Cloud Pods action to perform."),
+  action: z
+    .enum(["save", "load", "delete"])
+    .describe(
+      "The Cloud Pods action to perform."
+    ),
 
   pod_name: z
     .string()
@@ -34,7 +38,7 @@ export const schema = {
 // Define tool metadata
 export const metadata: ToolMetadata = {
   name: "localstack-cloud-pods",
-  description: "Manages LocalStack Cloud Pods with following actions: save, load, delete, reset",
+  description: "Manages remote LocalStack Cloud Pods with following actions: save, load, delete",
   annotations: {
     title: "LocalStack Cloud Pods",
     readOnlyHint: false,
@@ -125,17 +129,6 @@ export default async function localstackCloudPods({
         }
 
         return ResponseBuilder.success(`Cloud Pod '**${pod_name}**' has been permanently deleted.`);
-      }
-
-      case "reset": {
-        const result = await client.resetState();
-        if (!result.success) {
-          return ResponseBuilder.error("Cloud Pods Error", result.message);
-        }
-
-        return ResponseBuilder.markdown(
-          "⚠️ LocalStack state has been reset successfully. **All unsaved state has been permanently lost.**"
-        );
       }
 
       default:
