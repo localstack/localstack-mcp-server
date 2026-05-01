@@ -10,28 +10,28 @@ export const schema = {
   iac_type: z
     .string()
     .optional()
-    .describe("What IaC framework is it? Use auto, cdk, terraform, sam, or cloudformation."),
+    .describe("(Optional) What IaC framework is it? Use auto, cdk, terraform, sam, or cloudformation."),
   test_language: z
     .string()
     .optional()
-    .describe("What language should the integration tests use? Defaults to typescript."),
+    .describe("(Optional) What language should the integration tests use? Defaults to typescript."),
   test_framework: z
     .string()
     .optional()
-    .describe("What test framework should be used? Defaults from the test language."),
+    .describe("(Optional) What test framework should be used? Defaults from the test language."),
   mode: z
     .string()
     .optional()
-    .describe("Run validation only, or also write and run tests? Use 'validate-only' or 'full'."),
+    .describe("(Optional) Run validation only, or also write and run tests? Use 'validate-only' or 'full'."),
   services_focus: z
     .string()
     .optional()
-    .describe("Which AWS services should get extra attention? Example: s3,lambda,dynamodb."),
+    .describe("(Optional) Which AWS services should get extra attention? Example: s3,lambda,dynamodb."),
   user_focus: z
     .string()
     .optional()
     .describe(
-      "Anything specific to focus on? Example: a resource path, workflow, service, or bug."
+      "(Optional) Anything specific to focus on? Example: a resource path, workflow, service, or bug."
     ),
 };
 
