@@ -5,9 +5,7 @@ CLI, `awslocal`, Terraform + `tflocal`, AWS CDK + `cdklocal`, AWS SAM + `samloca
 the Snowflake `snow` CLI, and the Docker CLI — so the **only dependency on your
 machine is Docker itself**.
 
-```
-localstack/localstack-mcp-server:latest      # multi-arch: linux/amd64 + linux/arm64
-```
+The image is multi-arch (`linux/amd64` and `linux/arm64`).
 
 ## How it works (Docker-out-of-Docker)
 
@@ -25,7 +23,7 @@ MCP client ── stdio ──► docker run … (MCP server)
                               └─ localstack-main  (sibling, publishes :4566 on the host)
 ```
 
-Because LocalStack is a sibling, two things must be configured at run time:
+Because LocalStack is a sibling container, two things must be configured at run time:
 
 1. **Reachability** — set `LOCALSTACK_HOSTNAME=host.docker.internal` so the server
    and the IaC CLIs target the sibling's published port instead of the container's
@@ -95,24 +93,28 @@ expand `$HOME`/`$PWD` — use absolute paths.
 
 ## Deploying your IaC (mounting projects)
 
-Deploys run **inside** the MCP container, so your project directory must be visible
-there. Mount it and pass the **in-container path** to the `localstack-deployer`
-tool. The simplest, least-surprising convention is to mount it at the same absolute
-path:
+Deploys run inside the MCP container, so your project directory must be visible
+there. Mount it and pass the in-container path to the `localstack-deployer` tool.
+The simplest convention is to mount it at the same absolute path:
 
 ```
 -v "/Users/you/projects/my-infra:/Users/you/projects/my-infra"
 ```
 
-Then tell the tool `directory: /Users/you/projects/my-infra`. Terraform and SAM
-work out of the box (the server injects the LocalStack endpoint into `tflocal` /
-`samlocal`).
+Then tell the tool `directory: /Users/you/projects/my-infra`.
+
+Terraform, SAM, and CDK receive the LocalStack endpoint automatically when
+`LOCALSTACK_HOSTNAME=host.docker.internal` is set. Simple CDK stacks work with the
+aliases in the quick-start command. CDK stacks that publish assets may use
+bucket-prefixed S3 hostnames such as
+`cdk-hnb659fds-assets-000000000000-us-east-1.s3.host.docker.internal`; Docker
+`--add-host` cannot add wildcard aliases, so asset-heavy CDK projects may need DNS
+that resolves `*.s3.host.docker.internal` to the host gateway.
 
 ## Known limitations
 
-- **Extra host aliases.** CDK needs `s3.host.docker.internal` for virtual-hosted S3
-  calls, and the Snowflake CLI needs `snowflake.localhost.localstack.cloud` for
-  emulator routing. Include the aliases shown in the quick-start command.
+- **Extra host aliases.** Include the aliases shown in the quick-start command.
+  CDK asset publishing may need wildcard DNS for `*.s3.host.docker.internal`.
 - **First cold start** of LocalStack can take up to ~2 minutes while the runtime
   initializes; subsequent starts reuse the persisted volume under
   `$XDG_CACHE_HOME`.
@@ -132,5 +134,27 @@ work out of the box (the server injects the LocalStack endpoint into `tflocal` /
 ## Validating an image yourself
 
 `tests/docker/validate-image.mjs` is a dependency-free MCP stdio client that drives
-the image through real tool calls (management, aws-client, deployer, docs,
-extensions). See its header for usage.
+the image through real tool calls.
+
+```bash
+LOCALSTACK_AUTH_TOKEN="<YOUR_TOKEN>" \
+HARNESS_TOKEN_REAL=1 \
+node tests/docker/validate-image.mjs -- \
+  docker run -i --rm \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v "$HOME/.localstack-mcp:$HOME/.localstack-mcp" \
+    -e XDG_CACHE_HOME="$HOME/.localstack-mcp" \
+    --add-host host.docker.internal:host-gateway \
+    --add-host s3.host.docker.internal:host-gateway \
+    --add-host snowflake.localhost.localstack.cloud:host-gateway \
+    -e LOCALSTACK_AUTH_TOKEN \
+    -e LOCALSTACK_HOSTNAME=host.docker.internal \
+    -v "$PWD/data:/work/data" \
+    localstack/localstack-mcp-server:latest
+```
+
+Use `HARNESS_SKIP` to skip scenarios, for example:
+
+```bash
+HARNESS_SKIP=docs,cloudpods,ephemeral,replicator
+```

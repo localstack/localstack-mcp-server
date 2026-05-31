@@ -50,6 +50,7 @@ const serverArgs = argv.slice(sep + 2);
 
 const DEPLOY_DIR = process.env.HARNESS_DEPLOY_DIR || "/work/data/sample-terraform";
 const CDK_DIR = process.env.HARNESS_CDK_DIR || "/work/data/sample-cdk";
+const SQL_FILE = process.env.HARNESS_SQL_FILE || "/work/data/sample-sql/snowflake_test.sql";
 const TOKEN_REAL = process.env.HARNESS_TOKEN_REAL === "1";
 const SKIP = new Set((process.env.HARNESS_SKIP || "").split(",").map((s) => s.trim()).filter(Boolean));
 const NO_CLEANUP = process.env.HARNESS_NO_CLEANUP === "1";
@@ -242,12 +243,12 @@ async function main() {
     } catch (e) { record("status", "management status", false, String(e.message)); }
   }
 
-  // 5. management start (aws) — THE DooD test: CLI in container starts sibling on host
+  // 5. management start
   if (!SKIP.has("start")) {
     try {
       const r = await callTool("localstack-management", { action: "start" }, 240000);
       const ok = !r.isError && /(started successfully|already running)/i.test(r.text);
-      record("start", "localstack-management start (DooD sibling on host)", ok, snip(r.text, 500));
+      record("start", "localstack-management start", ok, snip(r.text, 500));
     } catch (e) { record("start", "management start", false, String(e.message)); }
   }
 
@@ -452,7 +453,7 @@ async function main() {
     }
   }
 
-  // 7. deployer terraform — THE networking test: tflocal in container reaches LS host
+  // 7. deployer terraform
   if (!SKIP.has("deploy")) {
     try {
       const r = await callTool("localstack-deployer", { action: "deploy", projectType: "terraform", directory: DEPLOY_DIR }, 300000);
@@ -511,7 +512,7 @@ async function main() {
     try {
       const start = await callTool("localstack-management", { action: "start", service: "snowflake" }, 240000);
       const check = await callTool("localstack-snowflake-client", { action: "check-connection" }, 120000);
-      const exec = await callTool("localstack-snowflake-client", { action: "execute", file_path: "/work/data/sample-sql/snowflake_test.sql" }, 180000);
+      const exec = await callTool("localstack-snowflake-client", { action: "execute", file_path: SQL_FILE }, 180000);
       const ok = !start.isError && !check.isError && !exec.isError;
       recordToolResult("snowflake", "localstack-snowflake-client check-connection/execute file", { text: `start: ${start.text}\ncheck: ${check.text}\nexecute: ${exec.text}`, isError: !ok }, () => ok);
     } catch (e) { record("snowflake", "snowflake-client", false, String(e.message)); }
