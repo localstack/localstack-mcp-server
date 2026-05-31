@@ -85,10 +85,8 @@ function formatMarkdownResults(query: string, results: CrawlChatDocsResult[]): s
 function getLabelFromUrlPath(urlString: string): string {
   try {
     const url = new URL(urlString);
-    const lastSegment = url.pathname
-      .split("/")
-      .filter(Boolean)
-      .at(-1);
+    const pathSegments = url.pathname.split("/").filter(Boolean);
+    const lastSegment = pathSegments[pathSegments.length - 1];
 
     if (!lastSegment) {
       return url.hostname;

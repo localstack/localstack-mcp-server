@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import { LOCALSTACK_HOSTNAME, LOCALSTACK_PORT } from "../../core/config";
 import { runCommand } from "../../core/command-runner";
 import { ResponseBuilder } from "../../core/response-builder";
 
@@ -95,6 +96,22 @@ export interface RuntimeStatus {
   statusOutput?: string;
 }
 
+const SNOWFLAKE_ROUTING_HOST = "snowflake.localhost.localstack.cloud";
+const CLIENT_ONLY_ENV_KEYS = [
+  "HOSTNAME",
+  "LOCALSTACK_HOSTNAME",
+  "AWS_ENDPOINT_URL",
+  "AWS_ENDPOINT_URL_S3",
+];
+
+function getLocalStackEndpointHost() {
+  return process.env.LOCALSTACK_HOSTNAME?.trim() || LOCALSTACK_HOSTNAME;
+}
+
+function getLocalStackEndpointPort() {
+  return String(process.env.LOCALSTACK_PORT || LOCALSTACK_PORT);
+}
+
 /**
  * Get LocalStack status information
  * @returns Promise with status details including running state and raw output
@@ -125,15 +142,19 @@ export async function getLocalStackStatus(): Promise<LocalStackStatusResult> {
  */
 export async function getSnowflakeEmulatorStatus(): Promise<SnowflakeStatusResult> {
   try {
+    const host = getLocalStackEndpointHost();
+    const port = getLocalStackEndpointPort();
     const { stdout, stderr, error, exitCode } = await runCommand("curl", [
       "-sS",
       "-X",
       "POST",
       "-H",
       "Content-Type: application/json",
+      "-H",
+      `Host: ${SNOWFLAKE_ROUTING_HOST}:${port}`,
       "-d",
       "{}",
-      "snowflake.localhost.localstack.cloud:4566/session",
+      `http://${host}:${port}/session`,
     ]);
 
     const output = (stdout || "").trim();
@@ -190,7 +211,11 @@ export async function startRuntime({
     return ResponseBuilder.markdown(alreadyRunningMessage);
   }
 
-  const environment = { ...process.env, ...(envVars || {}) } as Record<string, string>;
+  const environment = { ...process.env } as Record<string, string>;
+  for (const key of CLIENT_ONLY_ENV_KEYS) {
+    delete environment[key];
+  }
+  Object.assign(environment, envVars || {});
   if (process.env.LOCALSTACK_AUTH_TOKEN) {
     environment.LOCALSTACK_AUTH_TOKEN = process.env.LOCALSTACK_AUTH_TOKEN;
   }
@@ -216,8 +241,14 @@ export async function startRuntime({
 
     child.on("close", (code) => {
       if (earlyExit) return;
-      if (poll) clearInterval(poll);
+      // A non-zero exit is a real failure: stop polling and report it.
+      // A zero exit is expected in non-interactive environments (e.g. inside a
+      // container, where `localstack start` launches the runtime and returns
+      // instead of staying attached to stream logs). In that case we must keep
+      // polling so readiness is still detected and the promise resolves — clearing
+      // the interval here would leave the start call hanging forever.
       if (code !== 0) {
+        if (poll) clearInterval(poll);
         resolve(
           ResponseBuilder.markdown(
             `❌ ${processLabel} process exited unexpectedly with code ${code}.\n\nStderr:\n${stderr}`

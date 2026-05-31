@@ -60,7 +60,7 @@ export default async function localstackManagement({
       case "stop":
         return await handleStop();
       case "restart":
-        return await handleRestart();
+        return await handleRestart({ envVars, service });
       case "status":
         return await handleStatus({ service });
       default:
@@ -138,32 +138,16 @@ async function handleStop() {
 }
 
 // Handle restart action
-async function handleRestart() {
-  const cmd = await runCommand("localstack", ["restart"], { timeout: 30000 });
-  let result = "🔄 LocalStack restart command executed!\n\n";
-  if (cmd.stdout.trim()) result += `Output:\n${cmd.stdout}\n`;
-  if (cmd.stderr.trim()) result += `Messages:\n${cmd.stderr}\n`;
-
+async function handleRestart({
+  envVars,
+  service,
+}: {
+  envVars?: Record<string, string>;
+  service: "aws" | "snowflake";
+}) {
+  await runCommand("localstack", ["stop"], { timeout: 60000 });
   await new Promise((resolve) => setTimeout(resolve, 2000));
-  const statusResult = await getLocalStackStatus();
-  if (statusResult.statusOutput) {
-    result += `\nStatus after restart:\n${statusResult.statusOutput}`;
-    if (statusResult.isRunning) {
-      result += "\n\n✅ LocalStack has been restarted successfully and is now running with a fresh state.";
-    } else {
-      result +=
-        "\n\n⚠️  LocalStack restart completed but may still be starting up. Check status again in a few moments.";
-    }
-  } else {
-    result +=
-      "\n\n⚠️  Restart completed but unable to verify status. LocalStack may still be starting up.";
-  }
-
-  if (cmd.error) {
-    result = `❌ Failed to restart LocalStack: ${cmd.error.message}\n\nThis could happen if:\n- LocalStack is not currently installed properly\n- There was an error executing the restart command\n- The restart process timed out (LocalStack can take time to restart)\n- Permission issues\n\nYou can try stopping and starting LocalStack manually using separate actions if the restart action continues to fail.`;
-  }
-
-  return ResponseBuilder.markdown(result);
+  return await handleStart({ envVars, service });
 }
 
 // Handle status action

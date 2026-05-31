@@ -103,6 +103,35 @@ If you installed from source, change `command` and `args` to point to your local
 }
 ```
 
+### Run with Docker
+
+Prefer zero local setup? A self-contained image bundles the LocalStack CLI, `awslocal`, Terraform/`tflocal`, CDK/`cdklocal`, SAM/`samlocal`, and the Snowflake CLI, so **Docker is the only dependency**. It drives your host Docker daemon (via the mounted socket) to run LocalStack as a sibling container.
+
+```json
+{
+  "mcpServers": {
+    "localstack-mcp-server": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-v", "/var/run/docker.sock:/var/run/docker.sock",
+        "-v", "/Users/you/.localstack-mcp:/Users/you/.localstack-mcp",
+        "-e", "XDG_CACHE_HOME=/Users/you/.localstack-mcp",
+        "--add-host", "host.docker.internal:host-gateway",
+        "--add-host", "s3.host.docker.internal:host-gateway",
+        "--add-host", "snowflake.localhost.localstack.cloud:host-gateway",
+        "-e", "LOCALSTACK_AUTH_TOKEN",
+        "-e", "LOCALSTACK_HOSTNAME=host.docker.internal",
+        "localstack/localstack-mcp-server:latest"
+      ],
+      "env": { "LOCALSTACK_AUTH_TOKEN": "<YOUR_TOKEN>" }
+    }
+  }
+}
+```
+
+See **[docs/DOCKER.md](./docs/DOCKER.md)** for how this works, why the cache bind mount and `LOCALSTACK_HOSTNAME` are required, how to mount IaC projects for the deployer, and troubleshooting.
+
 ## LocalStack Configuration
 
 | Variable Name                                                  | Description                                                                                                                                                                     | Default Value     |
