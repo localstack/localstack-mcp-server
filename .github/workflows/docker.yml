@@ -1,0 +1,75 @@
+name: Docker Image (Build & Test)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "src/**"
+      - "package.json"
+      - "yarn.lock"
+      - "tests/docker/**"
+      - ".github/workflows/docker.yml"
+  push:
+    branches: [main]
+  # release:
+  #   types: [published]
+  # workflow_dispatch:
+
+env:
+  IMAGE_NAME: localstack/localstack-mcp-server
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      CI_LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (single-arch, load locally)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: Smoke test MCP startup
+        env:
+          HARNESS_SKIP: prompt,docs,status,start,aws,logs,state,cloudpods,appinspector,chaos,iam,replicator,ephemeral,deploy,deploy-cdk,extensions,restart,stop,snowflake
+        run: |
+          node tests/docker/validate-image.mjs -- \
+            docker run -i --rm \
+              ${{ env.IMAGE_NAME }}:ci
+
+      - name: Integration test Docker runtime
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+          HARNESS_TOKEN_REAL: "1"
+          HARNESS_SKIP: cloudpods,ephemeral,replicator,chaos
+        run: |
+          npm ci --prefix data/sample-cdk
+          mkdir -p "$HOME/.localstack-mcp"
+          node tests/docker/validate-image.mjs -- \
+            docker run -i --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "$HOME/.localstack-mcp:$HOME/.localstack-mcp" \
+              -e XDG_CACHE_HOME="$HOME/.localstack-mcp" \
+              --add-host host.docker.internal:host-gateway \
+              --add-host s3.host.docker.internal:host-gateway \
+              --add-host snowflake.localhost.localstack.cloud:host-gateway \
+              -e LOCALSTACK_AUTH_TOKEN \
+              -e LOCALSTACK_HOSTNAME=host.docker.internal \
+              -v "$PWD/data:/work/data" \
+              ${{ env.IMAGE_NAME }}:ci
