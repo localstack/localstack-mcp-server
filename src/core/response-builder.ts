@@ -24,4 +24,10 @@ export class ResponseBuilder {
       content: [{ type: "text", text: content }],
     };
   }
+
+  public static blocks(...parts: string[]): ToolResponse {
+    return {
+      content: parts.map((text) => ({ type: "text" as const, text })),
+    };
+  }
 }

@@ -569,9 +569,9 @@ function checkResources(
 
   const stackLabel = framework ?? "Service coverage summary";
 
-  let md = `**${stackLabel}**\n\n`;
-  md += `| Resource | Status |\n`;
-  md += `|---|---|\n`;
+  let table = `**${stackLabel}**\n\n`;
+  table += `| Resource | Status |\n`;
+  table += `|---|---|\n`;
 
   for (const r of results) {
     const count = counts?.get(r.resource_type) ?? 1;
@@ -579,12 +579,21 @@ function checkResources(
       ? `${count}x ${friendlyName(r.resource_type)}`
       : friendlyName(r.resource_type);
     const status = !r.known || r.blocking.length > 0 ? "❌" : "✅";
-    md += `| ${label} | ${status} |\n`;
+    table += `| ${label} | ${status} |\n`;
   }
 
-  md += `\n`;
-  md += hasBlockers
-    ? `**${blocked.length} blocker(s) found.** ${blocked.map((r) => `${friendlyName(r.resource_type)} requires: ${r.blocking.join(", ")}`).join("; ")}.`
+  const knownBlockers = blocked.filter((r) => r.known && r.blocking.length > 0);
+  const unknownBlockers = blocked.filter((r) => !r.known);
+  let blockerSummary = "";
+  if (knownBlockers.length > 0) {
+    blockerSummary += knownBlockers.map((r) => `${friendlyName(r.resource_type)} requires: ${r.blocking.join(", ")}`).join("; ") + ".";
+  }
+  if (unknownBlockers.length > 0) {
+    const names = unknownBlockers.map((r) => friendlyName(r.resource_type)).join(", ");
+    blockerSummary += (blockerSummary ? " " : "") + `${names}: not in coverage database.`;
+  }
+  let verdict = hasBlockers
+    ? `**${blocked.length} blocker(s) found.** ${blockerSummary}`
     : `**No blockers.** All resources should deploy cleanly on LocalStack.`;
 
   const comments = blocked
@@ -597,10 +606,10 @@ function checkResources(
   }
 
   if (comments.length > 0) {
-    md += `\n\nComments:\n${comments.join("\n")}`;
+    verdict += `\n\nComments:\n${comments.join("\n")}`;
   }
 
-  return ResponseBuilder.markdown(md);
+  return ResponseBuilder.blocks(table, verdict);
 }
 
 // ---------------------------------------------------------------------------
