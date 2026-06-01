@@ -67,7 +67,7 @@ export const TOOL_ARG_ALLOWLIST: Record<string, string[]> = {
   "localstack-logs-analysis": ["analysisType", "lines", "service", "operation", "filter"],
   "localstack-management": ["action", "service", "envVars"],
   "localstack-snowflake-client": ["action"],
-  "localstack-coverage-advisor": ["action", "service"],
+  "localstack-preflight": ["action", "service"],
 };
 
 let posthogClient: PostHog | null = null;

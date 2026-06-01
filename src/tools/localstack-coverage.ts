@@ -187,20 +187,24 @@ export const schema = {
 // ---------------------------------------------------------------------------
 
 export const metadata: ToolMetadata = {
-  name: "localstack-coverage-advisor",
+  name: "localstack-preflight",
   description:
-    "STATIC analysis only — reads IaC files and queries the coverage database. Does NOT deploy, run terraform, install tools, or require LocalStack to be running. " +
-    "Use this tool whenever the user asks whether their IaC (Terraform, CloudFormation, CDK, Pulumi) will work, deploy, " +
-    "or run on LocalStack — e.g. 'will this terraform work on localstack?', 'can I deploy this to localstack?', " +
-    "'what won't work on localstack?', 'is my stack compatible with localstack?', 'check my terraform', " +
-    "'validate my terraform', 'validate this stack', 'check coverage for my IaC', 'what's the localstack coverage?', " +
-    "'will this work?', 'is this supported?', 'what operations are missing?', 'check localstack support'. " +
-    "ALWAYS prefer this tool over localstack-deployer when the user wants to CHECK, VALIDATE, or VERIFY compatibility without actually deploying. " +
-    "When the user asks such a question without providing a path, infer the workspace root and pass it as iac_path to scan_iac. " +
-    "If scan_iac returns no resources found, ask the user once: 'I didn't find any IaC files in <path> — where is your Terraform project?' " +
-    "After showing the deploy-readiness verdict, offer to patch the project so it deploys on LocalStack (Terraform only).",
+    "STATIC preflight check — reads IaC files and checks API coverage. Does NOT deploy, run terraform, install tools, or require LocalStack to be running. " +
+    "Use this BEFORE localstack-deployer whenever the user wants to know if their IaC is compatible with LocalStack. " +
+    "Trigger phrases: " +
+    "'will this work on localstack', 'will my terraform work', 'will my stack work', 'will my IaC work', 'will this deploy on localstack', " +
+    "'will this deploy to localstack', 'will my cloudformation work', 'will my CDK work', 'will my pulumi work', " +
+    "'can I run this on localstack', 'can I deploy this on localstack', 'can localstack run this', " +
+    "'is this supported by localstack', 'is this compatible with localstack', 'does localstack support this', " +
+    "'check my terraform', 'check my stack', 'check my IaC', 'check localstack compatibility', " +
+    "'validate my terraform', 'validate my stack', 'validate my IaC', " +
+    "'what won't work on localstack', 'what's missing', 'what operations are missing', 'what's not supported', " +
+    "'any blockers', 'are there any blockers', 'preflight check', 'coverage check', 'localstack coverage'. " +
+    "When the user asks without providing a path, infer the workspace root and pass it as iac_path to scan_iac. " +
+    "If scan_iac returns no resources found, ask the user once: 'I didn't find any IaC files in <path> — where is your project?' " +
+    "After showing the verdict, offer to patch the project so it deploys on LocalStack (Terraform only).",
   annotations: {
-    title: "LocalStack Coverage",
+    title: "LocalStack Preflight",
     readOnlyHint: true,
     destructiveHint: false,
     idempotentHint: true,
@@ -226,7 +230,7 @@ export default async function localstackCoverage({
   iac_path,
 }: InferSchema<typeof schema>) {
   return withToolAnalytics(
-    "localstack-coverage-advisor",
+    "localstack-preflight",
     { action, service },
     async () => {
       let db: Database.Database;

@@ -30,7 +30,7 @@ export const schema = {
 };
 
 export const metadata: PromptMetadata = {
-  name: "coverage-advisor",
+  name: "localstack-preflight",
   title: "Coverage Advisor",
   description:
     "Check LocalStack API coverage for an IaC template, a list of services, or specific operations — and get a clear deploy-readiness verdict.",
@@ -74,7 +74,7 @@ Call the tool, then render the results as a **markdown table** in your response 
 
 ## What to call
 
-Use only the \`mcp__localstack__localstack-coverage-advisor\` tool.
+Use only the \`mcp__localstack__localstack-preflight\` tool.
 
 ${hasOperations
   ? `Split \`${values.operations}\` on commas and call \`check_operations\` with the resulting array.`
