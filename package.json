@@ -7,7 +7,7 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "xmcp build",
+    "build": "xmcp build && node -e \"require('fs').mkdirSync('dist/data',{recursive:true});require('fs').copyFileSync('data/coverage.db','dist/data/coverage.db')\"",
     "dev": "xmcp dev",
     "start": "node dist/stdio.js",
     "format": "prettier --write .",
@@ -17,6 +17,7 @@
     "test:mcp": "yarn test:mcp:direct && yarn test:mcp:evals"
   },
   "dependencies": {
+    "better-sqlite3": "^12.10.0",
     "dockerode": "^4.0.7",
     "posthog-node": "5.0.0",
     "xmcp": "0.6.4",
@@ -25,6 +26,7 @@
   "devDependencies": {
     "@gleanwork/mcp-server-tester": "1.0.0-beta.6",
     "@playwright/test": "^1.58.2",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/dockerode": "^3.3.43",
     "@types/jest": "^30.0.0",
     "eslint-config-prettier": "^10.1.8",
