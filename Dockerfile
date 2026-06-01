@@ -45,8 +45,23 @@ RUN pip install --no-cache-dir --upgrade pip \
       \( -type d \( -name __pycache__ -o -name tests -o -name test \) -o -type f \( -name '*.pyc' -o -name '*.pyo' \) \) \
       -prune -exec rm -rf '{}' +
 
-RUN npm install -g aws-cdk aws-cdk-local \
+RUN npm install -g aws-cdk@2.1114.0 aws-cdk-local \
  && npm cache clean --force
+
+RUN node <<'NODE'
+const fs = require("fs");
+const file = "/usr/lib/node_modules/aws-cdk/lib/index.js";
+const source = fs.readFileSync(file, "utf8");
+const target = `      s3() {\n        const client = new import_client_s33.S3Client(this.config);`;
+const replacement = `      s3() {\n        if (/^(1|true|yes)$/i.test(process.env.AWS_S3_FORCE_PATH_STYLE || "")) {\n          this.config.forcePathStyle = true;\n        }\n        const client = new import_client_s33.S3Client(this.config);`;
+
+if (!source.includes(replacement)) {
+  if (!source.includes(target)) {
+    throw new Error("Could not patch aws-cdk S3 forcePathStyle hook");
+  }
+  fs.writeFileSync(file, source.replace(target, replacement));
+}
+NODE
 
 WORKDIR /app
 RUN mkdir -p /usr/lib/localstack /tmp/dockerode-deps \

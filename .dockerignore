@@ -1,8 +1,10 @@
 # Build artifacts (rebuilt inside the image)
 node_modules
+**/node_modules
 dist
 .xmcp
 xmcp-env.d.ts
+**/cdk.out
 
 # VCS / CI
 .git

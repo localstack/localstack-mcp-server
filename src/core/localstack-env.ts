@@ -36,12 +36,15 @@ export function buildIacCliEnv(extra: Record<string, string> = {}): NodeJS.Proce
     ...base,
     AWS_ENDPOINT_URL: base.AWS_ENDPOINT_URL || endpoint,
     AWS_ENDPOINT_URL_S3: base.AWS_ENDPOINT_URL_S3 || s3Endpoint,
-    AWS_ENVAR_ALLOWLIST: base.AWS_ENVAR_ALLOWLIST || [
+    S3_ENDPOINT: base.S3_ENDPOINT || endpoint,
+    AWS_S3_FORCE_PATH_STYLE: base.AWS_S3_FORCE_PATH_STYLE || "1",
+    AWS_ENVAR_ALLOWLIST: [
       "AWS_ACCESS_KEY_ID",
       "AWS_SECRET_ACCESS_KEY",
       "AWS_SESSION_TOKEN",
       "AWS_DEFAULT_REGION",
       "AWS_REGION",
+      "AWS_S3_FORCE_PATH_STYLE",
       "CDK_DEFAULT_ACCOUNT",
       "CDK_DEFAULT_REGION",
     ].join(","),

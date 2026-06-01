@@ -104,17 +104,13 @@ The simplest convention is to mount it at the same absolute path:
 Then tell the tool `directory: /Users/you/projects/my-infra`.
 
 Terraform, SAM, and CDK receive the LocalStack endpoint automatically when
-`LOCALSTACK_HOSTNAME=host.docker.internal` is set. Simple CDK stacks work with the
-aliases in the quick-start command. CDK stacks that publish assets may use
-bucket-prefixed S3 hostnames such as
-`cdk-hnb659fds-assets-000000000000-us-east-1.s3.host.docker.internal`; Docker
-`--add-host` cannot add wildcard aliases, so asset-heavy CDK projects may need DNS
-that resolves `*.s3.host.docker.internal` to the host gateway.
+`LOCALSTACK_HOSTNAME=host.docker.internal` is set. CDK asset publishing is forced
+to path-style S3 inside the Docker image, so the single `s3.host.docker.internal`
+alias covers bootstrap asset uploads.
 
 ## Known limitations
 
 - **Extra host aliases.** Include the aliases shown in the quick-start command.
-  CDK asset publishing may need wildcard DNS for `*.s3.host.docker.internal`.
 - **First cold start** of LocalStack can take up to ~2 minutes while the runtime
   initializes; subsequent starts reuse the persisted volume under
   `$XDG_CACHE_HOME`.

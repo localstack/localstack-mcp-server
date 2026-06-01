@@ -462,7 +462,7 @@ async function main() {
     } catch (e) { record("deploy", "deployer terraform", false, String(e.message)); }
   }
 
-  // 7b. deployer CDK — validates cdklocal endpoint injection and virtual-hosted S3 alias.
+  // 7b. deployer CDK — validates cdklocal endpoint injection and path-style S3 asset uploads.
   if (!SKIP.has("deploy-cdk")) {
     try {
       const r = await callTool("localstack-deployer", { action: "deploy", projectType: "cdk", directory: CDK_DIR }, 300000);

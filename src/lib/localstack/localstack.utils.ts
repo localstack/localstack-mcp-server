@@ -102,6 +102,8 @@ const CLIENT_ONLY_ENV_KEYS = [
   "LOCALSTACK_HOSTNAME",
   "AWS_ENDPOINT_URL",
   "AWS_ENDPOINT_URL_S3",
+  "S3_ENDPOINT",
+  "AWS_S3_FORCE_PATH_STYLE",
 ];
 
 function getLocalStackEndpointHost() {
