@@ -70,7 +70,7 @@ function renderCoverageAdvisorPrompt(values: {
 
 ## OUTPUT RULE — follow exactly
 
-Call the tool, then copy its output **verbatim** into your response. No preamble, no summary, no extra analysis, no rephrasing. Your entire response is the raw tool output followed by the patch offer (see below).
+Call the tool, then render the results as a **markdown table** in your response with columns Resource and Status (✅ / ❌). Group by stack or framework if there are multiple. End with a single bold verdict line. No preamble, no extra analysis beyond the verdict.
 
 ## What to call
 
@@ -100,6 +100,6 @@ If the user says yes, call \`patch_iac\` with the same \`iac_path\`.
 - Do NOT add a "LocalStack Tier" column or any tier/edition labels (Community, Pro, etc.).
 - Do NOT add file paths or line numbers.
 - Do NOT add risk labels, impact descriptions, or percentages.
-- Do NOT rewrite, rename, reformat, or reorder any table row.
+- Do NOT reorder, rename, or add rows beyond what the tool returned.
 - Do NOT add any text before the tool output other than the patch offer line above.`;
 }

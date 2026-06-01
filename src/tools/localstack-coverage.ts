@@ -569,19 +569,6 @@ function checkResources(
 
   const stackLabel = framework ?? "Service coverage summary";
 
-  let table = `**${stackLabel}**\n\n`;
-  table += `| Resource | Status |\n`;
-  table += `|---|---|\n`;
-
-  for (const r of results) {
-    const count = counts?.get(r.resource_type) ?? 1;
-    const label = count > 1
-      ? `${count}x ${friendlyName(r.resource_type)}`
-      : friendlyName(r.resource_type);
-    const status = !r.known || r.blocking.length > 0 ? "❌" : "✅";
-    table += `| ${label} | ${status} |\n`;
-  }
-
   const knownBlockers = blocked.filter((r) => r.known && r.blocking.length > 0);
   const unknownBlockers = blocked.filter((r) => !r.known);
   let blockerSummary = "";
@@ -592,24 +579,25 @@ function checkResources(
     const names = unknownBlockers.map((r) => friendlyName(r.resource_type)).join(", ");
     blockerSummary += (blockerSummary ? " " : "") + `${names}: not in coverage database.`;
   }
-  let verdict = hasBlockers
+  const verdict = hasBlockers
     ? `**${blocked.length} blocker(s) found.** ${blockerSummary}`
-    : `**No blockers.** All resources should deploy cleanly on LocalStack.`;
+    : `**No blockers.**`;
 
-  const comments = blocked
-    .filter((r) => r.known && r.blocking.length > 0)
-    .map((r) => `- **${friendlyName(r.resource_type)}** (\`${r.resource_type}\`): missing ${r.blocking.join(", ")}`);
+  const lines = results.map((r) => {
+    const count = counts?.get(r.resource_type) ?? 1;
+    const label = count > 1
+      ? `${count}x ${friendlyName(r.resource_type)}`
+      : friendlyName(r.resource_type);
+    const ok = r.known && r.blocking.length === 0;
+    const detail = !r.known
+      ? " — not in coverage DB"
+      : r.blocking.length > 0
+        ? ` — missing: ${r.blocking.join(", ")}`
+        : "";
+    return `${ok ? "✅" : "❌"} ${label}${detail}`;
+  });
 
-  const unknownResources = results.filter((r) => !r.known);
-  for (const r of unknownResources) {
-    comments.push(`- **${friendlyName(r.resource_type)}** (\`${r.resource_type}\`): not in coverage database — may be unsupported`);
-  }
-
-  if (comments.length > 0) {
-    verdict += `\n\nComments:\n${comments.join("\n")}`;
-  }
-
-  return ResponseBuilder.blocks(table, verdict);
+  return ResponseBuilder.markdown(`**${stackLabel}** — ${verdict}\n\n${lines.join("\n")}`);
 }
 
 // ---------------------------------------------------------------------------
