@@ -7,9 +7,8 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "xmcp build && yarn build:cli && yarn build:data",
+    "build": "xmcp build && yarn build:cli",
     "build:cli": "esbuild src/cli/index.ts --bundle --platform=node --format=cjs --target=node22 --tsconfig=tsconfig.cli.json --alias:jsonc-parser=jsonc-parser/lib/esm/main.js --outfile=dist/cli.js --external:./stdio.js \"--banner:js=#!/usr/bin/env node\" --log-level=warning",
-    "build:data": "node -e \"require('fs').mkdirSync('dist/data',{recursive:true});require('fs').copyFileSync('data/coverage.db','dist/data/coverage.db')\"",
     "dev": "xmcp dev",
     "start": "node dist/stdio.js",
     "prepack": "yarn build",
@@ -20,7 +19,6 @@
     "test:mcp": "yarn test:mcp:direct && yarn test:mcp:evals"
   },
   "dependencies": {
-    "better-sqlite3": "^12.10.0",
     "dockerode": "^4.0.7",
     "posthog-node": "5.0.0",
     "xmcp": "^0.6.11",
@@ -30,7 +28,6 @@
     "@clack/prompts": "^1.5.1",
     "@gleanwork/mcp-server-tester": "1.0.0-beta.6",
     "@playwright/test": "^1.58.2",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/dockerode": "^3.3.43",
     "@types/jest": "^30.0.0",
     "esbuild": "^0.28.0",

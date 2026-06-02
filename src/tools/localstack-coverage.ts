@@ -1,18 +1,39 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
-import Database from "better-sqlite3";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, extname } from "node:path";
 import { ResponseBuilder } from "../core/response-builder";
 import { withToolAnalytics } from "../core/analytics";
 
 // ---------------------------------------------------------------------------
-// DB path — bundled at data/coverage.db relative to the dist directory.
-// LOCALSTACK_COVERAGE_DB env var is a silent override for tests only.
+// Coverage extension REST client
 // ---------------------------------------------------------------------------
-function getDbPath(): string {
-  // __dirname is shimmed by esbuild for ESM Node builds; works natively in CJS/Jest
-  return process.env.LOCALSTACK_COVERAGE_DB ?? join(__dirname, "../data/coverage.db");
+function getCoverageUrl(): string {
+  return (
+    process.env.LOCALSTACK_COVERAGE_URL ??
+    "http://localhost:4566/_extension/localstack-coverage"
+  ).replace(/\/$/, "");
+}
+
+async function coverageFetch<T>(path: string, body?: unknown): Promise<T> {
+  const url = `${getCoverageUrl()}${path}`;
+  let res: Response;
+  try {
+    res = await fetch(url, body !== undefined ? {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    } : undefined);
+  } catch {
+    throw new Error(
+      `LocalStack coverage extension unreachable at ${url}. ` +
+      `Is LocalStack running with the localstack-extension-coverage extension installed?`
+    );
+  }
+  if (!res.ok) {
+    throw new Error(`Coverage API returned HTTP ${res.status} for ${path}`);
+  }
+  return res.json() as Promise<T>;
 }
 
 // ---------------------------------------------------------------------------
@@ -233,35 +254,24 @@ export default async function localstackCoverage({
     "localstack-preflight",
     { action, service },
     async () => {
-      let db: Database.Database;
-      try {
-        db = new Database(getDbPath());
-      } catch {
-        return ResponseBuilder.error(
-          "Coverage DB unavailable",
-          `Could not open coverage database at ${getDbPath()}. ` +
-            `Regenerate it with:\n\n` +
-            `  python bin/create_service_coverage_catalog.py --db-path data/coverage.db`
-        );
-      }
-
       try {
         switch (action) {
           case "list_services":
-            return listServices(db);
+            return await listServices();
           case "get_service_coverage":
-            return getServiceCoverage(db, service);
+            return await getServiceCoverage(service);
           case "check_operations":
-            return checkOperations(db, operations);
+            return await checkOperations(operations);
           case "check_resources":
-            return checkResources(db, resources);
+            return await checkResources(resources);
           case "scan_iac":
-            return scanIac(db, iac_path);
+            return await scanIac(iac_path);
           case "patch_iac":
-            return patchIac(db, iac_path);
+            return await patchIac(iac_path);
         }
-      } finally {
-        db.close();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return ResponseBuilder.error("Coverage unavailable", msg);
       }
     }
   );
@@ -271,17 +281,9 @@ export default async function localstackCoverage({
 // Action: list_services
 // ---------------------------------------------------------------------------
 
-function listServices(db: Database.Database) {
-  const rows = db
-    .prepare(
-      `SELECT service,
-              COUNT(*)                        AS total,
-              SUM(implemented)                AS implemented
-       FROM   operations
-       GROUP  BY service
-       ORDER  BY CAST(SUM(implemented) AS REAL) / COUNT(*) DESC`
-    )
-    .all() as Row[];
+async function listServices() {
+  const { services: rows } = await coverageFetch<{ services: Row[] }>("/services");
+  rows.sort((a, b) => (b.implemented as number) / (b.total as number) - (a.implemented as number) / (a.total as number));
 
   const total_ops = rows.reduce((s, r) => s + (r.total as number), 0);
   const total_impl = rows.reduce((s, r) => s + (r.implemented as number), 0);
@@ -306,7 +308,7 @@ function listServices(db: Database.Database) {
 // Action: get_service_coverage
 // ---------------------------------------------------------------------------
 
-function getServiceCoverage(db: Database.Database, service: string | undefined) {
+async function getServiceCoverage(service: string | undefined) {
   if (!service) {
     return ResponseBuilder.error(
       "Missing parameter",
@@ -314,28 +316,26 @@ function getServiceCoverage(db: Database.Database, service: string | undefined) 
     );
   }
 
-  const rows = db
-    .prepare(
-      `SELECT operation, implemented
-       FROM   operations
-       WHERE  service = ?
-       ORDER  BY operation`
-    )
-    .all(service) as Row[];
+  const data = await coverageFetch<{ service: string; operations: Row[] } | { error: string }>(
+    `/services/${encodeURIComponent(service)}`
+  );
 
-  if (rows.length === 0) {
+  if ("error" in data) {
     return ResponseBuilder.error(
       "Service not found",
       `No coverage data for service '${service}'. Use list_services to see available services.`
     );
   }
 
+  const rows = data.operations;
   const implemented = rows.filter((r) => r.implemented === 1);
   const missing = rows.filter((r) => r.implemented === 0);
 
   let md = `# Coverage: \`${service}\`\n\n`;
-  md += serviceSummaryTable(db, [service]);
-  md += `\n`;
+  md += `| Service | Implemented | Total | Coverage |\n`;
+  md += `|---------|-------------|-------|----------|\n`;
+  const p = pct(implemented.length, rows.length);
+  md += `| \`${service}\` | ${implemented.length} | ${rows.length} | ${coverageEmoji(p)} ${p}% |\n\n`;
 
   if (implemented.length > 0) {
     md += `## ✅ Implemented (${implemented.length})\n\n`;
@@ -354,7 +354,7 @@ function getServiceCoverage(db: Database.Database, service: string | undefined) 
 // Action: check_operations
 // ---------------------------------------------------------------------------
 
-function checkOperations(db: Database.Database, operations: string[] | undefined) {
+async function checkOperations(operations: string[] | undefined) {
   if (!operations || operations.length === 0) {
     return ResponseBuilder.error(
       "Missing parameter",
@@ -362,33 +362,23 @@ function checkOperations(db: Database.Database, operations: string[] | undefined
     );
   }
 
-  // Parse "service:Operation" or "service.Operation"
-  const parsed = operations.map((op) => {
-    const [svc, ...rest] = op.split(/[:.]/, 2);
-    return { raw: op, service: svc?.toLowerCase(), operation: rest.join("") };
-  });
+  // Normalize "service.Operation" → "service:Operation" before sending
+  const normalized = operations.map((op) => op.replace(/^([^:.]+)\./, "$1:"));
 
-  const stmt = db.prepare(
-    `SELECT implemented FROM operations WHERE service = ? AND operation = ?`
-  );
+  const { results: apiResults } = await coverageFetch<{
+    results: { operation: string; implemented: number | null }[];
+  }>("/operations", normalized);
 
-  const results = parsed.map(({ raw, service, operation }) => {
-    if (!service || !operation) {
-      return { raw, status: "invalid" as const, note: "Could not parse service:Operation" };
+  const results = apiResults.map(({ operation, implemented }) => {
+    if (implemented === null) {
+      return { raw: operation, status: "unknown" as const, note: "Not in coverage DB — may be a newer API" };
     }
-    const row = stmt.get(service, operation) as Row | undefined;
-    if (!row) {
-      return { raw, status: "unknown" as const, note: "Not in coverage DB — may be a newer API" };
-    }
-    return {
-      raw,
-      status: (row.implemented === 1) ? ("implemented" as const) : ("missing" as const),
-    };
+    return { raw: operation, status: (implemented === 1 ? "implemented" : "missing") as "implemented" | "missing" };
   });
 
   const implemented = results.filter((r) => r.status === "implemented");
   const missing = results.filter((r) => r.status === "missing");
-  const unknown = results.filter((r) => r.status === "unknown" || r.status === "invalid");
+  const unknown = results.filter((r) => r.status === "unknown");
 
   const deployable = missing.length === 0;
   const opDot = deployable ? "🟢" : "🔴";
@@ -501,7 +491,7 @@ function extractResourceTypes(path: string): { framework: string; counts: Map<st
   return { framework: frameworks || "unknown", counts };
 }
 
-function scanIac(db: Database.Database, iac_path: string | undefined) {
+async function scanIac(iac_path: string | undefined) {
   if (!iac_path) {
     return ResponseBuilder.error(
       "Missing parameter",
@@ -519,15 +509,14 @@ function scanIac(db: Database.Database, iac_path: string | undefined) {
     );
   }
 
-  return checkResources(db, [...counts.keys()], counts, framework);
+  return checkResources([...counts.keys()], counts, framework);
 }
 
 // ---------------------------------------------------------------------------
 // Action: check_resources
 // ---------------------------------------------------------------------------
 
-function checkResources(
-  db: Database.Database,
+async function checkResources(
   resources: string[] | undefined,
   counts?: Map<string, number>,
   framework?: string
@@ -539,14 +528,6 @@ function checkResources(
     );
   }
 
-  const stmt = db.prepare(
-    `SELECT rto.operation, rto.required, o.implemented
-     FROM   resource_type_ops rto
-     JOIN   operations o ON rto.service = o.service AND rto.operation = o.operation
-     WHERE  rto.resource_type = ?
-     ORDER  BY rto.required DESC, rto.operation`
-  );
-
   type ResourceResult = {
     resource_type: string;
     known: boolean;
@@ -554,18 +535,19 @@ function checkResources(
     optional_gaps: string[];
   };
 
-  const results: ResourceResult[] = resources.map((rt) => {
-    const rows = stmt.all(rt) as (Row & { required: number })[];
-    if (rows.length === 0) {
-      return { resource_type: rt, known: false, blocking: [], optional_gaps: [] };
-    }
-    const blocking = rows
+  const { resources: apiResources } = await coverageFetch<{
+    resources: { resource_type: string; known: boolean; operations: (Row & { required: number })[] }[];
+  }>("/resources", resources);
+
+  const results: ResourceResult[] = apiResources.map(({ resource_type, known, operations }) => {
+    if (!known) return { resource_type, known: false, blocking: [], optional_gaps: [] };
+    const blocking = operations
       .filter((r) => r.required === 1 && r.implemented === 0)
       .map((r) => r.operation as string);
-    const optional_gaps = rows
+    const optional_gaps = operations
       .filter((r) => r.required === 0 && r.implemented === 0)
       .map((r) => r.operation as string);
-    return { resource_type: rt, known: true, blocking, optional_gaps };
+    return { resource_type, known: true, blocking, optional_gaps };
   });
 
   const blocked = results.filter((r) => !r.known || r.blocking.length > 0);
@@ -634,7 +616,7 @@ provider "aws" {
 }
 `;
 
-function patchIac(db: Database.Database, iac_path: string | undefined) {
+async function patchIac(iac_path: string | undefined) {
   if (!iac_path) {
     return ResponseBuilder.error(
       "Missing parameter",
@@ -651,20 +633,17 @@ function patchIac(db: Database.Database, iac_path: string | undefined) {
     );
   }
 
-  // Find blockers
-  const stmt = db.prepare(
-    `SELECT rto.operation
-     FROM   resource_type_ops rto
-     JOIN   operations o ON rto.service = o.service AND rto.operation = o.operation
-     WHERE  rto.resource_type = ? AND rto.required = 1 AND o.implemented = 0`
-  );
+  // Find blockers via REST
+  const tfResources = [...counts.keys()].filter((rt) => rt.startsWith("aws_"));
+  const { resources: apiResources } = await coverageFetch<{
+    resources: { resource_type: string; known: boolean; operations: (Row & { required: number })[] }[];
+  }>("/resources", tfResources);
 
-  const blockers: string[] = [];
-  for (const rt of counts.keys()) {
-    if (!rt.startsWith("aws_")) continue;
-    const rows = stmt.all(rt) as Row[];
-    if (rows.length > 0) blockers.push(rt);
-  }
+  const blockers: string[] = apiResources
+    .filter(({ known, operations }) =>
+      known && operations.some((o) => o.required === 1 && o.implemented === 0)
+    )
+    .map(({ resource_type }) => resource_type);
 
   if (blockers.length === 0) {
     return ResponseBuilder.markdown(
@@ -749,27 +728,6 @@ function patchIac(db: Database.Database, iac_path: string | undefined) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function serviceSummaryTable(db: Database.Database, services: string[]): string {
-  const stmt = db.prepare(
-    `SELECT COUNT(*) AS total, SUM(implemented) AS implemented
-     FROM   operations
-     WHERE  service = ?`
-  );
-
-  let md = `| Service | Implemented | Total | Coverage |\n`;
-  md +=    `|---------|-------------|-------|----------|\n`;
-
-  for (const svc of services) {
-    const row = stmt.get(svc) as Row | undefined;
-    if (!row) continue;
-    const impl = row.implemented as number;
-    const total = row.total as number;
-    const p = pct(impl, total);
-    md += `| \`${svc}\` | ${impl} | ${total} | ${coverageEmoji(p)} ${p}% |\n`;
-  }
-
-  return md;
-}
 
 function pct(n: number, total: number): number {
   return total === 0 ? 0 : Math.round((100 * n) / total);
