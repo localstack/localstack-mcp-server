@@ -54,9 +54,41 @@ Prompts are user-selected workflow templates exposed by MCP clients as slash com
 
 ## Installation
 
-|   Editor   | Installation                                                                                                                                                                                                            |
-| :--------: | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Cursor** | [![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=localstack-mcp-server&config=eyJjb21tYW5kIjoibnB4IC15IEBsb2NhbHN0YWNrL2xvY2Fsc3RhY2stbWNwLXNlcnZlciJ9) |
+### Quick Setup (Wizard)
+
+The fastest way to install the MCP server is the interactive setup wizard:
+
+```bash
+npx -y @localstack/localstack-mcp-server init
+```
+
+The wizard:
+
+- lets you choose how to run the server (`npx` on your machine, or the self-contained Docker image),
+- checks the prerequisites (Node.js, LocalStack CLI, Docker) and tells you how to fix anything missing,
+- picks up your `LOCALSTACK_AUTH_TOKEN` from the environment, or asks for it,
+- lets you pass extra LocalStack config (e.g. `DEBUG=1,PERSISTENCE=1`),
+- detects your installed MCP clients (Cursor, Claude Code, Claude Desktop, VS Code, Codex, OpenCode, Amazon Q CLI) and writes the right configuration for each one you select.
+
+It can also run fully non-interactively, e.g. in dotfiles or scripts:
+
+```bash
+npx -y @localstack/localstack-mcp-server init --method npx --client cursor,claude-code --yes
+```
+
+To remove the server from your clients again:
+
+```bash
+npx -y @localstack/localstack-mcp-server remove
+```
+
+Run `npx -y @localstack/localstack-mcp-server init --help` for all options.
+
+### Manual Setup
+
+|   Editor   | Installation                                                                                                                                                                                                 |
+| :--------: | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Cursor** | [![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=localstack&config=eyJjb21tYW5kIjoibnB4IC15IEBsb2NhbHN0YWNrL2xvY2Fsc3RhY2stbWNwLXNlcnZlciJ9) |
 
 For other MCP Clients, refer to the [configuration guide](#configuration).
 
@@ -66,7 +98,7 @@ For other MCP Clients, refer to the [configuration guide](#configuration).
 - [`cdklocal`](https://github.com/localstack/aws-cdk-local), [`tflocal`](https://github.com/localstack/terraform-local), or [`samlocal`](https://github.com/localstack/aws-sam-cli-local) installed in your system path if you want to deploy CDK, Terraform, or SAM projects
 - Snowflake CLI (`snow`) installed in your system path if you want to use the Snowflake tool
 - A [valid LocalStack Auth Token](https://docs.localstack.cloud/aws/getting-started/auth-token/) configured as `LOCALSTACK_AUTH_TOKEN` (**required for all MCP tools**)
-- [Node.js v22.x](https://nodejs.org/en/download/) or higher installed in your system path
+- [Node.js v20](https://nodejs.org/en/download/) or higher installed in your system path
 
 ### Configuration
 
@@ -75,7 +107,7 @@ Add the following to your MCP client's configuration file (e.g., `~/.cursor/mcp.
 ```json
 {
   "mcpServers": {
-    "localstack-mcp-server": {
+    "localstack": {
       "command": "npx",
       "args": ["-y", "@localstack/localstack-mcp-server"],
       "env": {
@@ -93,7 +125,7 @@ If you installed from source, change `command` and `args` to point to your local
 ```json
 {
   "mcpServers": {
-    "localstack-mcp-server": {
+    "localstack": {
       "command": "node",
       "args": ["/path/to/your/localstack-mcp-server/dist/stdio.js"],
       "env": {

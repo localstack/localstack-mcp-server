@@ -1,0 +1,10 @@
+{
+  // Used only by `yarn build:cli` (esbuild). The base tsconfig maps
+  // @clack/prompts to its .d.mts for type-checking; esbuild must NOT inherit
+  // that mapping or it would bundle the type declarations instead of the
+  // real module.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {}
+  }
+}
