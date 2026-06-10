@@ -108,6 +108,8 @@ If you installed from source, change `command` and `args` to point to your local
 
 The `localstack/localstack-mcp-server` Docker image bundles the LocalStack CLI, `awslocal`, Terraform/`tflocal`, CDK/`cdklocal`, SAM/`samlocal`, Snowflake CLI, and Docker CLI. The only required host dependency is Docker. The container uses the mounted Docker socket to run LocalStack as a sibling container on the host.
 
+If you use the deployer tool with local Terraform, CDK, or SAM projects, bind-mount those project paths into the MCP container and pass the in-container path to the tool. The simplest convention is to mount projects at the same absolute path they use on the host.
+
 ```json
 {
   "mcpServers": {
@@ -123,6 +125,7 @@ The `localstack/localstack-mcp-server` Docker image bundles the LocalStack CLI, 
         "--add-host", "snowflake.localhost.localstack.cloud:host-gateway",
         "-e", "LOCALSTACK_AUTH_TOKEN",
         "-e", "LOCALSTACK_HOSTNAME=host.docker.internal",
+        "-v", "/Users/you/projects:/Users/you/projects",
         "localstack/localstack-mcp-server:latest"
       ],
       "env": { "LOCALSTACK_AUTH_TOKEN": "<YOUR_TOKEN>" }
