@@ -96,8 +96,11 @@ export function createFileClientAdapter(config: FileClientConfig): ClientAdapter
     async remove(ctx: ClientContext): Promise<InstallOutcome> {
       const configPath = config.configPath(ctx);
       const text = readConfigText(ctx);
-      if (!configPath || text === null) {
-        return { status: "skipped", detail: "no config file found" };
+      if (!configPath) {
+        return { status: "skipped", detail: `${config.label} is not available on this platform` };
+      }
+      if (text === null) {
+        return { status: "skipped", detail: `no config file found at ${configPath}` };
       }
       if (typeof text !== "string") {
         return { status: "failed", detail: text.error };

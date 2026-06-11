@@ -32,13 +32,11 @@ describe("detectExistingEntries", () => {
     ]);
   });
 
-  it("finds legacy docs-style entries", () => {
+  it("ignores localstack-mcp-server entries because the wizard only manages localstack", () => {
     const text = JSON.stringify({
       mcpServers: { "localstack-mcp-server": { command: "npx", args: [] } },
     });
-    expect(detectExistingEntries(text, ["mcpServers"])).toEqual([
-      { key: "localstack-mcp-server", method: "npx" },
-    ]);
+    expect(detectExistingEntries(text, ["mcpServers"])).toEqual([]);
   });
 
   it("classifies OpenCode array commands", () => {
@@ -69,7 +67,7 @@ describe("applyServerEntry", () => {
     expect(parsed.mcpServers.localstack).toEqual(NPX_ENTRY);
   });
 
-  it("migrates legacy entries: writes localstack, deletes localstack-mcp-server", () => {
+  it("preserves localstack-mcp-server entries when writing localstack", () => {
     const text = JSON.stringify({
       mcpServers: {
         "localstack-mcp-server": { command: "npx", args: [] },
@@ -77,7 +75,7 @@ describe("applyServerEntry", () => {
       },
     });
     const parsed = JSON.parse(applyServerEntry(text, ["mcpServers"], NPX_ENTRY));
-    expect(parsed.mcpServers["localstack-mcp-server"]).toBeUndefined();
+    expect(parsed.mcpServers["localstack-mcp-server"]).toEqual({ command: "npx", args: [] });
     expect(parsed.mcpServers.localstack).toEqual(NPX_ENTRY);
     expect(parsed.mcpServers.other).toEqual({ command: "foo" });
   });
@@ -89,7 +87,7 @@ describe("applyServerEntry", () => {
 });
 
 describe("removeServerEntries", () => {
-  it("removes both managed keys and reports them", () => {
+  it("removes only the wizard-managed localstack key", () => {
     const text = JSON.stringify({
       mcpServers: {
         localstack: { command: "npx" },
@@ -98,9 +96,12 @@ describe("removeServerEntries", () => {
       },
     });
     const { text: result, removed } = removeServerEntries(text, ["mcpServers"]);
-    expect(removed.sort()).toEqual(["localstack", "localstack-mcp-server"]);
+    expect(removed).toEqual(["localstack"]);
     const parsed = JSON.parse(result);
-    expect(parsed.mcpServers).toEqual({ other: { command: "foo" } });
+    expect(parsed.mcpServers).toEqual({
+      "localstack-mcp-server": { command: "npx" },
+      other: { command: "foo" },
+    });
   });
 
   it("is a no-op when nothing is installed", () => {

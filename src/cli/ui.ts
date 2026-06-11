@@ -7,9 +7,9 @@ export const EXIT_ERROR = 1;
 export const EXIT_CANCELLED = 130;
 
 /** Unwraps a clack prompt result, exiting cleanly when the user hits Ctrl+C/Esc. */
-export function ensureAnswer<T>(value: T | symbol): T {
+export function ensureAnswer<T>(value: T | symbol, cancelMessage = "Cancelled."): T {
   if (p.isCancel(value)) {
-    p.cancel("Cancelled — nothing was written.");
+    p.cancel(cancelMessage);
     process.exit(EXIT_CANCELLED);
   }
   return value as T;

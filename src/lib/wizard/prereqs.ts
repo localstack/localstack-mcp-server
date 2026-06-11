@@ -1,7 +1,8 @@
 import { runCommand } from "../../core/command-runner";
 import { InstallMethod } from "./types";
 
-const CHECK_TIMEOUT = 20_000;
+const VERSION_CHECK_TIMEOUT = 5_000;
+const DOCKER_INFO_TIMEOUT = 5_000;
 
 export interface PrereqResult {
   name: string;
@@ -11,12 +12,27 @@ export interface PrereqResult {
   hint?: string;
 }
 
-async function commandWorks(command: string, args: string[]): Promise<boolean> {
+async function commandWorks(
+  command: string,
+  args: string[],
+  timeout = VERSION_CHECK_TIMEOUT
+): Promise<boolean> {
   const result = await runCommand(command, args, {
-    timeout: CHECK_TIMEOUT,
+    timeout,
     shell: process.platform === "win32",
   });
   return result.exitCode === 0;
+}
+
+async function dockerStatus(): Promise<{ installed: boolean; running: boolean }> {
+  const [installed, infoOk] = await Promise.all([
+    commandWorks("docker", ["--version"]),
+    commandWorks("docker", ["info"], DOCKER_INFO_TIMEOUT),
+  ]);
+  return {
+    installed,
+    running: installed && infoOk,
+  };
 }
 
 export function checkNodeVersion(versionString: string = process.version): PrereqResult {
@@ -32,18 +48,21 @@ export function checkNodeVersion(versionString: string = process.version): Prere
 export async function checkPrereqs(method: InstallMethod): Promise<PrereqResult[]> {
   const results: PrereqResult[] = [];
 
-  const dockerInstalled = await commandWorks("docker", ["--version"]);
-  const dockerRunning = dockerInstalled && (await commandWorks("docker", ["info"]));
+  const dockerPromise = dockerStatus();
+  const localstackPromise =
+    method === "npx" ? commandWorks("localstack", ["--version"]) : Promise.resolve(false);
 
   if (method === "npx") {
     results.push(checkNodeVersion());
     results.push({
       name: "LocalStack CLI",
-      ok: await commandWorks("localstack", ["--version"]),
+      ok: await localstackPromise,
       fatal: false,
       hint: "install it with `brew install localstack/tap/localstack-cli` or `pip install localstack` — needed by the lifecycle tools",
     });
   }
+
+  const { installed: dockerInstalled, running: dockerRunning } = await dockerPromise;
 
   results.push({
     name: "Docker CLI",

@@ -10,7 +10,6 @@ export type ClientId =
   | "amazon-q";
 
 export const SERVER_NAME = "localstack";
-export const LEGACY_SERVER_NAMES = ["localstack-mcp-server"];
 export const NPM_PACKAGE = "@localstack/localstack-mcp-server";
 export const DOCKER_IMAGE = "localstack/localstack-mcp-server";
 export const AUTH_TOKEN_ENV = "LOCALSTACK_AUTH_TOKEN";

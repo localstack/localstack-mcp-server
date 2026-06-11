@@ -71,3 +71,9 @@ export function amazonQConfigPath(ctx: ClientContext, exists: ExistsFn): string 
 export function claudeCodeUserConfigPath(ctx: ClientContext): string {
   return path.join(ctx.homeDir, ".claude.json");
 }
+
+/** Codex stores MCP servers under CODEX_HOME when set, else ~/.codex. */
+export function codexConfigPath(ctx: ClientContext): string {
+  const codexHome = ctx.env.CODEX_HOME || path.join(ctx.homeDir, ".codex");
+  return path.join(codexHome, "config.toml");
+}

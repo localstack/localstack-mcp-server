@@ -1,11 +1,9 @@
 import * as jsonc from "jsonc-parser";
-import { ExistingEntrySummary, InstallMethod, LEGACY_SERVER_NAMES, SERVER_NAME } from "./types";
+import { ExistingEntrySummary, InstallMethod, SERVER_NAME } from "./types";
 
 const MODIFY_OPTIONS: jsonc.ModificationOptions = {
   formattingOptions: { insertSpaces: true, tabSize: 2, eol: "\n" },
 };
-
-const MANAGED_KEYS = [SERVER_NAME, ...LEGACY_SERVER_NAMES];
 
 function parseConfig(text: string): { root: any; errors: jsonc.ParseError[] } {
   const errors: jsonc.ParseError[] = [];
@@ -45,45 +43,32 @@ function getServersObject(text: string, rootPath: string[]): Record<string, unkn
   return typeof node === "object" && node !== null ? (node as Record<string, unknown>) : {};
 }
 
-/** Finds `localstack` and legacy `localstack-mcp-server` entries under rootPath. */
+/** Finds the wizard-managed `localstack` entry under rootPath. */
 export function detectExistingEntries(text: string, rootPath: string[]): ExistingEntrySummary[] {
   const servers = getServersObject(text, rootPath);
-  return MANAGED_KEYS.filter((key) => key in servers).map((key) => ({
-    key,
-    method: classifyMethod(servers[key]),
-  }));
+  if (!(SERVER_NAME in servers)) return [];
+  return [{ key: SERVER_NAME, method: classifyMethod(servers[SERVER_NAME]) }];
 }
 
-/**
- * Writes the `localstack` entry under rootPath and deletes any legacy-named
- * entries in the same pass. Preserves comments and formatting (JSONC edits).
- */
+/** Writes the `localstack` entry under rootPath. Preserves comments and formatting. */
 export function applyServerEntry(text: string, rootPath: string[], entry: unknown): string {
   let result = text.trim() ? text : "{}";
-  for (const legacyKey of LEGACY_SERVER_NAMES) {
-    if (legacyKey in getServersObject(result, rootPath)) {
-      const edits = jsonc.modify(result, [...rootPath, legacyKey], undefined, MODIFY_OPTIONS);
-      result = jsonc.applyEdits(result, edits);
-    }
-  }
   const edits = jsonc.modify(result, [...rootPath, SERVER_NAME], entry, MODIFY_OPTIONS);
   result = jsonc.applyEdits(result, edits);
   return result;
 }
 
-/** Deletes `localstack` and legacy entries under rootPath. */
+/** Deletes the wizard-managed `localstack` entry under rootPath. */
 export function removeServerEntries(
   text: string,
   rootPath: string[]
 ): { text: string; removed: string[] } {
   let result = text;
   const removed: string[] = [];
-  for (const key of MANAGED_KEYS) {
-    if (key in getServersObject(result, rootPath)) {
-      const edits = jsonc.modify(result, [...rootPath, key], undefined, MODIFY_OPTIONS);
-      result = jsonc.applyEdits(result, edits);
-      removed.push(key);
-    }
+  if (SERVER_NAME in getServersObject(result, rootPath)) {
+    const edits = jsonc.modify(result, [...rootPath, SERVER_NAME], undefined, MODIFY_OPTIONS);
+    result = jsonc.applyEdits(result, edits);
+    removed.push(SERVER_NAME);
   }
   return { text: result, removed };
 }

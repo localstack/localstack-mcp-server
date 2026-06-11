@@ -2,6 +2,7 @@ import {
   amazonQConfigPath,
   claudeCodeUserConfigPath,
   claudeDesktopConfigPath,
+  codexConfigPath,
   cursorConfigPath,
   opencodeConfigPath,
   vscodeConfigPath,
@@ -57,5 +58,12 @@ describe("client config paths", () => {
 
   it("resolves Claude Code's user config", () => {
     expect(claudeCodeUserConfigPath(mac)).toBe("/Users/dev/.claude.json");
+  });
+
+  it("resolves Codex config with CODEX_HOME support", () => {
+    expect(codexConfigPath(mac)).toBe("/Users/dev/.codex/config.toml");
+    expect(codexConfigPath({ ...mac, env: { CODEX_HOME: "/tmp/codex" } })).toBe(
+      "/tmp/codex/config.toml"
+    );
   });
 });

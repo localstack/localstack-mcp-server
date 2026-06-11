@@ -1,15 +1,8 @@
+import { codexConfigPath } from "../paths.logic";
 import { windowsSpawnSafeSpec } from "../server-config.logic";
-import {
-  InstallMethod,
-  InstallOutcome,
-  LEGACY_SERVER_NAMES,
-  SERVER_NAME,
-  ServerSpec,
-} from "../types";
+import { InstallMethod, InstallOutcome, SERVER_NAME, ServerSpec } from "../types";
 import { cliAvailable, describeCliFailure, runClientCli } from "./cli-utils";
 import { ClientAdapter, ClientContext, ExistingState } from "./types";
-
-const MANAGED_KEYS = [SERVER_NAME, ...LEGACY_SERVER_NAMES];
 
 function classifyCommand(command: unknown): InstallMethod | "unknown" {
   if (command === "docker") return "docker";
@@ -40,7 +33,7 @@ export const codexAdapter: ClientAdapter = {
       );
       return {
         entries: servers
-          .filter((server) => server.name && MANAGED_KEYS.includes(server.name))
+          .filter((server) => server.name === SERVER_NAME)
           .map((server) => ({
             key: server.name as string,
             method: classifyCommand(server.transport?.command),
@@ -54,9 +47,6 @@ export const codexAdapter: ClientAdapter = {
   async install(rawSpec: ServerSpec, ctx: ClientContext): Promise<InstallOutcome> {
     const spec = ctx.platform === "win32" ? windowsSpawnSafeSpec(rawSpec) : rawSpec;
     const secrets = Object.values(spec.env);
-    for (const legacyKey of LEGACY_SERVER_NAMES) {
-      await runClientCli("codex", ["mcp", "remove", legacyKey], ctx);
-    }
 
     const args = ["mcp", "add", SERVER_NAME];
     for (const [key, value] of Object.entries(spec.env)) {
@@ -66,7 +56,10 @@ export const codexAdapter: ClientAdapter = {
 
     const result = await runClientCli("codex", args, ctx);
     if (result.exitCode === 0) {
-      return { status: "installed", detail: "added via `codex mcp add`" };
+      return {
+        status: "installed",
+        detail: `added via \`codex mcp add\` (${codexConfigPath(ctx)})`,
+      };
     }
     return { status: "failed", detail: describeCliFailure(result, "codex", secrets) };
   },
@@ -86,7 +79,7 @@ export const codexAdapter: ClientAdapter = {
     if (failures.length > 0) return { status: "failed", detail: failures.join("; ") };
     return {
       status: "installed",
-      detail: `removed ${entries.map((entry) => entry.key).join(", ")} via \`codex mcp remove\``,
+      detail: `removed ${entries.map((entry) => entry.key).join(", ")} from ${codexConfigPath(ctx)}`,
     };
   },
 };

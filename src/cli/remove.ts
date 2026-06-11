@@ -15,6 +15,10 @@ import {
   isInteractive,
 } from "./ui";
 
+function preWriteAnswer<T>(value: T | symbol): T {
+  return ensureAnswer(value, "Cancelled — nothing was removed.");
+}
+
 export async function runRemove(argv: string[]): Promise<number> {
   const { flags, errors } = parseRemoveFlags(argv);
   if (!flags) {
@@ -39,7 +43,7 @@ export async function runRemove(argv: string[]): Promise<number> {
     return EXIT_ERROR;
   }
 
-  p.intro("LocalStack MCP Server — remove");
+  p.intro("LocalStack MCP Server removal");
 
   let targets: ClientId[];
   if (flags.clients && flags.clients.length > 0) {
@@ -49,8 +53,13 @@ export async function runRemove(argv: string[]): Promise<number> {
     spin.start("Looking for LocalStack entries…");
     const withEntries: { id: ClientId; label: string; keys: string[] }[] = [];
     const uninspectable: string[] = [];
-    for (const adapter of CLIENT_ADAPTERS) {
-      const existing = await adapter.getExisting(ctx);
+    const inspected = await Promise.all(
+      CLIENT_ADAPTERS.map(async (adapter) => ({
+        adapter,
+        existing: await adapter.getExisting(ctx),
+      }))
+    );
+    for (const { adapter, existing } of inspected) {
       if (existing.error) {
         uninspectable.push(`${adapter.label}: ${existing.error}`);
         continue;
@@ -66,20 +75,20 @@ export async function runRemove(argv: string[]): Promise<number> {
     spin.stop(
       withEntries.length > 0
         ? `Found entries in: ${withEntries.map((entry) => entry.label).join(", ")}`
-        : "No LocalStack entries found in any client."
+        : "No wizard-managed LocalStack entries found."
     );
     for (const warning of uninspectable) {
       p.log.warn(`Could not inspect ${warning} — target it explicitly with --client if needed.`);
     }
     if (withEntries.length === 0) {
-      p.outro("Nothing to remove.");
+      p.outro("Nothing to remove. The wizard only manages entries named `localstack`.");
       return EXIT_OK;
     }
 
     if (interactive && !flags.force) {
-      targets = ensureAnswer(
+      targets = preWriteAnswer(
         await p.multiselect<ClientId>({
-          message: "Remove the LocalStack MCP server from:",
+          message: "Remove the `localstack` MCP server from:",
           options: withEntries.map((entry) => ({
             value: entry.id,
             label: entry.label,
@@ -95,7 +104,7 @@ export async function runRemove(argv: string[]): Promise<number> {
   }
 
   if (interactive && !flags.force) {
-    const confirmed = ensureAnswer(
+    const confirmed = preWriteAnswer(
       await p.confirm({
         message: `Remove the LocalStack entry from ${targets.length} client(s)?`,
         initialValue: true,

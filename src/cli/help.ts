@@ -19,13 +19,13 @@ init options:
                           (default: current directory; pass "" to skip)
   --image-tag <tag>       [docker] Image tag for localstack/localstack-mcp-server
                           (default: latest)
-  --force                 Overwrite existing LocalStack entries without asking
+  --force                 Overwrite an existing "localstack" entry without asking
   -y, --yes               Accept defaults for everything not provided via flags;
                           existing entries are kept unless --force is also given
   -h, --help              Show this help
 
 remove options:
-  --client <ids>          Clients to remove the server from (default: all with an entry)
+  --client <ids>          Clients to remove "localstack" from (default: all with an entry)
   --force, -y, --yes      Don't ask for confirmation
 
 Examples:
@@ -36,4 +36,6 @@ Examples:
 
 The auth token is read from $LOCALSTACK_AUTH_TOKEN when --token is not given.
 Get yours at https://app.localstack.cloud/workspace/auth-tokens
+
+The wizard writes and removes only the MCP server entry named "localstack".
 `;

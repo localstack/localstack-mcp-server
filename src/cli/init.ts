@@ -39,15 +39,35 @@ function expandPath(input: string, homeDir: string): string {
   return path.resolve(expanded);
 }
 
+function preWriteAnswer<T>(value: T | symbol): T {
+  return ensureAnswer(value, "Cancelled — nothing was written.");
+}
+
 interface DetectedClient {
   adapter: ClientAdapter;
   detection: DetectResult;
 }
 
-async function detectClients(ctx: ClientContext): Promise<DetectedClient[]> {
+async function detectClients(
+  ctx: ClientContext,
+  clientIds: ClientId[] | undefined = undefined
+): Promise<DetectedClient[]> {
+  const selected = clientIds
+    ? CLIENT_ADAPTERS.filter((adapter) => clientIds.includes(adapter.id))
+    : CLIENT_ADAPTERS;
   return Promise.all(
-    CLIENT_ADAPTERS.map(async (adapter) => ({ adapter, detection: await adapter.detect(ctx) }))
+    selected.map(async (adapter) => ({ adapter, detection: await adapter.detect(ctx) }))
   );
+}
+
+function formatDetectionSummary(detected: DetectedClient[], allClients: boolean): string {
+  if (!allClients) {
+    return `Checked selected clients: ${detected.map((entry) => entry.adapter.label).join(", ")}`;
+  }
+  const installed = detected
+    .filter((entry) => entry.detection.installed)
+    .map((entry) => entry.adapter.label);
+  return installed.length > 0 ? `Detected: ${installed.join(", ")}` : "No clients detected";
 }
 
 async function resolveMethod(
@@ -58,14 +78,14 @@ async function resolveMethod(
 ): Promise<InstallMethod | null> {
   let method = flagMethod;
   if (!method && interactive && !yes) {
-    method = ensureAnswer(
+    method = preWriteAnswer(
       await p.select<InstallMethod>({
-        message: "How do you want to run the MCP server?",
+        message: "Where should the MCP server run?",
         options: [
           {
             value: "npx",
             label: "npx (Node on this machine)",
-            hint: "needs Node 20+, LocalStack CLI, and Docker",
+            hint: "uses your local Node 20+, LocalStack CLI, and Docker",
           },
           {
             value: "docker",
@@ -99,26 +119,28 @@ async function resolveToken(
 
   const fromEnv = process.env[AUTH_TOKEN_ENV]?.trim();
   if (fromEnv) {
-    p.log.info(`Using ${AUTH_TOKEN_ENV} from your environment.`);
+    p.log.info(`Using ${AUTH_TOKEN_ENV} from this shell environment.`);
     return fromEnv;
   }
 
   if (!interactive) {
     p.log.error(
-      `No auth token found. Set ${AUTH_TOKEN_ENV} or pass --token. Get yours at https://app.localstack.cloud/workspace/auth-tokens`
+      `No LocalStack Auth Token found. Set ${AUTH_TOKEN_ENV} or pass --token. Create one at https://app.localstack.cloud/workspace/auth-tokens`
     );
     return null;
   }
 
-  const token = ensureAnswer(
+  const token = preWriteAnswer(
     await p.password({
-      message: `${AUTH_TOKEN_ENV} (from https://app.localstack.cloud/workspace/auth-tokens)`,
+      message: `Paste your ${AUTH_TOKEN_ENV}`,
       validate: (value) => (value && value.trim() ? undefined : "An auth token is required"),
     })
   ).trim();
 
   if (!token.startsWith("ls-")) {
-    p.log.warn('This token does not start with "ls-" — double-check it if tools fail later.');
+    p.log.warn(
+      'This token does not start with "ls-". The wizard will save it, but double-check it if tools fail later.'
+    );
   }
   return token;
 }
@@ -143,46 +165,44 @@ async function resolveDockerOptions(
 
   const prompts = interactive && !yes;
 
-  const cacheDir = flags.cacheDir
-    ? expandPath(flags.cacheDir, ctx.homeDir)
-    : prompts
-      ? expandPath(
-          ensureAnswer(
-            await p.text({
-              message: "State/cache directory (mounted into the container)",
-              initialValue: defaults.cacheDir,
-              validate: (value) => (value?.trim() ? undefined : "A directory is required"),
-            })
-          ),
-          ctx.homeDir
-        )
-      : defaults.cacheDir;
+  let cacheDir = defaults.cacheDir;
+  if (flags.cacheDir?.trim()) {
+    cacheDir = expandPath(flags.cacheDir, ctx.homeDir);
+  } else if (prompts) {
+    const answer = preWriteAnswer(
+      await p.text({
+        message: "State/cache directory for Docker runs",
+        initialValue: defaults.cacheDir,
+        validate: (value) => (value?.trim() ? undefined : "A directory is required"),
+      })
+    );
+    cacheDir = expandPath(answer, ctx.homeDir);
+  }
 
   // flags.workspace === "" is meaningful: skip the workspace mount.
-  const workspaceRaw =
-    flags.workspace !== undefined
-      ? flags.workspace
-      : prompts
-        ? ensureAnswer(
-            await p.text({
-              message: "Workspace to mount for IaC deployments (clear to skip)",
-              initialValue: defaults.workspace,
-            })
-          )
-        : defaults.workspace;
+  let workspaceRaw = flags.workspace ?? defaults.workspace;
+  if (flags.workspace === undefined && prompts) {
+    workspaceRaw = preWriteAnswer(
+      await p.text({
+        message: "Workspace directory to mount (submit empty to skip)",
+        initialValue: defaults.workspace,
+      })
+    );
+  }
   const workspace = expandPath(workspaceRaw, ctx.homeDir);
 
-  const imageTag = flags.imageTag?.trim()
-    ? flags.imageTag.trim()
-    : prompts
-      ? ensureAnswer(
-          await p.text({
-            message: "Docker image tag",
-            initialValue: defaults.imageTag,
-            validate: (value) => (value?.trim() ? undefined : "A tag is required"),
-          })
-        ).trim()
-      : defaults.imageTag;
+  let imageTag = defaults.imageTag;
+  if (flags.imageTag?.trim()) {
+    imageTag = flags.imageTag.trim();
+  } else if (prompts) {
+    imageTag = preWriteAnswer(
+      await p.text({
+        message: "Docker image tag",
+        initialValue: defaults.imageTag,
+        validate: (value) => (value?.trim() ? undefined : "A tag is required"),
+      })
+    ).trim();
+  }
 
   return { cacheDir, workspaceDir: workspace || undefined, imageTag };
 }
@@ -195,9 +215,9 @@ async function resolveExtraEnv(
 ): Promise<Record<string, string> | null> {
   let input = flagConfig;
   if (input === undefined && interactive && !yes) {
-    input = ensureAnswer(
+    input = preWriteAnswer(
       await p.text({
-        message: "Extra LocalStack config vars, e.g. DEBUG=1,PERSISTENCE=1 (leave empty to skip)",
+        message: "Extra LocalStack environment variables (optional)",
         defaultValue: "",
         placeholder: "KEY=value,KEY2=value2",
         validate: (value) => {
@@ -217,7 +237,7 @@ async function resolveExtraEnv(
   }
   if (method === "docker" && env.LOCALSTACK_HOSTNAME) {
     p.log.warn(
-      "Overriding LOCALSTACK_HOSTNAME with the Docker method can break container networking — the image relies on host.docker.internal."
+      "LOCALSTACK_HOSTNAME is already set in Docker mode. The generated Docker config uses host.docker.internal; override it only if you know your network setup needs it."
     );
   }
   return env;
@@ -239,11 +259,11 @@ async function resolveClients(
         return null;
       }
       if (id === "codex" && !entry?.detection.installed) {
-        p.log.error("Codex is managed via its CLI, but `codex` was not found on your PATH.");
+        p.log.error("Codex is managed through its CLI, but `codex` was not found on PATH.");
         return null;
       }
       if (id === "claude-code" && !entry?.detection.installed) {
-        p.log.error("Claude Code is managed via its CLI, but `claude` was not found on your PATH.");
+        p.log.error("Claude Code is managed through its CLI, but `claude` was not found on PATH.");
         return null;
       }
     }
@@ -256,7 +276,9 @@ async function resolveClients(
 
   if (!interactive || yes) {
     if (detectedIds.length === 0) {
-      p.log.error("No MCP clients detected. Pass --client to choose explicitly.");
+      p.log.error(
+        "No supported MCP clients were detected. Re-run with --client to choose one explicitly."
+      );
       return null;
     }
     p.log.info(`Configuring detected clients: ${detectedIds.join(", ")}`);
@@ -273,9 +295,9 @@ async function resolveClients(
       hint: entry.detection.installed ? "detected" : undefined,
     }));
 
-  const selection = ensureAnswer(
+  const selection = preWriteAnswer(
     await p.multiselect<ClientId>({
-      message: "Select the MCP clients to configure",
+      message: "Choose the MCP clients to configure",
       options,
       initialValues: detectedIds,
       required: true,
@@ -295,8 +317,21 @@ async function installIntoClients(
 ): Promise<ClientOutcome[]> {
   const byId = new Map(detected.map((entry) => [entry.adapter.id, entry.adapter]));
   const outcomes: ClientOutcome[] = [];
+  const pushOutcome = (
+    clientId: ClientId,
+    outcome: ClientOutcome["outcome"],
+    restartNote?: string
+  ) => {
+    const adapter = byId.get(clientId)!;
+    outcomes.push({ clientId, label: adapter.label, outcome, restartNote });
+  };
+  const skipRemaining = (startIndex: number, detail: string) => {
+    for (const remaining of clients.slice(startIndex)) {
+      pushOutcome(remaining, { status: "skipped", detail });
+    }
+  };
 
-  for (const clientId of clients) {
+  for (const [index, clientId] of clients.entries()) {
     const adapter = byId.get(clientId)!;
     const existing = await adapter.getExisting(ctx);
 
@@ -305,11 +340,7 @@ async function installIntoClients(
     }
 
     if (existing.error) {
-      outcomes.push({
-        clientId,
-        label: adapter.label,
-        outcome: { status: "failed", detail: existing.error },
-      });
+      pushOutcome(clientId, { status: "failed", detail: existing.error });
       continue;
     }
 
@@ -320,13 +351,9 @@ async function installIntoClients(
       // --yes means "don't ask": keep existing entries, like non-interactive
       // runs. Overwriting without a prompt requires the explicit --force.
       if (!interactive || yes) {
-        outcomes.push({
-          clientId,
-          label: adapter.label,
-          outcome: {
-            status: "skipped",
-            detail: `existing ${summary} entry — re-run with --force to overwrite`,
-          },
+        pushOutcome(clientId, {
+          status: "skipped",
+          detail: `existing ${summary} entry — re-run with --force to overwrite`,
         });
         continue;
       }
@@ -337,27 +364,12 @@ async function installIntoClients(
       if (p.isCancel(overwrite)) {
         // Earlier clients in this loop may already be configured — report
         // what happened instead of pretending nothing was written.
-        outcomes.push({
-          clientId,
-          label: adapter.label,
-          outcome: { status: "skipped", detail: "cancelled" },
-        });
-        for (const remaining of clients.slice(clients.indexOf(clientId) + 1)) {
-          outcomes.push({
-            clientId: remaining,
-            label: byId.get(remaining)!.label,
-            outcome: { status: "skipped", detail: "cancelled" },
-          });
-        }
+        skipRemaining(index, "cancelled");
         p.log.warn("Cancelled — see the summary below for what was already configured.");
         return outcomes;
       }
       if (!overwrite) {
-        outcomes.push({
-          clientId,
-          label: adapter.label,
-          outcome: { status: "skipped", detail: "kept the existing entry" },
-        });
+        pushOutcome(clientId, { status: "skipped", detail: "kept the existing entry" });
         continue;
       }
     }
@@ -368,7 +380,7 @@ async function installIntoClients(
     progress.stop(
       `${adapter.label}: ${outcome.status === "installed" ? "configured" : outcome.status}`
     );
-    outcomes.push({ clientId, label: adapter.label, outcome, restartNote: adapter.restartNote });
+    pushOutcome(clientId, outcome, adapter.restartNote);
   }
 
   return outcomes;
@@ -409,6 +421,7 @@ export async function runInit(argv: string[]): Promise<number> {
 
   const ctx = buildContext();
   const interactive = isInteractive();
+  let detectedPromise: Promise<DetectedClient[]> | undefined;
 
   if (!interactive && !flags.yes && (!flags.method || !flags.clients)) {
     console.error(
@@ -417,7 +430,12 @@ export async function runInit(argv: string[]): Promise<number> {
     return EXIT_ERROR;
   }
 
-  p.intro("🚀 LocalStack MCP Server Setup");
+  p.intro("LocalStack MCP Server setup");
+
+  const startDetectingClients = () => {
+    detectedPromise ??= detectClients(ctx, flags.clients);
+    return detectedPromise;
+  };
 
   // Close the clack frame on every abort so output never looks truncated.
   const abort = (): number => {
@@ -428,8 +446,11 @@ export async function runInit(argv: string[]): Promise<number> {
   const method = await resolveMethod(flags.method, interactive, flags.yes, ctx);
   if (!method) return abort();
 
+  const needsClientDetection = !flags.clients || flags.clients.length === 0;
+  startDetectingClients();
+
   const prereqProgress = createProgress();
-  prereqProgress.start("Checking prerequisites…");
+  prereqProgress.start("Checking prerequisites (Docker can take a moment)…");
   const prereqs = await checkPrereqs(method);
   prereqProgress.stop("Prerequisite checks");
   const { fatal } = printPrereqResults(prereqs);
@@ -455,16 +476,11 @@ export async function runInit(argv: string[]): Promise<number> {
   if (extraEnv === null) return abort();
 
   const detectProgress = createProgress();
-  detectProgress.start("Detecting MCP clients…");
-  const detected = await detectClients(ctx);
-  detectProgress.stop(
-    `Detected: ${
-      detected
-        .filter((entry) => entry.detection.installed)
-        .map((entry) => entry.adapter.label)
-        .join(", ") || "none"
-    }`
+  detectProgress.start(
+    needsClientDetection ? "Finishing MCP client detection…" : "Checking selected MCP clients…"
   );
+  const detected = await startDetectingClients();
+  detectProgress.stop(formatDetectionSummary(detected, needsClientDetection));
 
   const clients = await resolveClients(flags.clients, detected, interactive, flags.yes);
   if (!clients) return abort();
@@ -497,7 +513,7 @@ export async function runInit(argv: string[]): Promise<number> {
     p.outro("Nothing was changed — re-run with --force to overwrite existing entries.");
     return EXIT_OK;
   }
-  p.outro("✅ All set! Open your MCP client and ask it to start LocalStack.");
+  p.outro("✅ All set! Restart or open your MCP client, then ask it to start LocalStack.");
   return EXIT_OK;
 }
 

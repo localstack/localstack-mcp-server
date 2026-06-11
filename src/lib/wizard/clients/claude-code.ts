@@ -3,11 +3,9 @@ import * as jsonc from "jsonc-parser";
 import { detectExistingEntries } from "../json-config.logic";
 import { claudeCodeUserConfigPath } from "../paths.logic";
 import { windowsSpawnSafeSpec } from "../server-config.logic";
-import { InstallOutcome, LEGACY_SERVER_NAMES, SERVER_NAME, ServerSpec } from "../types";
+import { InstallOutcome, SERVER_NAME, ServerSpec } from "../types";
 import { cliAvailable, describeCliFailure, redactValues, runClientCli } from "./cli-utils";
 import { ClientAdapter, ClientContext, ExistingState } from "./types";
-
-const MANAGED_KEYS = [SERVER_NAME, ...LEGACY_SERVER_NAMES];
 
 /**
  * Local-scope servers (the `claude mcp add` default) live under
@@ -21,7 +19,7 @@ function findLocalScopeProjects(configText: string): string[] {
   const projects = root?.projects;
   if (typeof projects !== "object" || projects === null) return [];
   return Object.entries(projects as Record<string, { mcpServers?: Record<string, unknown> }>)
-    .filter(([, project]) => MANAGED_KEYS.some((key) => key in (project?.mcpServers ?? {})))
+    .filter(([, project]) => SERVER_NAME in (project?.mcpServers ?? {}))
     .map(([projectPath]) => projectPath);
 }
 
@@ -69,7 +67,10 @@ export const claudeCodeAdapter: ClientAdapter = {
 
     const result = await runClientCli("claude", args, ctx);
     if (result.exitCode === 0) {
-      return { status: "installed", detail: "added via `claude mcp add` (user scope)" };
+      return {
+        status: "installed",
+        detail: `added via \`claude mcp add\` (user scope in ${claudeCodeUserConfigPath(ctx)})`,
+      };
     }
     return { status: "failed", detail: describeCliFailure(result, "claude", secrets) };
   },
@@ -96,7 +97,7 @@ export const claudeCodeAdapter: ClientAdapter = {
     if (failures.length > 0) {
       return { status: "failed", detail: redactValues(failures.join("; "), []) };
     }
-    const removedDetail = `removed ${entries.map((entry) => entry.key).join(", ")} via \`claude mcp remove\``;
+    const removedDetail = `removed ${entries.map((entry) => entry.key).join(", ")} from user scope in ${claudeCodeUserConfigPath(ctx)}`;
     return {
       status: "installed",
       detail: warnings?.length ? `${removedDetail} (${warnings[0]})` : removedDetail,
