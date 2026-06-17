@@ -1,11 +1,46 @@
+<div align="center">
+
+<img src="icon.png" alt="LocalStack MCP Server" width="120" />
+
 # LocalStack MCP Server
+
+**Let an AI agent manage and interact with LocalStack on your machine.**
+
+[![npm version](https://img.shields.io/npm/v/@localstack/localstack-mcp-server)](https://www.npmjs.com/package/@localstack/localstack-mcp-server)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
+[![MCP Registry](https://img.shields.io/badge/MCP%20Registry-localstack-blue)](https://registry.modelcontextprotocol.io/)
+
+</div>
 
 > [!IMPORTANT]
 > The LocalStack MCP server is currently available as an experimental public preview. For questions, issues or feedback, please utilize the [LocalStack Community slack](https://slack.localstack.cloud) or submit a [GitHub Issue](https://github.com/localstack/localstack-mcp-server/issues)
 
-A [Model Context Protocol](https://modelcontextprotocol.io/docs/getting-started/intro) (MCP) server that provides tools to manage and interact with your [LocalStack for AWS](https://www.localstack.cloud/localstack-for-aws) container for simplified local cloud development and testing. The LocalStack MCP Server provides simplified integration between MCP-compatible apps and your local LocalStack for AWS development environment, enabling secure and direct communication with LocalStack's emulated services and additional developer experience features.
+LocalStack emulates the cloud on your local machine so software teams and AI agents can validate security, quality, and reliability faster and more safely than the cloud allows. This [Model Context Protocol](https://modelcontextprotocol.io/docs/getting-started/intro) (MCP) server lets any MCP client (Cursor, Claude, VS Code, and more) start LocalStack, deploy infrastructure, and debug your local cloud in natural language.
 
-This server eliminates custom scripts and manual LocalStack management with direct access to:
+## Quick start
+
+Set up the server in your MCP client with the interactive wizard:
+
+```bash
+npx -y @localstack/localstack-mcp-server init
+```
+
+The wizard detects your installed clients, asks how you want to run the server, and writes the configuration for you. You need a LocalStack Auth Token; the wizard reads `LOCALSTACK_AUTH_TOKEN` from your environment or asks for it. For the full options, prerequisites, and manual setup, see [Installation](#installation).
+
+## What you can ask your agent
+
+Once the server is configured, talk to LocalStack through your agent in natural language:
+
+- "Start LocalStack and deploy the Terraform project in `./infra`, then tell me which resources came up."
+- "My Lambda calls are failing. Read the LocalStack logs, find the permission errors, and generate an IAM policy that fixes them."
+- "Inject 500ms of latency into DynamoDB and confirm my retry logic still works."
+- "Search the LocalStack docs for how to enable S3 event notifications and summarize the steps."
+
+## How it works
+
+The server connects MCP-compatible apps directly to your local LocalStack environment and its emulated AWS services, so your assistant can operate the stack securely without custom scripts or manual setup.
+
+This server eliminates custom scripts and manual LocalStack management. Your agent can:
 
 - Start, stop, restart, and monitor LocalStack for AWS container status with built-in auth.
 - Deploy CDK, Terraform, and SAM projects with automatic configuration detection.
@@ -19,9 +54,8 @@ This server eliminates custom scripts and manual LocalStack management with dire
 - Replicate external AWS resources into LocalStack with [AWS Replicator](https://docs.localstack.cloud/aws/tooling/aws-replicator/) so IaC stacks can resolve shared dependencies locally.
 - Inspect LocalStack application flows with [App Inspector](https://docs.localstack.cloud/aws/capabilities/web-app/app-inspector/) traces, spans, events, payload metadata, and IAM policy evaluations.
 - Start repeatable LocalStack workflows from ready-made MCP prompts, including infrastructure validation and integration test generation.
-- Connect AI assistants and dev tools for automated cloud testing workflows.
 
-## Tools Reference
+## Tools
 
 This server provides your AI with dedicated tools for managing your LocalStack environment:
 
@@ -43,18 +77,19 @@ This server provides your AI with dedicated tools for managing your LocalStack e
 | [`localstack-aws-replicator`](./src/tools/localstack-aws-replicator.ts)           | Replicates external AWS resources into a running LocalStack instance       | - Start single-resource replication jobs with a resource type and identifier or ARN<br/>- Start batch replication jobs, such as SSM parameters under a path prefix<br/>- Poll job status by job ID and list existing jobs<br/>- List resource types supported by the running Replicator extension<br/>- Reads source AWS credentials from the MCP server environment and supports optional target account or region overrides                                        |
 | [`localstack-app-inspector`](./src/tools/localstack-app-inspector.ts)             | Inspects LocalStack application traces, spans, events, and IAM evaluations | - Enable or disable App Inspector for the running LocalStack instance<br/>- List and inspect traces to understand AWS service-to-service flows<br/>- Drill into spans, events, payload metadata, and IAM policy evaluation events<br/>- Filter by service, region, operation, resource, ARN, status, and time range<br/>- Requires a valid LocalStack Auth Token and the App Inspector feature in the connected LocalStack license                                   |
 | [`localstack-docs`](./src/tools/localstack-docs.ts)                               | Searches LocalStack documentation through CrawlChat                        | - Queries LocalStack docs through a public CrawlChat collection<br/>- Returns focused snippets with source links only<br/>- Helps answer coverage, configuration, and setup questions without requiring LocalStack runtime                                                                                                                                                                                                                                           |
+| [`localstack-snowflake-client`](./src/tools/localstack-snowflake-client.ts)       | Runs SQL against the LocalStack Snowflake emulator through the `snow` CLI  | - Execute SELECT, DDL (CREATE/DROP), DML (INSERT/UPDATE/DELETE), and SHOW/DESCRIBE statements from a query string or a `.sql` file<br/>- Check the Snowflake connection before running queries<br/>- Set optional database, schema, warehouse, and role context per query<br/>- Requires the Snowflake CLI (`snow`) and a valid LocalStack Auth Token                                                                                                                  |
 
 ## Prompts
 
 Prompts are user-selected workflow templates exposed by MCP clients as slash commands or quick actions. They frame multi-step LocalStack tasks so the assistant follows the same phases, evidence requirements, and reporting format every time.
 
-| Prompt Name             | Description                                                                                                                                                               | Arguments                                                                                      |
-| :---------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :--------------------------------------------------------------------------------------------- |
-| `infrastructure-tester` | Deploys an IaC project to LocalStack, validates declared resources with live AWS probes and App Inspector evidence, then writes and runs deterministic integration tests. | `iac_path` (required), `iac_type`, `test_language`, `test_framework`, `mode`, `services_focus` |
+| Prompt Name             | Description                                                                                                                                                               | Arguments                                                                                                     |
+| :---------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------ |
+| `infrastructure-tester` | Deploys an IaC project to LocalStack, validates declared resources with live AWS probes and App Inspector evidence, then writes and runs deterministic integration tests. | `iac_path` (required), `iac_type`, `test_language`, `test_framework`, `mode`, `services_focus`, `user_focus` |
 
 ## Installation
 
-### Quick Setup (Wizard)
+### Set up with the wizard (recommended)
 
 The fastest way to install the MCP server is the interactive setup wizard:
 
@@ -84,9 +119,7 @@ npx -y @localstack/localstack-mcp-server remove
 
 Run `npx -y @localstack/localstack-mcp-server init --help` for all options.
 
-### Setup using npx
-
-#### Prerequisites
+### Prerequisites
 
 - [LocalStack CLI](https://docs.localstack.cloud/getting-started/installation/#localstack-cli) and Docker installed in your system path
 - [`cdklocal`](https://github.com/localstack/aws-cdk-local), [`tflocal`](https://github.com/localstack/terraform-local), or [`samlocal`](https://github.com/localstack/aws-sam-cli-local) installed in your system path if you want to deploy CDK, Terraform, or SAM projects
@@ -94,7 +127,7 @@ Run `npx -y @localstack/localstack-mcp-server init --help` for all options.
 - A [valid LocalStack Auth Token](https://docs.localstack.cloud/aws/getting-started/auth-token/) configured as `LOCALSTACK_AUTH_TOKEN` (**required for all MCP tools**)
 - [Node.js v20](https://nodejs.org/en/download/) or higher installed in your system path
 
-#### Configuration
+### Run with npx
 
 Add the following to your MCP client's configuration file (e.g., `~/.cursor/mcp.json`). This configuration uses `npx` to run the server, which will automatically download and install the package if needed. LocalStack and any deployment CLIs used by tools run from your host PATH.
 
@@ -114,6 +147,8 @@ Add the following to your MCP client's configuration file (e.g., `~/.cursor/mcp.
 
 All LocalStack MCP tools require `LOCALSTACK_AUTH_TOKEN` to be set. You can get your LocalStack Auth Token by following the official [documentation](https://docs.localstack.cloud/aws/getting-started/auth-token/).
 
+### Run from source
+
 If you installed from source, change `command` and `args` to point to your local build:
 
 ```json
@@ -130,7 +165,7 @@ If you installed from source, change `command` and `args` to point to your local
 }
 ```
 
-### Setup using Docker
+### Run with Docker
 
 The `localstack/localstack-mcp-server` Docker image bundles the LocalStack CLI, `awslocal`, Terraform/`tflocal`, CDK/`cdklocal`, SAM/`samlocal`, Snowflake CLI, and Docker CLI. The only required host dependency is Docker. The container uses the mounted Docker socket to run LocalStack as a sibling container on the host.
 
@@ -162,10 +197,10 @@ If you use the deployer tool with local Terraform, CDK, or SAM projects, bind-mo
 
 See **[docs/DOCKER.md](./docs/DOCKER.md)** for the run command, MCP client config, IaC project mounts, CDK notes, and troubleshooting.
 
-## LocalStack Configuration
+## LocalStack configuration
 
 | Variable Name                                                  | Description                                                                                                                                                                     | Default Value     |
-| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------- |
 | `LOCALSTACK_AUTH_TOKEN` (**required**)                         | The LocalStack Auth Token to use for the MCP server                                                                                                                             | None              |
 | `MAIN_CONTAINER_NAME`                                          | The name of the LocalStack container to use for the MCP server                                                                                                                  | `localstack-main` |
 | `MCP_ANALYTICS_DISABLED`                                       | Disable MCP analytics when set to `1`                                                                                                                                           | `0`               |

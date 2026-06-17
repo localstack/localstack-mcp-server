@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "xmcp build && yarn build:cli",
-    "build:cli": "esbuild src/cli/index.ts --bundle --platform=node --format=cjs --target=node20 --tsconfig=tsconfig.cli.json --alias:jsonc-parser=jsonc-parser/lib/esm/main.js --outfile=dist/cli.js --external:./stdio.js \"--banner:js=#!/usr/bin/env node\" --log-level=warning",
+    "build:cli": "esbuild src/cli/index.ts --bundle --platform=node --format=cjs --target=node22 --tsconfig=tsconfig.cli.json --alias:jsonc-parser=jsonc-parser/lib/esm/main.js --outfile=dist/cli.js --external:./stdio.js \"--banner:js=#!/usr/bin/env node\" --log-level=warning",
     "dev": "xmcp dev",
     "start": "node dist/stdio.js",
     "prepack": "yarn build",
@@ -21,7 +21,7 @@
   "dependencies": {
     "dockerode": "^4.0.7",
     "posthog-node": "5.0.0",
-    "xmcp": "0.6.4",
+    "xmcp": "^0.6.11",
     "zod": "4.3.6"
   },
   "devDependencies": {
