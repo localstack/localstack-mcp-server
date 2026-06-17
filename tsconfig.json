@@ -6,7 +6,14 @@
     "forceConsistentCasingInFileNames": true,
     "strict": true,
     "skipLibCheck": true,
-    "rootDir": "./src"
+    "rootDir": "./src",
+    "baseUrl": ".",
+    "paths": {
+      // @clack/prompts is ESM-only (.d.mts types); this project's node10
+      // resolution can't see them. esbuild bundles the real module at build
+      // time — this mapping is for type-checking only.
+      "@clack/prompts": ["node_modules/@clack/prompts/dist/index.d.mts"]
+    }
   },
   "include": ["xmcp-env.d.ts", "src/**/*.ts"]
 }

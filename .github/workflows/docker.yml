@@ -123,8 +123,8 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Sync README to Docker Hub overview
-        # Only when README lands on main; on tags the README is unchanged.
         if: github.ref == 'refs/heads/main'
+        continue-on-error: true
         uses: peter-evans/dockerhub-description@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}

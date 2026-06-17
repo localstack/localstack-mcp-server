@@ -7,9 +7,11 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "xmcp build",
+    "build": "xmcp build && yarn build:cli",
+    "build:cli": "esbuild src/cli/index.ts --bundle --platform=node --format=cjs --target=node20 --tsconfig=tsconfig.cli.json --alias:jsonc-parser=jsonc-parser/lib/esm/main.js --outfile=dist/cli.js --external:./stdio.js \"--banner:js=#!/usr/bin/env node\" --log-level=warning",
     "dev": "xmcp dev",
     "start": "node dist/stdio.js",
+    "prepack": "yarn build",
     "format": "prettier --write .",
     "test": "jest",
     "test:mcp:direct": "yarn build && playwright test -c playwright.config.mjs tests/mcp/direct.spec.mjs",
@@ -23,12 +25,15 @@
     "zod": "4.3.6"
   },
   "devDependencies": {
+    "@clack/prompts": "^1.5.1",
     "@gleanwork/mcp-server-tester": "1.0.0-beta.6",
     "@playwright/test": "^1.58.2",
     "@types/dockerode": "^3.3.43",
     "@types/jest": "^30.0.0",
+    "esbuild": "^0.28.0",
     "eslint-config-prettier": "^10.1.8",
     "jest": "^30.1.3",
+    "jsonc-parser": "^3.3.1",
     "prettier": "^3.6.2",
     "swc-loader": "^0.2.6",
     "ts-jest": "^29.4.1",
@@ -39,7 +44,7 @@
     "dist"
   ],
   "bin": {
-    "localstack-mcp-server": "./dist/stdio.js"
+    "localstack-mcp-server": "./dist/cli.js"
   },
   "author": "@localstack",
   "license": "Apache-2.0",
