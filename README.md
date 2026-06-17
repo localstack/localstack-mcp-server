@@ -84,15 +84,9 @@ npx -y @localstack/localstack-mcp-server remove
 
 Run `npx -y @localstack/localstack-mcp-server init --help` for all options.
 
-### Manual Setup
+### Setup using npx
 
-|   Editor   | Installation                                                                                                                                                                                                 |
-| :--------: | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Cursor** | [![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=localstack&config=eyJjb21tYW5kIjoibnB4IC15IEBsb2NhbHN0YWNrL2xvY2Fsc3RhY2stbWNwLXNlcnZlciJ9) |
-
-For other MCP Clients, refer to the [configuration guide](#configuration).
-
-### Prerequisites
+#### Prerequisites
 
 - [LocalStack CLI](https://docs.localstack.cloud/getting-started/installation/#localstack-cli) and Docker installed in your system path
 - [`cdklocal`](https://github.com/localstack/aws-cdk-local), [`tflocal`](https://github.com/localstack/terraform-local), or [`samlocal`](https://github.com/localstack/aws-sam-cli-local) installed in your system path if you want to deploy CDK, Terraform, or SAM projects
@@ -100,7 +94,7 @@ For other MCP Clients, refer to the [configuration guide](#configuration).
 - A [valid LocalStack Auth Token](https://docs.localstack.cloud/aws/getting-started/auth-token/) configured as `LOCALSTACK_AUTH_TOKEN` (**required for all MCP tools**)
 - [Node.js v20](https://nodejs.org/en/download/) or higher installed in your system path
 
-### Configuration
+#### Configuration
 
 Add the following to your MCP client's configuration file (e.g., `~/.cursor/mcp.json`). This configuration uses `npx` to run the server, which will automatically download and install the package if needed. LocalStack and any deployment CLIs used by tools run from your host PATH.
 
@@ -145,7 +139,7 @@ If you use the deployer tool with local Terraform, CDK, or SAM projects, bind-mo
 ```json
 {
   "mcpServers": {
-    "localstack-mcp-server": {
+    "localstack": {
       "command": "docker",
       "args": [
         "run", "-i", "--rm",
