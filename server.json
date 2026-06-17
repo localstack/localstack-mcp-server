@@ -1,5 +1,5 @@
 {
-  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.localstack/localstack-mcp-server",
   "description": "A LocalStack MCP Server providing essential tools for local cloud development & testing",
   "status": "active",
@@ -8,6 +8,13 @@
     "source": "github"
   },
   "version": "0.4.0",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/localstack/localstack-mcp-server/main/icon.png",
+      "mimeType": "image/png",
+      "sizes": ["256x256"]
+    }
+  ],
   "packages": [
     {
       "registry_type": "npm",
