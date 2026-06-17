@@ -261,6 +261,19 @@ export default async function localstackDeployer({
         }
         const nonNullDirectory = directory as string;
 
+    // Validate the directory up front; a missing cwd otherwise surfaces as a misleading
+    // "spawn cdklocal/tflocal/samlocal ENOENT". Hint differs by run mode (Docker vs npx).
+    const resolvedDir = path.resolve(nonNullDirectory);
+    const dirExists = await fs.promises.stat(resolvedDir).then((s) => s.isDirectory()).catch(() => false);
+    if (!dirExists) {
+      return ResponseBuilder.error(
+        "Project Directory Not Found",
+        fs.existsSync("/.dockerenv")
+          ? `The directory "${resolvedDir}" was not found inside the container. Bind-mount your project at the same absolute path (\`-v ${resolvedDir}:${resolvedDir}\`) and pass that path as 'directory'.`
+          : `The directory "${resolvedDir}" was not found. Please check the path and try again.`
+      );
+    }
+
     // Step 1: Project Type Resolution
     if (projectType === "auto") {
       const inferredType = await inferProjectType(nonNullDirectory);
