@@ -130,7 +130,7 @@ If you installed from source, change `command` and `args` to point to your local
 }
 ```
 
-### Run with Docker
+### Setup using Docker
 
 The `localstack/localstack-mcp-server` Docker image bundles the LocalStack CLI, `awslocal`, Terraform/`tflocal`, CDK/`cdklocal`, SAM/`samlocal`, Snowflake CLI, and Docker CLI. The only required host dependency is Docker. The container uses the mounted Docker socket to run LocalStack as a sibling container on the host.
 

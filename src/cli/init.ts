@@ -401,7 +401,7 @@ function printSummary(outcomes: ClientOutcome[], answers: WizardAnswers): void {
   ) {
     lines.push(
       "",
-      "The first run pulls the localstack/localstack-mcp-server image (~1.7 GB) — give it a minute."
+      "The first run pulls the localstack/localstack-mcp-server image — give it a minute."
     );
   }
   p.note(lines.join("\n"), "Setup summary");
