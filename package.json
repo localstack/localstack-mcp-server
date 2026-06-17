@@ -1,8 +1,8 @@
 {
   "name": "@localstack/localstack-mcp-server",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "mcpName": "io.github.localstack/localstack-mcp-server",
-  "description": "A LocalStack MCP Server for managing LocalStack containers with Pro support",
+  "description": "A LocalStack MCP Server providing essential tools for local cloud development & testing",
   "engines": {
     "node": ">=20.0.0"
   },

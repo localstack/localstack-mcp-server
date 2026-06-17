@@ -7,7 +7,7 @@
     "url": "https://github.com/localstack/localstack-mcp-server",
     "source": "github"
   },
-  "version": "0.4.0",
+  "version": "0.5.0",
   "icons": [
     {
       "src": "https://raw.githubusercontent.com/localstack/localstack-mcp-server/main/icon.png",
@@ -17,89 +17,89 @@
   ],
   "packages": [
     {
-      "registry_type": "npm",
-      "registry_base_url": "https://registry.npmjs.org",
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@localstack/localstack-mcp-server",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "transport": {
         "type": "stdio"
       },
-      "environment_variables": [
+      "environmentVariables": [
         {
           "description": "LocalStack Auth Token (required for all LocalStack MCP tools)",
-          "is_required": true,
+          "isRequired": true,
           "format": "string",
-          "is_secret": true,
+          "isSecret": true,
           "name": "LOCALSTACK_AUTH_TOKEN"
         },
         {
           "description": "Source AWS access key used by AWS Replicator to read external AWS resources",
-          "is_required": false,
+          "isRequired": false,
           "format": "string",
-          "is_secret": true,
+          "isSecret": true,
           "name": "AWS_ACCESS_KEY_ID"
         },
         {
           "description": "Source AWS secret access key used by AWS Replicator to read external AWS resources",
-          "is_required": false,
+          "isRequired": false,
           "format": "string",
-          "is_secret": true,
+          "isSecret": true,
           "name": "AWS_SECRET_ACCESS_KEY"
         },
         {
           "description": "Optional source AWS session token used by AWS Replicator for temporary credentials",
-          "is_required": false,
+          "isRequired": false,
           "format": "string",
-          "is_secret": true,
+          "isSecret": true,
           "name": "AWS_SESSION_TOKEN"
         },
         {
           "description": "Source AWS region used by AWS Replicator",
-          "is_required": false,
+          "isRequired": false,
           "format": "string",
-          "is_secret": false,
+          "isSecret": false,
           "name": "AWS_DEFAULT_REGION"
         },
         {
           "description": "Optional Replicator-specific source AWS access key. Use this instead of AWS_ACCESS_KEY_ID when the Replicator source account should be isolated from generic AWS config.",
-          "is_required": false,
+          "isRequired": false,
           "format": "string",
-          "is_secret": true,
+          "isSecret": true,
           "name": "AWS_REPLICATOR_SOURCE_AWS_ACCESS_KEY_ID"
         },
         {
           "description": "Optional Replicator-specific source AWS secret access key. Use with AWS_REPLICATOR_SOURCE_AWS_ACCESS_KEY_ID.",
-          "is_required": false,
+          "isRequired": false,
           "format": "string",
-          "is_secret": true,
+          "isSecret": true,
           "name": "AWS_REPLICATOR_SOURCE_AWS_SECRET_ACCESS_KEY"
         },
         {
           "description": "Optional Replicator-specific source AWS session token for temporary credentials.",
-          "is_required": false,
+          "isRequired": false,
           "format": "string",
-          "is_secret": true,
+          "isSecret": true,
           "name": "AWS_REPLICATOR_SOURCE_AWS_SESSION_TOKEN"
         },
         {
           "description": "Optional Replicator-specific source AWS region. Use with the AWS_REPLICATOR_SOURCE_* credential group.",
-          "is_required": false,
+          "isRequired": false,
           "format": "string",
-          "is_secret": false,
+          "isSecret": false,
           "name": "AWS_REPLICATOR_SOURCE_REGION_NAME"
         },
         {
           "description": "Optional Replicator-specific source AWS endpoint URL for advanced source-account scenarios.",
-          "is_required": false,
+          "isRequired": false,
           "format": "string",
-          "is_secret": false,
+          "isSecret": false,
           "name": "AWS_REPLICATOR_SOURCE_ENDPOINT_URL"
         },
         {
           "description": "Set to 1 in the LocalStack container environment to enable App Inspector by default across restarts. The MCP tool can also toggle App Inspector at runtime.",
-          "is_required": false,
+          "isRequired": false,
           "format": "string",
-          "is_secret": false,
+          "isSecret": false,
           "name": "APP_INSPECTOR"
         }
       ]
