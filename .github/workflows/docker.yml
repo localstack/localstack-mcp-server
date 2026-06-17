@@ -53,9 +53,10 @@ jobs:
               ${{ env.IMAGE_NAME }}:ci
 
       - name: Integration test Docker runtime
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
         env:
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
-          HARNESS_TOKEN_REAL: "1"
+          HARNESS_TOKEN_REAL: ${{ secrets.LOCALSTACK_AUTH_TOKEN != '' && '1' || '0' }}
           HARNESS_SKIP: cloudpods,ephemeral,replicator,chaos
         run: |
           npm ci --prefix data/sample-cdk
@@ -101,7 +102,6 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE_NAME }}
-          # main -> :latest + :sha-<short>;  tag vX.Y.Z -> :X.Y.Z + :X.Y
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,enable={{is_default_branch}}
