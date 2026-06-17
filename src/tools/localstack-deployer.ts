@@ -21,6 +21,7 @@ import { type DeploymentEvent } from "../lib/deployment/deployment-utils";
 import { formatDeploymentReport } from "../lib/deployment/deployment-reporter";
 import { ResponseBuilder } from "../core/response-builder";
 import { withToolAnalytics } from "../core/analytics";
+import { buildIacCliEnv } from "../core/localstack-env";
 
 // Define the schema for tool parameters
 export const schema = {
@@ -260,6 +261,19 @@ export default async function localstackDeployer({
         }
         const nonNullDirectory = directory as string;
 
+    // Validate the directory up front; a missing cwd otherwise surfaces as a misleading
+    // "spawn cdklocal/tflocal/samlocal ENOENT". Hint differs by run mode (Docker vs npx).
+    const resolvedDir = path.resolve(nonNullDirectory);
+    const dirExists = await fs.promises.stat(resolvedDir).then((s) => s.isDirectory()).catch(() => false);
+    if (!dirExists) {
+      return ResponseBuilder.error(
+        "Project Directory Not Found",
+        fs.existsSync("/.dockerenv")
+          ? `The directory "${resolvedDir}" was not found inside the container. Bind-mount your project at the same absolute path (\`-v ${resolvedDir}:${resolvedDir}\`) and pass that path as 'directory'.`
+          : `The directory "${resolvedDir}" was not found. Please check the path and try again.`
+      );
+    }
+
     // Step 1: Project Type Resolution
     if (projectType === "auto") {
       const inferredType = await inferProjectType(nonNullDirectory);
@@ -380,7 +394,7 @@ async function executeTerraformCommands(
 
   if (action === "deploy") {
     events.push({ type: "header", title: "📦 Initializing Terraform", content: "" });
-    const initRes = await runCommand(baseCommand, ["init"], { cwd: directory });
+    const initRes = await runCommand(baseCommand, ["init"], { cwd: directory, env: buildIacCliEnv() });
     events.push({ type: "output", content: stripAnsiCodes(initRes.stdout) });
     if (initRes.stderr) events.push({ type: "warning", content: stripAnsiCodes(initRes.stderr) });
     if (initRes.error) {
@@ -394,7 +408,7 @@ async function executeTerraformCommands(
 
     events.push({ type: "header", title: "🔨 Applying Terraform Configuration", content: "" });
     const applyArgs = ["apply", "-auto-approve", ...varArgs];
-    const applyRes = await runCommand(baseCommand, applyArgs, { cwd: directory });
+    const applyRes = await runCommand(baseCommand, applyArgs, { cwd: directory, env: buildIacCliEnv() });
     events.push({ type: "output", content: stripAnsiCodes(applyRes.stdout) });
     if (applyRes.stderr) events.push({ type: "warning", content: stripAnsiCodes(applyRes.stderr) });
     if (applyRes.error) {
@@ -406,7 +420,7 @@ async function executeTerraformCommands(
       return events;
     }
 
-    const outputRes = await runCommand(baseCommand, ["output", "-json"], { cwd: directory });
+    const outputRes = await runCommand(baseCommand, ["output", "-json"], { cwd: directory, env: buildIacCliEnv() });
     if (outputRes.stdout.trim()) {
       const parsed = parseTerraformOutputs(outputRes.stdout);
       events.push({ type: "output", content: parsed });
@@ -415,7 +429,7 @@ async function executeTerraformCommands(
   } else {
     events.push({ type: "header", title: "💥 Destroying Terraform Resources", content: "" });
     const destroyArgs = ["destroy", "-auto-approve", ...varArgs];
-    const destroyRes = await runCommand(baseCommand, destroyArgs, { cwd: directory });
+    const destroyRes = await runCommand(baseCommand, destroyArgs, { cwd: directory, env: buildIacCliEnv() });
     events.push({ type: "output", content: stripAnsiCodes(destroyRes.stdout) });
     if (destroyRes.stderr)
       events.push({ type: "warning", content: stripAnsiCodes(destroyRes.stderr) });
@@ -500,7 +514,7 @@ async function executeSamCommands(
       buildArgs.push("--template-file", resolvedTemplatePath);
     }
     events.push({ type: "command", content: `${baseCommand} ${buildArgs.join(" ")}` });
-    const buildRes = await runCommand(baseCommand, buildArgs, { cwd: directory });
+    const buildRes = await runCommand(baseCommand, buildArgs, { cwd: directory, env: buildIacCliEnv() });
     events.push({ type: "output", content: stripAnsiCodes(buildRes.stdout) });
     if (buildRes.stderr) events.push({ type: "warning", content: stripAnsiCodes(buildRes.stderr) });
     if (buildRes.error) {
@@ -543,7 +557,7 @@ async function executeSamCommands(
     events.push({ type: "command", content: `${baseCommand} ${deployArgs.join(" ")}` });
     const deployRes = await runCommand(baseCommand, deployArgs, {
       cwd: directory,
-      env: { ...process.env, CI: "true" },
+      env: buildIacCliEnv({ CI: "true" }),
     });
     events.push({ type: "output", content: stripAnsiCodes(deployRes.stdout) });
     if (deployRes.stderr) events.push({ type: "warning", content: stripAnsiCodes(deployRes.stderr) });
@@ -560,7 +574,7 @@ async function executeSamCommands(
     events.push({ type: "header", title: "💥 Deleting SAM Application", content: "" });
     const deleteArgs = ["delete", "--no-prompts", "--region", resolvedRegion, "--stack-name", resolvedStackName];
     events.push({ type: "command", content: `${baseCommand} ${deleteArgs.join(" ")}` });
-    const deleteRes = await runCommand(baseCommand, deleteArgs, { cwd: directory });
+    const deleteRes = await runCommand(baseCommand, deleteArgs, { cwd: directory, env: buildIacCliEnv() });
     events.push({ type: "output", content: stripAnsiCodes(deleteRes.stdout) });
     if (deleteRes.stderr) events.push({ type: "warning", content: stripAnsiCodes(deleteRes.stderr) });
     if (deleteRes.error) {
@@ -595,7 +609,7 @@ async function executeCdkCommands(
     events.push({ type: "header", title: "🥾 Bootstrapping CDK for LocalStack", content: "" });
     const bootstrapRes = await runCommand(baseCommand, ["bootstrap"], {
       cwd: directory,
-      env: { ...process.env, CI: "true" },
+      env: buildIacCliEnv({ CI: "true" }),
     });
     events.push({ type: "output", content: stripAnsiCodes(bootstrapRes.stdout) });
     if (bootstrapRes.stderr)
@@ -613,7 +627,7 @@ async function executeCdkCommands(
     const deployRes = await runCommand(
       baseCommand,
       ["deploy", "--require-approval", "never", "--all", ...contextArgs],
-      { cwd: directory, env: { ...process.env, CI: "true" } }
+      { cwd: directory, env: buildIacCliEnv({ CI: "true" }) }
     );
     const cleanDeployOutput = stripAnsiCodes(deployRes.stdout);
     events.push({ type: "output", content: cleanDeployOutput });
@@ -639,7 +653,7 @@ async function executeCdkCommands(
     const destroyRes = await runCommand(
       baseCommand,
       ["destroy", "--force", "--all", ...contextArgs],
-      { cwd: directory, env: { ...process.env, CI: "true" } }
+      { cwd: directory, env: buildIacCliEnv({ CI: "true" }) }
     );
     events.push({ type: "output", content: stripAnsiCodes(destroyRes.stdout) });
     if (destroyRes.stderr)

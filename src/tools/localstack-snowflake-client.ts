@@ -1,12 +1,22 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { runCommand } from "../core/command-runner";
+import { LOCALSTACK_PORT } from "../core/config";
 import { runPreflights, requireSnowflakeCli, requireProFeature } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { ProFeature } from "../lib/localstack/license-checker";
 import { withToolAnalytics } from "../core/analytics";
 
 const SNOWFLAKE_CONNECTION_NAME = "localstack";
+const SNOWFLAKE_ROUTING_HOST = "snowflake.localhost.localstack.cloud";
+
+function getSnowflakeHost() {
+  return SNOWFLAKE_ROUTING_HOST;
+}
+
+function getSnowflakePort() {
+  return String(process.env.LOCALSTACK_PORT || LOCALSTACK_PORT);
+}
 
 export const schema = {
   action: z.enum(["execute", "check-connection"]).describe("Action to perform"),
@@ -70,9 +80,9 @@ async function requireSnowflakeConnectionProfile() {
       "--schema",
       "test",
       "--port",
-      "4566",
+      getSnowflakePort(),
       "--host",
-      "snowflake.localhost.localstack.cloud",
+      getSnowflakeHost(),
       "--no-interactive",
     ],
     { env: { ...process.env } }

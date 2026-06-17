@@ -1,0 +1,30 @@
+# Build artifacts (rebuilt inside the image)
+node_modules
+**/node_modules
+dist
+.xmcp
+xmcp-env.d.ts
+**/cdk.out
+
+# VCS / CI
+.git
+.github
+
+# Test output
+test-results
+.mcp-test-results
+data
+**/.terraform
+**/.terraform.lock.hcl
+
+# Secrets / local registry tokens (never bake into the image)
+.mcpregistry*
+.env
+.env.*
+
+# Editor / OS noise
+.DS_Store
+*.log
+
+# Docs/meta not needed at runtime
+CLAUDE.md

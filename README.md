@@ -37,7 +37,7 @@ This server provides your AI with dedicated tools for managing your LocalStack e
 | [`localstack-chaos-injector`](./src/tools/localstack-chaos-injector.ts)           | Injects and manages chaos experiment faults for system resilience testing  | - Inject, add, remove, and clear service fault rules<br/>- Configure network latency effects<br/>- Comprehensive fault targeting by service, region, and operation<br/>- Built-in workflow guidance for chaos experiments<br/>- Requires a valid LocalStack Auth Token                                                                                                                                                                                               |
 | [`localstack-cloud-pods`](./src/tools/localstack-cloud-pods.ts)                   | Manages remote LocalStack Cloud Pods for development workflows             | - Save current state as a Cloud Pod<br/>- Load previously saved Cloud Pods instantly<br/>- Delete Cloud Pods from remote cloud-backed storage<br/>- Use this for managed remote state snapshots, not local export/import files<br/>- Requires a valid LocalStack Auth Token                                                                                                                                                                                          |
 | [`localstack-state-management`](./src/tools/localstack-state-management.ts)       | Manages local file-based LocalStack state export/import workflows          | - Export LocalStack state to a local file on disk through the LocalStack State REST API<br/>- Import LocalStack state from a local file<br/>- Inspect current LocalStack state as JSON metamodel data<br/>- Reset all state or only selected services<br/>- Supports service-level granularity for export, reset, and inspect<br/>- Use this for local disk workflows; use Cloud Pods for remote cloud-backed snapshots<br/>- Requires a valid LocalStack Auth Token |
-| [`localstack-extensions`](./src/tools/localstack-extensions.ts)                   | Installs, uninstalls, lists, and discovers LocalStack Extensions           | - Manage installed extensions via CLI actions (`list`, `install`, `uninstall`)<br/>- Browse the LocalStack Extensions marketplace (`available`)<br/>- Requires a valid LocalStack Auth Token support                                                                                                                                                                                                                                                                 |
+| [`localstack-extensions`](./src/tools/localstack-extensions.ts)                   | Installs, uninstalls, lists, and discovers LocalStack Extensions           | - Manage installed extensions via CLI actions (`list`, `install`, `uninstall`)<br/>- Browse the LocalStack Extensions marketplace (`available`)<br/>- Requires a valid LocalStack Auth Token                                                                                                                                                                                                                                                                         |
 | [`localstack-ephemeral-instances`](./src/tools/localstack-ephemeral-instances.ts) | Manages cloud-hosted LocalStack Ephemeral Instances                        | - Create temporary cloud-hosted LocalStack instances and get an endpoint URL<br/>- List available ephemeral instances, fetch logs, and delete instances<br/>- Supports lifetime, extension preload, Cloud Pod preload, and custom env vars on create<br/>- Requires a valid LocalStack Auth Token and LocalStack CLI                                                                                                                                                 |
 | [`localstack-aws-client`](./src/tools/localstack-aws-client.ts)                   | Runs AWS CLI commands inside the LocalStack for AWS container              | - Executes commands via `awslocal` inside the running container<br/>- Sanitizes commands to block shell chaining<br/>- Auto-detects LocalStack coverage errors and links to docs                                                                                                                                                                                                                                                                                     |
 | [`localstack-aws-replicator`](./src/tools/localstack-aws-replicator.ts)           | Replicates external AWS resources into a running LocalStack instance       | - Start single-resource replication jobs with a resource type and identifier or ARN<br/>- Start batch replication jobs, such as SSM parameters under a path prefix<br/>- Poll job status by job ID and list existing jobs<br/>- List resource types supported by the running Replicator extension<br/>- Reads source AWS credentials from the MCP server environment and supports optional target account or region overrides                                        |
@@ -63,13 +63,14 @@ For other MCP Clients, refer to the [configuration guide](#configuration).
 ### Prerequisites
 
 - [LocalStack CLI](https://docs.localstack.cloud/getting-started/installation/#localstack-cli) and Docker installed in your system path
-- [`cdklocal`](https://github.com/localstack/aws-cdk-local), [`tflocal`](https://github.com/localstack/terraform-local), or [`samlocal`](https://github.com/localstack/aws-sam-cli-local) installed in your system path for running infrastructure deployment tooling
+- [`cdklocal`](https://github.com/localstack/aws-cdk-local), [`tflocal`](https://github.com/localstack/terraform-local), or [`samlocal`](https://github.com/localstack/aws-sam-cli-local) installed in your system path if you want to deploy CDK, Terraform, or SAM projects
+- Snowflake CLI (`snow`) installed in your system path if you want to use the Snowflake tool
 - A [valid LocalStack Auth Token](https://docs.localstack.cloud/aws/getting-started/auth-token/) configured as `LOCALSTACK_AUTH_TOKEN` (**required for all MCP tools**)
 - [Node.js v22.x](https://nodejs.org/en/download/) or higher installed in your system path
 
 ### Configuration
 
-Add the following to your MCP client's configuration file (e.g., `~/.cursor/mcp.json`). This configuration uses `npx` to run the server, which will automatically download & install the package if not already present:
+Add the following to your MCP client's configuration file (e.g., `~/.cursor/mcp.json`). This configuration uses `npx` to run the server, which will automatically download and install the package if needed. LocalStack and any deployment CLIs used by tools run from your host PATH.
 
 ```json
 {
@@ -102,6 +103,38 @@ If you installed from source, change `command` and `args` to point to your local
   }
 }
 ```
+
+### Run with Docker
+
+The `localstack/localstack-mcp-server` Docker image bundles the LocalStack CLI, `awslocal`, Terraform/`tflocal`, CDK/`cdklocal`, SAM/`samlocal`, Snowflake CLI, and Docker CLI. The only required host dependency is Docker. The container uses the mounted Docker socket to run LocalStack as a sibling container on the host.
+
+If you use the deployer tool with local Terraform, CDK, or SAM projects, bind-mount those project paths into the MCP container and pass the in-container path to the tool. The simplest convention is to mount projects at the same absolute path they use on the host.
+
+```json
+{
+  "mcpServers": {
+    "localstack-mcp-server": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-v", "/var/run/docker.sock:/var/run/docker.sock",
+        "-v", "/Users/you/.localstack-mcp:/Users/you/.localstack-mcp",
+        "-e", "XDG_CACHE_HOME=/Users/you/.localstack-mcp",
+        "--add-host", "host.docker.internal:host-gateway",
+        "--add-host", "s3.host.docker.internal:host-gateway",
+        "--add-host", "snowflake.localhost.localstack.cloud:host-gateway",
+        "-e", "LOCALSTACK_AUTH_TOKEN",
+        "-e", "LOCALSTACK_HOSTNAME=host.docker.internal",
+        "-v", "/Users/you/projects:/Users/you/projects",
+        "localstack/localstack-mcp-server:latest"
+      ],
+      "env": { "LOCALSTACK_AUTH_TOKEN": "<YOUR_TOKEN>" }
+    }
+  }
+}
+```
+
+See **[docs/DOCKER.md](./docs/DOCKER.md)** for the run command, MCP client config, IaC project mounts, CDK notes, and troubleshooting.
 
 ## LocalStack Configuration
 
