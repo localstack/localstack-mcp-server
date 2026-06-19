@@ -21,6 +21,10 @@ function tempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "localstack-mcp-cli-client-"));
 }
 
+// Default to a linux context so adapters take their POSIX command path (plain `npx`,
+// no `cmd /c`, shell:false) — the behavior these cases assert. Because the context is
+// linux, config paths these adapters report are computed with POSIX separators
+// regardless of host OS, so expected paths below use `path.posix.join` to match.
 function testContext(homeDir: string, platform: NodeJS.Platform = "linux"): ClientContext {
   return { platform, homeDir, env: {} };
 }
@@ -59,7 +63,7 @@ describe("codexAdapter", () => {
 
     expect(outcome).toEqual({
       status: "installed",
-      detail: `added via \`codex mcp add\` (${path.join(home, ".codex", "config.toml")})`,
+      detail: `added via \`codex mcp add\` (${path.posix.join(home, ".codex", "config.toml")})`,
     });
     expect(mockedRunCommand).toHaveBeenNthCalledWith(
       1,
@@ -141,7 +145,7 @@ describe("claudeCodeAdapter", () => {
 
     expect(outcome).toEqual({
       status: "installed",
-      detail: `added via \`claude mcp add\` (user scope in ${path.join(home, ".claude.json")})`,
+      detail: `added via \`claude mcp add\` (user scope in ${path.posix.join(home, ".claude.json")})`,
     });
     expect(mockedRunCommand).toHaveBeenNthCalledWith(
       1,

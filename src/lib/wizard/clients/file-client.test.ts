@@ -37,7 +37,14 @@ describe("createFileClientAdapter", () => {
     expect(outcome).toEqual({ status: "installed", detail: configPath });
     const parsed = JSON.parse(fs.readFileSync(configPath, "utf8"));
     expect(parsed.mcpServers.localstack.env.LOCALSTACK_AUTH_TOKEN).toBe("ls-token");
-    expect((fs.statSync(configPath).mode & 0o777).toString(8)).toBe("600");
+
+    // The config carries the auth token, so install() creates it mode 0600. POSIX-only:
+    // Windows/NTFS has no Unix permission bits (fs.writeFileSync's `mode` is ignored
+    // there), so the on-disk check can't hold — but it still guards the security
+    // property against regression on Linux/macOS CI, where it is real.
+    if (process.platform !== "win32") {
+      expect((fs.statSync(configPath).mode & 0o777).toString(8)).toBe("600");
+    }
   });
 
   it("preserves localstack-mcp-server while writing the wizard-managed entry", async () => {

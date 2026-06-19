@@ -27,15 +27,16 @@ describe("client config paths", () => {
     expect(claudeDesktopConfigPath(mac)).toBe(
       "/Users/dev/Library/Application Support/Claude/claude_desktop_config.json"
     );
-    expect(claudeDesktopConfigPath(win)).toContain("Claude");
-    expect(claudeDesktopConfigPath(win)).toContain("AppData");
+    expect(claudeDesktopConfigPath(win)).toBe(
+      "C:\\Users\\dev\\AppData\\Roaming\\Claude\\claude_desktop_config.json"
+    );
     expect(claudeDesktopConfigPath(linux)).toBeNull();
   });
 
   it("resolves VS Code's per-platform user mcp.json", () => {
     expect(vscodeConfigPath(mac)).toBe("/Users/dev/Library/Application Support/Code/User/mcp.json");
     expect(vscodeConfigPath(linux)).toBe("/home/dev/.config/Code/User/mcp.json");
-    expect(vscodeConfigPath(win)).toContain("Code");
+    expect(vscodeConfigPath(win)).toBe("C:\\Users\\dev\\AppData\\Roaming\\Code\\User\\mcp.json");
     const xdg: ClientContext = { ...linux, env: { XDG_CONFIG_HOME: "/custom/config" } };
     expect(vscodeConfigPath(xdg)).toBe("/custom/config/Code/User/mcp.json");
   });
