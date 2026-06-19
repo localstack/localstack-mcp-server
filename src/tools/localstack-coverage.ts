@@ -169,7 +169,7 @@ export const schema = {
         "get_service_coverage — full list of implemented and missing operations for one service.",
         "check_operations — given a list of 'service:Operation' pairs, report which are implemented and which are missing.",
         "check_resources — given a list of IaC resource type names (e.g. 'AWS::S3::Bucket', 'aws_lambda_function', 'aws:s3/bucket:Bucket'), look up their required operations from the coverage DB and report a per-resource deploy-readiness verdict.",
-        "scan_iac — given a path to a Terraform, CloudFormation, CDK, or Pulumi project, read the files fresh from disk, extract all resource types, and return a deploy-readiness verdict. Use this instead of reading files manually — it always reflects the current state of the files.",
+        "scan_iac — given a path to a Terraform, CloudFormation, CDK, Pulumi, or shell script project, read the files fresh from disk, extract all resource types and AWS CLI calls, and return a deploy-readiness verdict. Use this instead of reading files manually — it always reflects the current state of the files.",
         "patch_iac — given a path to a Terraform project, generate a unified diff that gates all blocking resources with 'count = 0' (marked # localstack-patch) and injects a LocalStack provider config. Terraform only. Show the diff to the user before applying.",
       ].join(" | ")
     ),
@@ -199,7 +199,7 @@ export const schema = {
     .string()
     .optional()
     .describe(
-      "Path to a Terraform, CloudFormation, CDK, or Pulumi project directory or file. Required for scan_iac. Files are read fresh from disk on every call."
+      "Path to a Terraform, CloudFormation, CDK, Pulumi, or shell script project directory or file. Required for scan_iac. Files are read fresh from disk on every call. Shell scripts (.sh) with aws/awslocal CLI calls are also supported."
     ),
 };
 
@@ -210,26 +210,25 @@ export const schema = {
 export const metadata: ToolMetadata = {
   name: "localstack-preflight",
   description:
-    "STATIC preflight check — reads IaC files and checks API coverage. Does NOT deploy, run terraform, install tools, or require LocalStack to be running. " +
+    "Preflight coverage check — reads IaC files and queries the LocalStack coverage extension to report which AWS resources and API operations are supported. " +
+    "Requires LocalStack to be running with the localstack-extension-coverage extension installed. " +
+    "Does NOT deploy, run terraform, or install tools. " +
     "Use this BEFORE localstack-deployer whenever the user wants to know if their IaC is compatible with LocalStack. " +
-    "Trigger phrases: " +
-    "'will this work on localstack', 'will my terraform work', 'will my stack work', 'will my IaC work', 'will this deploy on localstack', " +
-    "'will this deploy to localstack', 'will my cloudformation work', 'will my CDK work', 'will my pulumi work', " +
-    "'can I run this on localstack', 'can I deploy this on localstack', 'can localstack run this', " +
-    "'is this supported by localstack', 'is this compatible with localstack', 'does localstack support this', " +
-    "'check my terraform', 'check my stack', 'check my IaC', 'check localstack compatibility', " +
-    "'validate my terraform', 'validate my stack', 'validate my IaC', " +
-    "'what won't work on localstack', 'what's missing', 'what operations are missing', 'what's not supported', " +
-    "'any blockers', 'are there any blockers', 'preflight check', 'coverage check', 'localstack coverage'. " +
+    "Trigger phrases: 'will this work on localstack', 'will my IaC work', 'will this deploy on localstack', " +
+    "'is this compatible with localstack', 'does localstack support this', " +
+    "'check my terraform / stack / IaC', 'validate my terraform / stack / IaC', " +
+    "'what won't work on localstack', 'what operations are missing', 'any blockers', " +
+    "'preflight check', 'coverage check', 'localstack coverage'. " +
     "When the user asks without providing a path, infer the workspace root and pass it as iac_path to scan_iac. " +
     "If scan_iac returns no resources found, ask the user once: 'I didn't find any IaC files in <path> — where is your project?' " +
+    "If the coverage extension is unreachable, tell the user: 'Install the localstack-extension-coverage extension and restart LocalStack. " +
+    "You can override the endpoint with the LOCALSTACK_COVERAGE_URL environment variable.' " +
     "After showing the verdict, offer to patch the project so it deploys on LocalStack (Terraform only).",
   annotations: {
     title: "LocalStack Preflight",
     readOnlyHint: true,
     destructiveHint: false,
     idempotentHint: true,
-    
   },
 };
 
@@ -283,7 +282,7 @@ export default async function localstackCoverage({
 
 async function listServices() {
   const { services: rows } = await coverageFetch<{ services: Row[] }>("/services");
-  rows.sort((a, b) => (b.implemented as number) / (b.total as number) - (a.implemented as number) / (a.total as number));
+  rows.sort((a, b) => pct(b.implemented as number, b.total as number) - pct(a.implemented as number, a.total as number));
 
   const total_ops = rows.reduce((s, r) => s + (r.total as number), 0);
   const total_impl = rows.reduce((s, r) => s + (r.implemented as number), 0);
@@ -316,15 +315,19 @@ async function getServiceCoverage(service: string | undefined) {
     );
   }
 
-  const data = await coverageFetch<{ service: string; operations: Row[] } | { error: string }>(
-    `/services/${encodeURIComponent(service)}`
-  );
-
-  if ("error" in data) {
-    return ResponseBuilder.error(
-      "Service not found",
-      `No coverage data for service '${service}'. Use list_services to see available services.`
+  let data: { service: string; operations: Row[] };
+  try {
+    data = await coverageFetch<{ service: string; operations: Row[] }>(
+      `/services/${encodeURIComponent(service)}`
     );
+  } catch (e) {
+    if (e instanceof Error && e.message.includes("HTTP 404")) {
+      return ResponseBuilder.error(
+        "Service not found",
+        `No coverage data for service '${service}'. Use list_services to see available services.`
+      );
+    }
+    throw e;
   }
 
   const rows = data.operations;
@@ -439,12 +442,24 @@ function collectFiles(root: string, exts: string[], maxDepth = 4): string[] {
   return results;
 }
 
-function extractResourceTypes(path: string): { framework: string; counts: Map<string, number> } {
-  const files = collectFiles(path, [".tf", ".yaml", ".yml", ".json", ".ts", ".py"]);
+const SERVICE_ALIASES: Record<string, string> = { s3api: "s3" };
+const SKIP_CLI_OPS = new Set(["configure", "help", "wait"]);
+
+type IacScanResult = {
+  framework: string;
+  counts: Map<string, number>;
+  shellOps: Map<string, number>;
+  tfContents: Map<string, string>; // path → content, reused by patchIac
+};
+
+function extractResourceTypes(path: string): IacScanResult {
+  const files = collectFiles(path, [".tf", ".yaml", ".yml", ".json", ".ts", ".py", ".sh"]);
 
   const tfCounts = new Map<string, number>();
   const cfCounts = new Map<string, number>();
   const pulumiCounts = new Map<string, number>();
+  const shellOps = new Map<string, number>();
+  const tfContents = new Map<string, string>();
 
   const inc = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
 
@@ -455,6 +470,7 @@ function extractResourceTypes(path: string): { framework: string; counts: Map<st
     const ext = extname(file).toLowerCase();
 
     if (ext === ".tf") {
+      tfContents.set(file, content);
       for (const m of content.matchAll(/^resource\s+"(aws_[a-z0-9_]+)"/gm)) {
         inc(tfCounts, m[1]);
       }
@@ -479,6 +495,19 @@ function extractResourceTypes(path: string): { framework: string; counts: Map<st
         inc(pulumiCounts, `aws:${svc}/${res.charAt(0).toLowerCase() + res.slice(1)}:${res}`);
       }
     }
+
+    if (ext === ".sh") {
+      for (const m of content.matchAll(
+        /(?:^|[\s;|&(])(awslocal|aws)\s+([a-z][a-z0-9-]*)\s+([a-z][a-z0-9-]+)/gm
+      )) {
+        const rawSvc = m[2];
+        const rawOp = m[3];
+        if (SKIP_CLI_OPS.has(rawOp)) continue;
+        const svc = SERVICE_ALIASES[rawSvc] ?? rawSvc;
+        const op = rawOp.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join("");
+        inc(shellOps, `${svc}:${op}`);
+      }
+    }
   }
 
   const counts = new Map<string, number>([...cfCounts, ...tfCounts, ...pulumiCounts]);
@@ -488,7 +517,23 @@ function extractResourceTypes(path: string): { framework: string; counts: Map<st
     pulumiCounts.size > 0 ? "Pulumi" : null,
   ].filter(Boolean).join(", ");
 
-  return { framework: frameworks || "unknown", counts };
+  return { framework: frameworks || "unknown", counts, shellOps, tfContents };
+}
+
+async function shellOpsSectionMarkdown(ops: Map<string, number>): Promise<string> {
+  const { results } = await coverageFetch<{
+    results: Array<{ operation: string; implemented: number | null }>;
+  }>("/operations", [...ops.keys()]);
+
+  const lines = results.map(r => {
+    if (r.implemented === 1) return `✅ ${r.operation}`;
+    if (r.implemented === null) return `⚠️ ${r.operation} — not in coverage DB`;
+    return `❌ ${r.operation}`;
+  });
+
+  const blocking = results.filter(r => r.implemented === 0).length;
+  const verdict = blocking === 0 ? "**Ready**" : `**${blocking} operation(s) not implemented**`;
+  return `**Shell scripts** — ${verdict}\n\n${lines.join("\n")}`;
 }
 
 async function scanIac(iac_path: string | undefined) {
@@ -499,60 +544,63 @@ async function scanIac(iac_path: string | undefined) {
     );
   }
 
-  const { framework, counts } = extractResourceTypes(iac_path);
+  const { framework, counts, shellOps } = extractResourceTypes(iac_path);
 
-  if (counts.size === 0) {
+  if (counts.size === 0 && shellOps.size === 0) {
     return ResponseBuilder.error(
       "No resource types found",
       `No AWS resource types detected in \`${iac_path}\`. ` +
-      `Supported: Terraform (.tf), CloudFormation/CDK (.yaml/.json), Pulumi (.ts/.py).`
+      `Supported: Terraform (.tf), CloudFormation/CDK (.yaml/.json), Pulumi (.ts/.py), shell scripts (.sh with aws/awslocal calls).`
     );
   }
 
-  return checkResources([...counts.keys()], counts, framework);
+  const sections: string[] = [];
+
+  if (counts.size > 0) {
+    sections.push(await resourcesSectionMarkdown([...counts.keys()], counts, framework));
+  }
+  if (shellOps.size > 0) {
+    sections.push(await shellOpsSectionMarkdown(shellOps));
+  }
+
+  return ResponseBuilder.markdown(
+    sections.length === 1 ? sections[0] : sections.join("\n\n---\n\n")
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Action: check_resources
 // ---------------------------------------------------------------------------
 
-async function checkResources(
-  resources: string[] | undefined,
-  counts?: Map<string, number>,
-  framework?: string
-) {
-  if (!resources || resources.length === 0) {
-    return ResponseBuilder.error(
-      "Missing parameter",
-      "`resources` is required for check_resources. Provide an array of IaC resource type names."
-    );
-  }
+type ResourceResult = {
+  resource_type: string;
+  known: boolean;
+  blocking: string[];
+};
 
-  type ResourceResult = {
-    resource_type: string;
-    known: boolean;
-    blocking: string[];
-    optional_gaps: string[];
-  };
-
+async function fetchResourceResults(resources: string[]): Promise<ResourceResult[]> {
   const { resources: apiResources } = await coverageFetch<{
-    resources: { resource_type: string; known: boolean; operations: (Row & { required: number })[] }[];
+    resources: { resource_type: string; known: boolean; operations: Row[] }[];
   }>("/resources", resources);
 
-  const results: ResourceResult[] = apiResources.map(({ resource_type, known, operations }) => {
-    if (!known) return { resource_type, known: false, blocking: [], optional_gaps: [] };
+  return apiResources.map(({ resource_type, known, operations }) => {
+    if (!known) return { resource_type, known: false, blocking: [] };
     const blocking = operations
-      .filter((r) => r.required === 1 && r.implemented === 0)
+      .filter((r) => r.implemented === 0)
       .map((r) => r.operation as string);
-    const optional_gaps = operations
-      .filter((r) => r.required === 0 && r.implemented === 0)
-      .map((r) => r.operation as string);
-    return { resource_type, known: true, blocking, optional_gaps };
+    return { resource_type, known: true, blocking };
   });
+}
+
+async function resourcesSectionMarkdown(
+  resources: string[],
+  counts?: Map<string, number>,
+  framework?: string
+): Promise<string> {
+  const results = await fetchResourceResults(resources);
 
   const blocked = results.filter((r) => !r.known || r.blocking.length > 0);
   const hasBlockers = blocked.length > 0;
-
   const stackLabel = framework ?? "Service coverage summary";
 
   const knownBlockers = blocked.filter((r) => r.known && r.blocking.length > 0);
@@ -583,7 +631,22 @@ async function checkResources(
     return `${ok ? "✅" : "❌"} ${label}${detail}`;
   });
 
-  return ResponseBuilder.markdown(`**${stackLabel}** — ${verdict}\n\n${lines.join("\n")}`);
+  return `**${stackLabel}** — ${verdict}\n\n${lines.join("\n")}`;
+}
+
+async function checkResources(
+  resources: string[] | undefined,
+  counts?: Map<string, number>,
+  framework?: string
+) {
+  if (!resources || resources.length === 0) {
+    return ResponseBuilder.error(
+      "Missing parameter",
+      "`resources` is required for check_resources. Provide an array of IaC resource type names."
+    );
+  }
+
+  return ResponseBuilder.markdown(await resourcesSectionMarkdown(resources, counts, framework));
 }
 
 // ---------------------------------------------------------------------------
@@ -624,7 +687,7 @@ async function patchIac(iac_path: string | undefined) {
     );
   }
 
-  const { framework, counts } = extractResourceTypes(iac_path);
+  const { framework, counts, tfContents } = extractResourceTypes(iac_path);
 
   if (!framework.includes("Terraform") || counts.size === 0) {
     return ResponseBuilder.error(
@@ -635,14 +698,9 @@ async function patchIac(iac_path: string | undefined) {
 
   // Find blockers via REST
   const tfResources = [...counts.keys()].filter((rt) => rt.startsWith("aws_"));
-  const { resources: apiResources } = await coverageFetch<{
-    resources: { resource_type: string; known: boolean; operations: (Row & { required: number })[] }[];
-  }>("/resources", tfResources);
-
-  const blockers: string[] = apiResources
-    .filter(({ known, operations }) =>
-      known && operations.some((o) => o.required === 1 && o.implemented === 0)
-    )
+  const results = await fetchResourceResults(tfResources);
+  const blockers = results
+    .filter(({ known, blocking }) => known && blocking.length > 0)
     .map(({ resource_type }) => resource_type);
 
   if (blockers.length === 0) {
@@ -652,33 +710,22 @@ async function patchIac(iac_path: string | undefined) {
     );
   }
 
-  // Build the diff
-  const tfFiles = collectFiles(iac_path, [".tf"]);
+  // Build the diff using cached file contents from extractResourceTypes
   const hunks: string[] = [];
 
-  // Gate each blocker resource in-place
-  for (const file of tfFiles) {
-    let content: string;
-    try { content = readFileSync(file, "utf8"); } catch { continue; }
-
+  for (const [file, content] of tfContents) {
     const lines = content.split("\n");
-    const fileHunks: Array<{ lineNo: number; original: string; patched: string }> = [];
+    const fileHunks: Array<{ lineNo: number; original: string }> = [];
 
     for (const blocker of blockers) {
       const re = new RegExp(`^(resource\\s+"${blocker}"\\s+"[^"]*"\\s*\\{)`, "m");
-      let idx = 0;
-      for (const line of lines) {
-        if (re.test(line)) {
-          const countLine = `  count = 0 # localstack-patch: ${blocker} not supported`;
-          fileHunks.push({ lineNo: idx + 1, original: line, patched: line + "\n" + countLine });
-        }
-        idx++;
-      }
+      lines.forEach((line, idx) => {
+        if (re.test(line)) fileHunks.push({ lineNo: idx + 1, original: line });
+      });
     }
 
     if (fileHunks.length === 0) continue;
 
-    // Format as unified diff hunks
     for (const h of fileHunks) {
       const context = Math.max(0, h.lineNo - 3);
       const ctxLines = lines.slice(context, h.lineNo - 1).map(l => ` ${l}`).join("\n");
@@ -693,15 +740,14 @@ async function patchIac(iac_path: string | undefined) {
     }
   }
 
-  // Provider block — find the first .tf file that already has a provider "aws" block or use main.tf
-  const providerFile = tfFiles.find(f => {
-    try { return readFileSync(f, "utf8").includes(`provider "aws"`); } catch { return false; }
-  }) ?? tfFiles.find(f => f.endsWith("main.tf")) ?? tfFiles[0];
+  // Provider block — use cached contents, no re-read needed
+  let providerFile = [...tfContents.entries()].find(([, c]) => c.includes(`provider "aws"`))?.[0]
+    ?? [...tfContents.keys()].find(f => f.endsWith("main.tf"))
+    ?? [...tfContents.keys()][0];
 
   let providerHunk = "";
   if (providerFile) {
-    let content = "";
-    try { content = readFileSync(providerFile, "utf8"); } catch {}
+    const content = tfContents.get(providerFile) ?? "";
     if (!content.includes("localstack-patch")) {
       const lines = content.split("\n");
       providerHunk =
