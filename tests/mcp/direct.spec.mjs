@@ -62,7 +62,7 @@ test("smoke tests the infrastructure tester prompt", async ({ mcp }) => {
 });
 
 test("preflight tool lists AWS services with coverage percentages", async ({ mcp }) => {
-  requireEnv("LOCALSTACK_COVERAGE_URL");
+  test.skip(!process.env.LOCALSTACK_COVERAGE_URL, "LOCALSTACK_COVERAGE_URL not set — coverage extension not available");
 
   const result = await mcp.callTool("localstack-preflight", {
     action: "list_services",
