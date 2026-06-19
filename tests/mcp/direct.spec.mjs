@@ -61,6 +61,17 @@ test("smoke tests the infrastructure tester prompt", async ({ mcp }) => {
   expect(result.messages[0].content.text).toContain("`./infra`");
 });
 
+test("preflight tool lists AWS services with coverage percentages", async ({ mcp }) => {
+  requireEnv("LOCALSTACK_AUTH_TOKEN");
+
+  const result = await mcp.callTool("localstack-preflight", {
+    action: "list_services",
+  });
+
+  expect(result).not.toBeToolError();
+  expect(result).toContainToolText("s3");
+});
+
 test("docs tool returns useful documentation snippets", async ({ mcp }) => {
   requireEnv("LOCALSTACK_AUTH_TOKEN");
 

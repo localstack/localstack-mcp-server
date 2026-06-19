@@ -105,6 +105,26 @@
       "expect": {
         "toolsTriggered": { "calls": [{ "name": "localstack-iam-policy-analyzer", "required": true }], "order": "any" }
       }
+    },
+    {
+      "id": "discover-preflight-tool-services",
+      "mode": "mcp_host",
+      "scenario": "Show me an overview of all AWS services supported by LocalStack and their coverage percentages.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.0-flash", "temperature": 0 },
+      "iterations": 5,
+      "expect": {
+        "toolsTriggered": { "calls": [{ "name": "localstack-preflight", "required": true }], "order": "any" }
+      }
+    },
+    {
+      "id": "discover-preflight-tool-resources",
+      "mode": "mcp_host",
+      "scenario": "Will my Terraform resources aws_s3_bucket and aws_lambda_function work on LocalStack? Check if they are fully supported.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.0-flash", "temperature": 0 },
+      "iterations": 5,
+      "expect": {
+        "toolsTriggered": { "calls": [{ "name": "localstack-preflight", "required": true }], "order": "any" }
+      }
     }
   ]
 }
