@@ -34,6 +34,27 @@ describe("deployment-utils", () => {
       const result = parseCdkOutputs(stdout);
       expect(result).toContain("| **MyStack.MyBucketName** | `my-cdk-bucket` |");
     });
+
+    it("should parse CDK deploy output with CRLF (\\r\\n) line endings", () => {
+      // Captured child-process stdout on Windows can use CRLF, leaving a
+      // trailing \r on each line when split naively on \n.
+      const stdout = [
+        "Stack ARN:",
+        "arn:aws:cloudformation:us-east-1:000000000000:stack/MyStack/abc-def",
+        "",
+        "Outputs:",
+        "MyStack.MyBucketName = my-cdk-bucket",
+        "MyStack.MyLambdaArn = arn:aws:lambda:us-east-1:000:function:MyLambda",
+      ].join("\r\n");
+
+      const result = parseCdkOutputs(stdout);
+
+      expect(result).not.toContain("No outputs defined");
+      expect(result).toContain("| **MyStack.MyBucketName** | `my-cdk-bucket` |");
+      expect(result).toContain(
+        "| **MyStack.MyLambdaArn** | `arn:aws:lambda:us-east-1:000:function:MyLambda` |"
+      );
+    });
   });
 
   describe("parseTerraformOutputs", () => {
