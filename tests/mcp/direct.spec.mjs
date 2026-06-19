@@ -19,7 +19,7 @@ const EXPECTED_TOOLS = [
   "localstack-aws-replicator",
   "localstack-docs",
   "localstack-app-inspector",
-  "localstack-coverage-advisor",
+  "localstack-preflight",
 ];
 
 const EXPECTED_PROMPT = "infrastructure-tester";

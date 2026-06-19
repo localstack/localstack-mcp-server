@@ -80,8 +80,8 @@
       "description": "Inspect LocalStack application traces, spans, events, payload metadata, and IAM policy evaluations"
     },
     {
-      "name": "localstack-coverage-advisor",
-      "description": "Query the LocalStack API coverage database to find out which AWS service operations are implemented and get a deploy-readiness verdict for IaC templates"
+      "name": "localstack-preflight",
+      "description": "Query the LocalStack coverage extension to find out which AWS service operations are implemented and get a deploy-readiness verdict for IaC templates"
     }
   ],
   "prompts": [
