@@ -96,15 +96,39 @@ describe("localstack.utils", () => {
       expect(result.statusOutput).toContain("/_localstack/health");
     });
 
-    test("reports not running when neither the gateway nor the CLI is available", async () => {
+    test("reports not running as informational status (never an error) when neither gateway nor CLI is available", async () => {
+      // This is the Docker smoke test's pre-start `status` scenario: the gateway is
+      // down and `localstack status` yields nothing usable. It must come back as plain
+      // status text, not an errorMessage — the management tool renders statusOutput
+      // without a leading ❌, which is exactly what the harness asserts.
       gatewayUnreachable();
       cliUnavailable();
 
       const result = await getLocalStackStatus();
       expect(result.isRunning).toBe(false);
       expect(result.isReady).toBe(false);
-      expect(result.statusOutput).toBeUndefined();
-      expect(result.errorMessage).toMatch(/not reachable/i);
+      expect(result.statusOutput).toMatch(/not running/i);
+      expect(result.statusOutput?.startsWith("❌")).toBe(false);
+      expect(result.errorMessage).toBeUndefined();
+    });
+
+    test("keeps the CLI 'stopped' output as informational status when it exits non-zero", async () => {
+      // `localstack status` exits non-zero when LocalStack isn't running (on Linux),
+      // but still prints a "stopped" table. That output must surface as a normal
+      // status (no error), not be discarded as "CLI unavailable" — regression guard
+      // for the Docker image smoke test's pre-start `status` check.
+      gatewayUnreachable();
+      mockedRunCommand.mockResolvedValueOnce({
+        stdout: "Runtime status: stopped",
+        stderr: "",
+        error: new Error("Command failed with exit code 1"),
+        exitCode: 1,
+      } as any);
+
+      const result = await getLocalStackStatus();
+      expect(result.isRunning).toBe(false);
+      expect(result.statusOutput).toContain("stopped");
+      expect(result.errorMessage).toBeUndefined();
     });
   });
 

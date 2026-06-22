@@ -202,9 +202,15 @@ interface CliStatus {
  *
  * `runCommand` resolves rather than rejects, and a missing `localstack` binary can
  * leave the spawn hanging (no `close` event on ENOENT), so this is capped with its
- * own guard timeout and treats any error / empty output as "CLI unavailable". The
- * gateway probe is the authoritative running signal; this merely enriches the status
- * text when the Python CLI happens to be installed.
+ * own guard timeout. The gateway probe is the authoritative running signal; this
+ * merely enriches the status text when the Python CLI happens to be installed.
+ *
+ * Crucially, a non-zero exit is NOT treated as "CLI unavailable": `localstack status`
+ * exits non-zero when LocalStack isn't running (the exit code even differs by host —
+ * 0 on Windows, non-zero on Linux) yet still prints a useful "stopped" table to
+ * stdout. We use whatever stdout it produced and only report "unavailable" when there
+ * is genuinely nothing to show — the guard fired, or stdout is empty (binary missing,
+ * or it crashed before writing, e.g. the Windows cp1252 emoji crash).
  */
 async function tryCliStatus(timeoutMs = CLI_STATUS_TIMEOUT): Promise<CliStatus> {
   const unavailable: CliStatus = { running: false, ready: false };
@@ -217,7 +223,7 @@ async function tryCliStatus(timeoutMs = CLI_STATUS_TIMEOUT): Promise<CliStatus> 
       runCommand("localstack", ["status"], { timeout: timeoutMs }),
       guard,
     ]);
-    if (!result || result.error || !result.stdout?.trim()) return unavailable;
+    if (!result || !result.stdout?.trim()) return unavailable;
 
     const stdout = result.stdout;
     return {
@@ -251,21 +257,27 @@ export async function getLocalStackStatus(): Promise<LocalStackStatusResult> {
   const isReady = health.ready || cli.ready;
 
   if (!isRunning) {
-    return {
-      isRunning: false,
-      isReady: false,
-      ...(cli.output
-        ? { statusOutput: cli.output }
-        : {
-            errorMessage: `LocalStack is not reachable at ${LOCALSTACK_BASE_URL}, and the \`localstack\` CLI is unavailable.`,
-          }),
-    };
+    // "Not running" is a valid status answer, not an error. Always return it as plain
+    // status text (never an errorMessage) so the management `status` action renders it
+    // informationally instead of as an opaque "❌ ..." — which also depends on the
+    // `localstack` CLI producing output, something it doesn't reliably do pre-start.
+    // Live-tool gating is handled separately by `requireLocalStackRunning`, which
+    // probes the gateway directly.
+    const statusOutput =
+      cli.output ||
+      `LocalStack is not running — the gateway at ${LOCALSTACK_BASE_URL} is not reachable.`;
+    return { isRunning: false, isReady: false, statusOutput };
   }
 
   return {
     isRunning,
     isReady,
-    statusOutput: cli.output || describeGatewayHealth(health),
+    // Prefer the CLI's own text only when the CLI agrees the runtime is up — this
+    // keeps the familiar `localstack status` table for the CLI-managed flow. When
+    // only the gateway sees it (e.g. an lstk container the CLI looked for under the
+    // wrong name), describe via the gateway so we never print a misleading "stopped"
+    // table next to an "is running" verdict.
+    statusOutput: cli.running && cli.output ? cli.output : describeGatewayHealth(health),
   };
 }
 
