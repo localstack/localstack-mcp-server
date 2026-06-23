@@ -228,7 +228,7 @@ export function parseCdkOutputs(stdout: string): string {
     // A trailing \r would break the output matcher below, since `.` does not
     // match \r and `$` (no `m` flag) won't anchor before a \r.
     const lines = stdout.split(/\r?\n/);
-    const outputLines: string[] = [];
+    const outputLines: Array<{ name: string; value: string }> = [];
     let inOutputsSection = false;
 
     for (const line of lines) {
@@ -244,7 +244,7 @@ export function parseCdkOutputs(stdout: string): string {
 
         const outputMatch = line.match(/^([^=]+)\s*=\s*(.+)$/);
         if (outputMatch) {
-          outputLines.push(line.trim());
+          outputLines.push({ name: outputMatch[1].trim(), value: outputMatch[2].trim() });
         }
       }
     }
@@ -257,8 +257,7 @@ export function parseCdkOutputs(stdout: string): string {
     result += "| Output | Value |\n";
     result += "|--------|-------|\n";
 
-    for (const line of outputLines) {
-      const [name, value] = line.split(" = ").map((s) => s.trim());
+    for (const { name, value } of outputLines) {
       result += `| **${name}** | \`${value}\` |\n`;
     }
 

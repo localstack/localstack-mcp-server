@@ -55,6 +55,15 @@ describe("deployment-utils", () => {
         "| **MyStack.MyLambdaArn** | `arn:aws:lambda:us-east-1:000:function:MyLambda` |"
       );
     });
+
+    it("should parse CDK outputs with flexible spacing around equals signs", () => {
+      const stdout = ["Outputs:", "MyStack.Compact=value", "MyStack.Spaced   =   other"].join("\n");
+
+      const result = parseCdkOutputs(stdout);
+
+      expect(result).toContain("| **MyStack.Compact** | `value` |");
+      expect(result).toContain("| **MyStack.Spaced** | `other` |");
+    });
   });
 
   describe("parseTerraformOutputs", () => {

@@ -48,4 +48,33 @@ describe("localstack-management status (pre-start)", () => {
     expect(text.trimStart().startsWith("❌")).toBe(false);
     expect(text).toMatch(/not currently running|not running/i);
   });
+
+  test("status does not require the Python LocalStack CLI when gateway health is reachable", async () => {
+    mockedRequest.mockResolvedValueOnce({
+      services: { s3: "available" },
+      edition: "pro",
+      version: "4.0.0",
+    });
+    mockedRunCommand.mockImplementation(async (cmd: string, args: string[]) => {
+      if (cmd === "localstack" && args[0] === "--help") {
+        return {
+          stdout: "",
+          stderr: "command not found: localstack",
+          exitCode: null,
+          error: new Error("spawn localstack ENOENT"),
+        } as never;
+      }
+      return { stdout: "", stderr: "", exitCode: 0 } as never;
+    });
+
+    const res = (await localstackManagement({
+      action: "status",
+      service: "aws",
+    } as never)) as { content: Array<{ text: string }> };
+    const text = res.content.map((c) => c.text).join("\n");
+
+    expect(text).toContain("LocalStack gateway is reachable");
+    expect(text).toContain("ready to accept requests");
+    expect(mockedRunCommand).not.toHaveBeenCalledWith("localstack", ["--help"]);
+  });
 });

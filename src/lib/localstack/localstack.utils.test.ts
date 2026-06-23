@@ -48,9 +48,9 @@ describe("localstack.utils", () => {
       expect(health.edition).toBe("pro");
     });
 
-    test("reports reachable but not ready while every service is still initializing", async () => {
+    test("reports reachable but not ready until a service is available or running", async () => {
       mockedRequest.mockResolvedValueOnce({
-        services: { s3: "initializing", lambda: "starting" },
+        services: { s3: "starting", lambda: "stopped" },
       } as any);
 
       const health = await getGatewayHealth();
@@ -68,7 +68,7 @@ describe("localstack.utils", () => {
   });
 
   describe("getLocalStackStatus", () => {
-    test("marks instance as running and ready from CLI output (no gateway)", async () => {
+    test("does not mark instance as running from CLI output when the gateway is unreachable", async () => {
       gatewayUnreachable();
       mockedRunCommand.mockResolvedValueOnce({
         stdout: "Runtime status: running (Ready)",
@@ -77,8 +77,9 @@ describe("localstack.utils", () => {
       } as any);
 
       const result = await getLocalStackStatus();
-      expect(result.isRunning).toBe(true);
-      expect(result.isReady).toBe(true);
+      expect(result.isRunning).toBe(false);
+      expect(result.isReady).toBe(false);
+      expect(result.statusOutput).toContain("running");
     });
 
     test("detects an lstk-managed runtime via the gateway even when the CLI is absent", async () => {
@@ -94,6 +95,17 @@ describe("localstack.utils", () => {
       expect(result.isRunning).toBe(true);
       expect(result.isReady).toBe(true);
       expect(result.statusOutput).toContain("/_localstack/health");
+    });
+
+    test("can skip CLI enrichment for lifecycle polling", async () => {
+      mockedRequest.mockResolvedValueOnce({
+        services: { s3: "available" },
+      } as any);
+
+      const result = await getLocalStackStatus({ includeCliStatus: false });
+      expect(result.isRunning).toBe(true);
+      expect(result.isReady).toBe(true);
+      expect(mockedRunCommand).not.toHaveBeenCalled();
     });
 
     test("reports not running as informational status (never an error) when neither gateway nor CLI is available", async () => {

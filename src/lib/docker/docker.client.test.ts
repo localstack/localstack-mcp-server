@@ -92,9 +92,58 @@ describe("DockerApiClient", () => {
     await expect(client.findLocalStackContainer()).resolves.toBe("xyz999");
   });
 
-  test("findLocalStackContainer throws when only compose-prefixed name exists without config", async () => {
+  test("findLocalStackContainer detects lstk-managed LocalStack container by image", async () => {
     const mocks = getDockerMocks();
-    mocks.listContainers.mockResolvedValueOnce([{ Id: "compose123", Names: ["/project-localstack-1"] }]);
+    mocks.listContainers.mockResolvedValueOnce([
+      { Id: "other", Names: ["/redis"], Image: "redis:latest" },
+      { Id: "lstk123", Names: ["/localstack-aws"], Image: "localstack/localstack-pro:latest" },
+    ]);
+
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).resolves.toBe("lstk123");
+  });
+
+  test("findLocalStackContainer prefers the container publishing the configured gateway port over image metadata", async () => {
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      {
+        Id: "image123",
+        Names: ["/localstack-sidecar"],
+        Image: "localstack/localstack-pro:latest",
+      },
+      {
+        Id: "port123",
+        Names: ["/gateway-runtime"],
+        Image: "example/custom-runtime:latest",
+        Ports: [{ PrivatePort: 4566, PublicPort: 4566, Type: "tcp" }],
+      },
+    ]);
+
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).resolves.toBe("port123");
+  });
+
+  test("findLocalStackContainer honors explicit MAIN_CONTAINER_NAME over metadata fallback", async () => {
+    process.env.MAIN_CONTAINER_NAME = "my-custom-localstack";
+
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      { Id: "lstk123", Names: ["/localstack-aws"], Image: "localstack/localstack-pro:latest" },
+    ]);
+
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).rejects.toThrow(
+      /Could not find a running LocalStack container named "my-custom-localstack"/i
+    );
+  });
+
+  test("findLocalStackContainer throws when only a compose-prefixed name exists without config", async () => {
+    // A container whose name merely contains "localstack" as a substring (and which is
+    // neither the LocalStack image nor publishing the gateway port) must not be matched.
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      { Id: "compose123", Names: ["/project-localstack-1"], Image: "example/app:latest" },
+    ]);
 
     const client = new DockerApiClient();
     await expect(client.findLocalStackContainer()).rejects.toThrow(
@@ -117,8 +166,7 @@ describe("DockerApiClient", () => {
     mocks.start.mockImplementationOnce((opts: any, cb: any) => {
       setImmediate(() => {
         cb(null, stream);
-        setImmediate(() => {
-        });
+        setImmediate(() => {});
       });
     });
 
