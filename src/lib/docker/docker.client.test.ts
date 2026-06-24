@@ -10,12 +10,13 @@ jest.mock("dockerode", () => {
     return undefined as unknown as NodeJS.ReadableStream;
   });
   const exec = jest.fn(async () => ({ start, inspect: execInspect }));
-  const getContainer = jest.fn(() => ({ exec }));
+  const stop = jest.fn();
+  const getContainer = jest.fn(() => ({ exec, stop }));
 
   const __state = { demuxTarget: "stdout" as "stdout" | "stderr" };
 
   class DockerMock {
-    static __mocks = { listContainers, getContainer, exec, start, execInspect, __state };
+    static __mocks = { listContainers, getContainer, exec, start, execInspect, stop, __state };
     modem: any;
     constructor() {
       this.modem = {
@@ -52,9 +53,10 @@ describe("DockerApiClient", () => {
     mocks.exec.mockReset();
     mocks.start.mockReset();
     mocks.execInspect.mockReset();
+    mocks.stop.mockReset();
 
     // Restore default implementations after reset
-    mocks.getContainer.mockImplementation(() => ({ exec: mocks.exec }));
+    mocks.getContainer.mockImplementation(() => ({ exec: mocks.exec, stop: mocks.stop }));
     mocks.exec.mockImplementation(async () => ({ start: mocks.start, inspect: mocks.execInspect }));
     mocks.__state.demuxTarget = "stdout";
     delete process.env.MAIN_CONTAINER_NAME;
@@ -149,6 +151,17 @@ describe("DockerApiClient", () => {
     await expect(client.findLocalStackContainer()).rejects.toThrow(
       /Could not find a running LocalStack container named "localstack-main"/i
     );
+  });
+
+  test("stopContainer stops the container via the Docker API", async () => {
+    const mocks = getDockerMocks();
+    mocks.stop.mockResolvedValueOnce(undefined);
+
+    const client = new DockerApiClient();
+    await client.stopContainer("abc123", 5);
+
+    expect(mocks.getContainer).toHaveBeenCalledWith("abc123");
+    expect(mocks.stop).toHaveBeenCalledWith({ t: 5 });
   });
 
   test("executeInContainer returns stdout on success", async () => {

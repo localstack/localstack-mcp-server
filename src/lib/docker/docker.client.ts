@@ -77,6 +77,17 @@ export class DockerApiClient {
     );
   }
 
+  /**
+   * Stop a container via the Docker API (graceful SIGTERM, then SIGKILL after the
+   * timeout). Provenance-agnostic — works regardless of which CLI started it (or none)
+   * and needs no host-side `localstack`/`lstk` binary. LocalStack containers run with
+   * `--rm`, so stopping also removes them, matching `localstack stop`.
+   */
+  async stopContainer(containerId: string, timeoutSeconds = 10): Promise<void> {
+    const container = this.docker.getContainer(containerId);
+    await container.stop({ t: timeoutSeconds });
+  }
+
   async executeInContainer(
     containerId: string,
     command: string[],

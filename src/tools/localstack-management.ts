@@ -1,17 +1,13 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import {
+  detectLifecycleCli,
   getLocalStackStatus,
   getSnowflakeEmulatorStatus,
   startRuntime,
 } from "../lib/localstack/localstack.utils";
-import { runCommand } from "../core/command-runner";
-import {
-  runPreflights,
-  requireLocalStackCli,
-  requireProFeature,
-  requireAuthToken,
-} from "../core/preflight";
+import { DockerApiClient } from "../lib/docker/docker.client";
+import { runPreflights, requireProFeature, requireAuthToken } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { ProFeature } from "../lib/localstack/license-checker";
 import { withToolAnalytics } from "../core/analytics";
@@ -51,8 +47,10 @@ export default async function localstackManagement({
   envVars,
 }: InferSchema<typeof schema>) {
   return withToolAnalytics("localstack-management", { action, service, envVars }, async () => {
+    // No CLI preflight: stop/restart/status drive LocalStack via the Docker API +
+    // gateway, and start detects whichever lifecycle CLI is present (localstack or
+    // lstk) itself — so an lstk-only host is no longer blocked here.
     const checks: Array<ToolResponse | null | Promise<ToolResponse | null>> = [requireAuthToken()];
-    if (action !== "status") checks.push(requireLocalStackCli());
 
     if (service === "snowflake") {
       // `start` can run when no LocalStack runtime is currently up; validate feature after startup.
@@ -92,8 +90,20 @@ async function handleStart({
     return await handleSnowflakeStart({ envVars });
   }
 
+  const cli = await detectLifecycleCli();
+  if (!cli) {
+    return ResponseBuilder.error(
+      "No LocalStack CLI found",
+      "Starting LocalStack needs the `localstack` or `lstk` CLI on PATH, but neither was found. " +
+        "Install one (`pip install localstack`, or the `lstk` CLI), or start LocalStack yourself (e.g. `lstk start`) — " +
+        "the other tools drive it via the Docker API and gateway."
+    );
+  }
+
   return await startRuntime({
-    startArgs: ["start"],
+    cli,
+    // lstk would otherwise prompt; force non-interactive when spawned headless.
+    startArgs: cli === "lstk" ? ["start", "--non-interactive"] : ["start"],
     getStatus: () => getLocalStackStatus({ includeCliStatus: false }),
     processLabel: "LocalStack",
     alreadyRunningMessage:
@@ -107,7 +117,16 @@ async function handleStart({
 }
 
 async function handleSnowflakeStart({ envVars }: { envVars?: Record<string, string> }) {
+  // The Snowflake stack is localstack-only (`--stack snowflake` has no lstk equivalent).
+  if ((await detectLifecycleCli()) !== "localstack") {
+    return ResponseBuilder.error(
+      "localstack CLI required",
+      "Starting the Snowflake stack requires the Python `localstack` CLI (the `--stack snowflake` flag is localstack-only). Install it with `pip install localstack`."
+    );
+  }
+
   return await startRuntime({
+    cli: "localstack",
     startArgs: ["start", "--stack", "snowflake"],
     getStatus: getSnowflakeEmulatorStatus,
     processLabel: "Snowflake emulator",
@@ -122,29 +141,29 @@ async function handleSnowflakeStart({ envVars }: { envVars?: Record<string, stri
   });
 }
 
-// Handle stop action
+// Handle stop action — stop the detected container via the Docker API (no CLI needed,
+// works regardless of which CLI started it).
 async function handleStop() {
-  const cmd = await runCommand("localstack", ["stop"]);
-  let result = "🛑 LocalStack stop command executed successfully!\n";
-  if (cmd.stdout.trim()) result += `\nOutput:\n${cmd.stdout}`;
-  if (cmd.stderr.trim()) result += `\nMessages:\n${cmd.stderr}`;
-
-  const statusResult = await getLocalStackStatus();
-
-  if (!statusResult.isRunning) {
-    result += "\n\n✅ LocalStack has been stopped successfully.";
-  } else {
-    result += "\n\n⚠️  LocalStack may still be running. Check the status manually if needed.";
+  const dockerClient = new DockerApiClient();
+  let containerId: string;
+  try {
+    containerId = await dockerClient.findLocalStackContainer();
+  } catch {
+    return ResponseBuilder.markdown("✅ LocalStack is not running — no container to stop.");
   }
 
-  if (cmd.error) {
-    result = `❌ Failed to stop LocalStack: ${cmd.error.message}\n\nThis could happen if:\n- LocalStack is not currently running\n- There was an error executing the stop command\n- Permission issues\n\nYou can try checking the LocalStack status first to see if it's running.`;
+  try {
+    await dockerClient.stopContainer(containerId);
+    return ResponseBuilder.markdown("🛑 LocalStack stopped successfully.");
+  } catch (error) {
+    return ResponseBuilder.markdown(
+      `❌ Failed to stop the LocalStack container: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
-
-  return ResponseBuilder.markdown(result);
 }
 
-// Handle restart action
+// Handle restart action — stop the running container (Docker API), then start fresh
+// (applies any new envVars). Falls through to start if nothing is running.
 async function handleRestart({
   envVars,
   service,
@@ -152,8 +171,14 @@ async function handleRestart({
   envVars?: Record<string, string>;
   service: "aws" | "snowflake";
 }) {
-  await runCommand("localstack", ["stop"], { timeout: 60000 });
-  await new Promise((resolve) => setTimeout(resolve, 2000));
+  const dockerClient = new DockerApiClient();
+  try {
+    const containerId = await dockerClient.findLocalStackContainer();
+    await dockerClient.stopContainer(containerId);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  } catch {
+    // Nothing running to stop — proceed to start.
+  }
   return await handleStart({ envVars, service });
 }
 

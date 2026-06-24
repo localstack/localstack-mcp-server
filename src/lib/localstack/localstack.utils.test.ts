@@ -1,4 +1,5 @@
 import {
+  detectLifecycleCli,
   getGatewayHealth,
   getLocalStackStatus,
   getSnowflakeEmulatorStatus,
@@ -141,6 +142,35 @@ describe("localstack.utils", () => {
       expect(result.isRunning).toBe(false);
       expect(result.statusOutput).toContain("stopped");
       expect(result.errorMessage).toBeUndefined();
+    });
+  });
+
+  describe("detectLifecycleCli", () => {
+    const onlyAvailable = (bin: string) =>
+      mockedRunCommand.mockImplementation(async (cmd: string) =>
+        cmd === bin
+          ? ({ stdout: `${bin} 1.0.0`, stderr: "", exitCode: 0 } as never)
+          : ({ stdout: "", stderr: "", exitCode: null, error: new Error("ENOENT") } as never)
+      );
+
+    test("prefers the localstack CLI when available", async () => {
+      onlyAvailable("localstack");
+      expect(await detectLifecycleCli()).toBe("localstack");
+    });
+
+    test("falls back to lstk when only lstk is present", async () => {
+      onlyAvailable("lstk");
+      expect(await detectLifecycleCli()).toBe("lstk");
+    });
+
+    test("returns null when neither CLI is installed", async () => {
+      mockedRunCommand.mockResolvedValue({
+        stdout: "",
+        stderr: "",
+        exitCode: null,
+        error: new Error("ENOENT"),
+      } as never);
+      expect(await detectLifecycleCli()).toBeNull();
     });
   });
 

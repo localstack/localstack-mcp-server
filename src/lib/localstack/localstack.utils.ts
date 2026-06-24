@@ -47,6 +47,31 @@ After installation, make sure the 'localstack' command is available in your PATH
   }
 }
 
+export type LifecycleCli = "localstack" | "lstk";
+
+/**
+ * Whether a CLI is usable. `runCommand` resolves (rather than throws) on a missing
+ * binary, so we inspect the actual exit code / error — this returns false when the
+ * binary isn't on PATH.
+ */
+async function cliAvailable(bin: string): Promise<boolean> {
+  const { error, exitCode } = await runCommand(bin, ["--version"]);
+  return !error && exitCode === 0;
+}
+
+/**
+ * Pick a CLI capable of starting LocalStack. Prefers the Python `localstack` CLI for
+ * backward compatibility, falling back to `lstk` (the newer Go CLI, which also forwards
+ * `LOCALSTACK_*` env). Returns null when neither is installed: a running container can
+ * still be detected and driven via the gateway + Docker API, but *creating* one needs a
+ * CLI.
+ */
+export async function detectLifecycleCli(): Promise<LifecycleCli | null> {
+  if (await cliAvailable("localstack")) return "localstack";
+  if (await cliAvailable("lstk")) return "lstk";
+  return null;
+}
+
 /**
  * Check if Snowflake CLI is installed and available in the system PATH
  * @returns Promise with availability status, version (if available), and error message (if not available)
@@ -303,6 +328,7 @@ export async function getSnowflakeEmulatorStatus(): Promise<SnowflakeStatusResul
  * environment overrides, and optional post-start validation hooks.
  */
 export async function startRuntime({
+  cli = "localstack",
   startArgs,
   getStatus,
   processLabel,
@@ -313,6 +339,8 @@ export async function startRuntime({
   envVars,
   onReady,
 }: {
+  /** Lifecycle CLI binary to spawn — `localstack` (default) or `lstk`. */
+  cli?: LifecycleCli;
   startArgs: string[];
   getStatus: () => Promise<RuntimeStatus>;
   processLabel: string;
@@ -336,9 +364,13 @@ export async function startRuntime({
   if (process.env.LOCALSTACK_AUTH_TOKEN) {
     environment.LOCALSTACK_AUTH_TOKEN = process.env.LOCALSTACK_AUTH_TOKEN;
   }
+  // Force UTF-8 for the spawned Python `localstack` CLI so its emoji output doesn't
+  // throw UnicodeEncodeError under the Windows cp1252 code page (harmless for `lstk`).
+  if (!environment.PYTHONIOENCODING) environment.PYTHONIOENCODING = "utf-8";
+  if (!environment.PYTHONUTF8) environment.PYTHONUTF8 = "1";
 
   return new Promise((resolve) => {
-    const child = spawn("localstack", startArgs, {
+    const child = spawn(cli, startArgs, {
       env: environment,
       stdio: ["ignore", "ignore", "pipe"],
     });
