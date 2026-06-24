@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
-import { LOCALSTACK_HOSTNAME, LOCALSTACK_PORT } from "../../core/config";
+import { LOCALSTACK_BASE_URL, LOCALSTACK_HOSTNAME, LOCALSTACK_PORT } from "../../core/config";
 import { runCommand } from "../../core/command-runner";
+import { httpClient } from "../../core/http-client";
 import { ResponseBuilder } from "../../core/response-builder";
 
 export interface LocalStackCliCheckResult {
@@ -83,6 +84,17 @@ export interface LocalStackStatusResult {
   isReady?: boolean;
 }
 
+export interface GatewayHealth {
+  /** The LocalStack gateway answered on :4566 — the runtime is up. */
+  reachable: boolean;
+  /** The gateway is serving and at least one service has left the boot state. */
+  ready: boolean;
+  /** Per-service states reported by `/_localstack/health` (e.g. `running`, `available`). */
+  services?: Record<string, string>;
+  edition?: string;
+  version?: string;
+}
+
 export interface SnowflakeStatusResult {
   isRunning: boolean;
   statusOutput?: string;
@@ -114,28 +126,131 @@ function getLocalStackEndpointPort() {
   return String(process.env.LOCALSTACK_PORT || LOCALSTACK_PORT);
 }
 
+const GATEWAY_HEALTH_TIMEOUT = 3000;
+const CLI_STATUS_TIMEOUT = 5000;
+const READY_SERVICE_STATES = new Set(["available", "running"]);
+
 /**
- * Get LocalStack status information
+ * Provenance-agnostic LocalStack detection.
+ *
+ * Probes the LocalStack gateway health endpoint (`/_localstack/health`) directly over
+ * HTTP. Any container exposing the gateway on :4566 answers this — regardless of who
+ * started it (`localstack` CLI, `lstk`, docker-compose, raw `docker run`), what the
+ * container is named, or whether a host-side CLI is installed.
+ *
+ * This is the source of truth for "is LocalStack running?". A name + CLI check misses
+ * runtimes started by `lstk` (container `localstack-aws`) or any external tool, even
+ * though their gateway is healthy and reachable.
+ */
+export async function getGatewayHealth(): Promise<GatewayHealth> {
+  try {
+    const data = await httpClient.request<{
+      services?: Record<string, string>;
+      edition?: string;
+      version?: string;
+    }>("/_localstack/health", { method: "GET", timeout: GATEWAY_HEALTH_TIMEOUT });
+
+    const services = data && typeof data === "object" && data.services ? data.services : undefined;
+
+    const ready = Object.values(services || {}).some((state) => READY_SERVICE_STATES.has(state));
+
+    return {
+      reachable: true,
+      ready,
+      services,
+      edition: data?.edition,
+      version: data?.version,
+    };
+  } catch {
+    // ECONNREFUSED / timeout / non-2xx → gateway not reachable (not running, or not
+    // yet listening). Detection stays provenance-agnostic: no container name, no CLI.
+    return { reachable: false, ready: false };
+  }
+}
+
+function describeGatewayHealth(health: GatewayHealth): string {
+  const lines = [
+    `LocalStack gateway is reachable at ${LOCALSTACK_BASE_URL} (detected via /_localstack/health).`,
+  ];
+  if (health.edition) lines.push(`Edition: ${health.edition}`);
+  if (health.version) lines.push(`Version: ${health.version}`);
+  if (health.services) {
+    const total = Object.keys(health.services).length;
+    const initialized = Object.values(health.services).filter((state) =>
+      READY_SERVICE_STATES.has(state)
+    ).length;
+    lines.push(`Services initialized: ${initialized}/${total}`);
+  }
+  return lines.join("\n");
+}
+
+interface CliStatus {
+  output?: string;
+  running: boolean;
+  ready: boolean;
+}
+
+/**
+ * Best-effort read of `localstack status` for human-readable output only.
+ *
+ * Crucially, a non-zero exit is NOT treated as "CLI unavailable": `localstack status`
+ * exits non-zero when LocalStack isn't running (the exit code even differs by host —
+ * 0 on Windows, non-zero on Linux) yet still prints a useful "stopped" table to
+ * stdout. We use whatever stdout it produced and only report "unavailable" when there
+ * is genuinely nothing to show.
+ */
+async function tryCliStatus(timeoutMs = CLI_STATUS_TIMEOUT): Promise<CliStatus> {
+  const unavailable: CliStatus = { running: false, ready: false };
+  try {
+    const result = await runCommand("localstack", ["status"], { timeout: timeoutMs });
+    if (!result.stdout?.trim()) return unavailable;
+
+    const stdout = result.stdout;
+    return {
+      output: stdout.trim(),
+      running: stdout.includes("running"),
+      ready: stdout.includes("Ready") || stdout.includes("ready"),
+    };
+  } catch {
+    return unavailable;
+  }
+}
+
+interface LocalStackStatusOptions {
+  includeCliStatus?: boolean;
+}
+
+/**
+ * Get LocalStack status information.
+ *
+ * Running state is decided by the gateway probe. The Python CLI's `status`
+ * output is layered on as display-only detail when requested.
+ *
  * @returns Promise with status details including running state and raw output
  */
-export async function getLocalStackStatus(): Promise<LocalStackStatusResult> {
-  try {
-    const { stdout } = await runCommand("localstack", ["status"]);
+export async function getLocalStackStatus({
+  includeCliStatus = true,
+}: LocalStackStatusOptions = {}): Promise<LocalStackStatusResult> {
+  const [health, cli] = await Promise.all([
+    getGatewayHealth(),
+    includeCliStatus ? tryCliStatus() : Promise.resolve<CliStatus | undefined>(undefined),
+  ]);
 
-    const isRunning = stdout.includes("running");
-    const isReady = stdout.includes("Ready") || stdout.includes("ready");
+  const isRunning = health.reachable;
+  const isReady = health.ready;
 
-    return {
-      isRunning,
-      isReady,
-      statusOutput: stdout.trim(),
-    };
-  } catch (error) {
-    return {
-      isRunning: false,
-      errorMessage: `Failed to get LocalStack status: ${error instanceof Error ? error.message : String(error)}`,
-    };
+  if (!isRunning) {
+    const statusOutput =
+      cli?.output ||
+      `LocalStack is not running — the gateway at ${LOCALSTACK_BASE_URL} is not reachable.`;
+    return { isRunning: false, isReady: false, statusOutput };
   }
+
+  return {
+    isRunning,
+    isReady,
+    statusOutput: cli?.running && cli.output ? cli.output : describeGatewayHealth(health),
+  };
 }
 
 /**
@@ -238,7 +353,9 @@ export async function startRuntime({
     child.on("error", (err) => {
       earlyExit = true;
       if (poll) clearInterval(poll);
-      resolve(ResponseBuilder.markdown(`❌ Failed to start ${processLabel} process: ${err.message}`));
+      resolve(
+        ResponseBuilder.markdown(`❌ Failed to start ${processLabel} process: ${err.message}`)
+      );
     });
 
     child.on("close", (code) => {

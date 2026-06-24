@@ -48,7 +48,9 @@ export class LocalStackLogRetriever {
         };
       }
 
-      const rawLines = (cmd.stdout || "").split("\n").filter((line) => line.trim());
+      // Split on both LF and CRLF so a trailing \r from Windows child-process
+      // stdout doesn't pollute the parsed line text (fullLine/message).
+      const rawLines = (cmd.stdout || "").split(/\r?\n/).filter((line) => line.trim());
       let filteredLines = rawLines;
 
       if (filter) {

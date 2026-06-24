@@ -223,8 +223,12 @@ export function parseTerraformOutputs(outputJson: string): string {
  */
 export function parseCdkOutputs(stdout: string): string {
   try {
-    const lines = stdout.split("\n");
-    const outputLines: string[] = [];
+    // Split on both LF and CRLF so captured stdout from Windows child
+    // processes (which can use \r\n) doesn't leave a trailing \r on each line.
+    // A trailing \r would break the output matcher below, since `.` does not
+    // match \r and `$` (no `m` flag) won't anchor before a \r.
+    const lines = stdout.split(/\r?\n/);
+    const outputLines: Array<{ name: string; value: string }> = [];
     let inOutputsSection = false;
 
     for (const line of lines) {
@@ -240,7 +244,7 @@ export function parseCdkOutputs(stdout: string): string {
 
         const outputMatch = line.match(/^([^=]+)\s*=\s*(.+)$/);
         if (outputMatch) {
-          outputLines.push(line.trim());
+          outputLines.push({ name: outputMatch[1].trim(), value: outputMatch[2].trim() });
         }
       }
     }
@@ -253,8 +257,7 @@ export function parseCdkOutputs(stdout: string): string {
     result += "| Output | Value |\n";
     result += "|--------|-------|\n";
 
-    for (const line of outputLines) {
-      const [name, value] = line.split(" = ").map((s) => s.trim());
+    for (const { name, value } of outputLines) {
       result += `| **${name}** | \`${value}\` |\n`;
     }
 

@@ -6,10 +6,17 @@ import {
   startRuntime,
 } from "../lib/localstack/localstack.utils";
 import { runCommand } from "../core/command-runner";
-import { runPreflights, requireLocalStackCli, requireProFeature, requireAuthToken } from "../core/preflight";
+import {
+  runPreflights,
+  requireLocalStackCli,
+  requireProFeature,
+  requireAuthToken,
+} from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { ProFeature } from "../lib/localstack/license-checker";
 import { withToolAnalytics } from "../core/analytics";
+
+type ToolResponse = ReturnType<typeof ResponseBuilder.error>;
 
 export const schema = {
   action: z
@@ -44,7 +51,8 @@ export default async function localstackManagement({
   envVars,
 }: InferSchema<typeof schema>) {
   return withToolAnalytics("localstack-management", { action, service, envVars }, async () => {
-    const checks = [requireAuthToken(), requireLocalStackCli()];
+    const checks: Array<ToolResponse | null | Promise<ToolResponse | null>> = [requireAuthToken()];
+    if (action !== "status") checks.push(requireLocalStackCli());
 
     if (service === "snowflake") {
       // `start` can run when no LocalStack runtime is currently up; validate feature after startup.
@@ -86,7 +94,7 @@ async function handleStart({
 
   return await startRuntime({
     startArgs: ["start"],
-    getStatus: getLocalStackStatus,
+    getStatus: () => getLocalStackStatus({ includeCliStatus: false }),
     processLabel: "LocalStack",
     alreadyRunningMessage:
       "⚠️  LocalStack is already running. Use 'restart' if you want to apply new configuration.",
@@ -123,15 +131,14 @@ async function handleStop() {
 
   const statusResult = await getLocalStackStatus();
 
-  if (!statusResult.isRunning || statusResult.errorMessage) {
+  if (!statusResult.isRunning) {
     result += "\n\n✅ LocalStack has been stopped successfully.";
   } else {
     result += "\n\n⚠️  LocalStack may still be running. Check the status manually if needed.";
   }
 
   if (cmd.error) {
-    result =
-      `❌ Failed to stop LocalStack: ${cmd.error.message}\n\nThis could happen if:\n- LocalStack is not currently running\n- There was an error executing the stop command\n- Permission issues\n\nYou can try checking the LocalStack status first to see if it's running.`;
+    result = `❌ Failed to stop LocalStack: ${cmd.error.message}\n\nThis could happen if:\n- LocalStack is not currently running\n- There was an error executing the stop command\n- Permission issues\n\nYou can try checking the LocalStack status first to see if it's running.`;
   }
 
   return ResponseBuilder.markdown(result);
@@ -153,45 +160,34 @@ async function handleRestart({
 // Handle status action
 async function handleStatus({ service }: { service: "aws" | "snowflake" }) {
   const statusResult = await getLocalStackStatus();
+  let result = "📊 LocalStack Status:\n\n";
+  result += statusResult.statusOutput || "LocalStack status is unavailable.";
 
-  if (statusResult.statusOutput) {
-    let result = "📊 LocalStack Status:\n\n";
-    result += statusResult.statusOutput;
-
-    if (!statusResult.isRunning) {
-      result += "\n\n⚠️  LocalStack is not currently running. Use the start action to start it.";
-      return ResponseBuilder.markdown(result);
-    }
-
-    if (service === "snowflake") {
-      const snowflakeStatus = await getSnowflakeEmulatorStatus();
-
-      if (snowflakeStatus.isReady || snowflakeStatus.isRunning) {
-        result += "\n\n✅ LocalStack is running and Snowflake emulator health check passed.";
-      } else {
-        const diagnostics = [snowflakeStatus.statusOutput, snowflakeStatus.errorMessage]
-          .filter(Boolean)
-          .join(" | ");
-        result +=
-          "\n\n⚠️  LocalStack is running, but Snowflake emulator health check did not pass." +
-          (diagnostics ? ` (${diagnostics})` : "");
-      }
-      return ResponseBuilder.markdown(result);
-    }
-
-    // Default aws service status check
-    result += "\n\n✅ LocalStack is currently running and ready to accept requests.";
-    return ResponseBuilder.markdown(result);
-  } else {
-    const result = `❌ ${statusResult.errorMessage}
-
-This could happen if:
-- LocalStack is not installed properly
-- There was an error executing the status command
-- LocalStack services are not accessible
-
-Try running the CLI check first to verify your LocalStack installation.`;
-
+  if (!statusResult.isRunning) {
+    result += "\n\n⚠️  LocalStack is not currently running. Use the start action to start it.";
     return ResponseBuilder.markdown(result);
   }
+
+  if (service === "snowflake") {
+    const snowflakeStatus = await getSnowflakeEmulatorStatus();
+
+    if (snowflakeStatus.isReady || snowflakeStatus.isRunning) {
+      result += "\n\n✅ LocalStack is running and Snowflake emulator health check passed.";
+    } else {
+      const diagnostics = [snowflakeStatus.statusOutput, snowflakeStatus.errorMessage]
+        .filter(Boolean)
+        .join(" | ");
+      result +=
+        "\n\n⚠️  LocalStack is running, but Snowflake emulator health check did not pass." +
+        (diagnostics ? ` (${diagnostics})` : "");
+    }
+    return ResponseBuilder.markdown(result);
+  }
+
+  if (statusResult.isReady) {
+    result += "\n\n✅ LocalStack is currently running and ready to accept requests.";
+  } else {
+    result += "\n\n⚠️  LocalStack is reachable, but service readiness has not been reported yet.";
+  }
+  return ResponseBuilder.markdown(result);
 }

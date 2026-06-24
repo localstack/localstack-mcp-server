@@ -1,4 +1,5 @@
 import { PassThrough } from "stream";
+import { LOCALSTACK_PORT } from "../../core/config";
 
 export interface ContainerExecResult {
   stdout: string;
@@ -23,9 +24,21 @@ export class DockerApiClient {
     container: { Names?: string[] },
     configuredName: string
   ): boolean {
-    return (container.Names || []).some(
-      (n) => this.normalizeContainerName(n) === configuredName
+    return (container.Names || []).some((n) => this.normalizeContainerName(n) === configuredName);
+  }
+
+  private publishesConfiguredGatewayPort(container: {
+    Ports?: Array<{ PrivatePort?: number; PublicPort?: number; Type?: string }>;
+  }): boolean {
+    const configuredPort = Number(process.env.LOCALSTACK_PORT || LOCALSTACK_PORT);
+    return (container.Ports || []).some(
+      (port) =>
+        port.Type === "tcp" && port.PrivatePort === 4566 && port.PublicPort === configuredPort
     );
+  }
+
+  private hasLocalStackImage(container: { Image?: string }): boolean {
+    return /^localstack\/localstack(?:-pro)?(?::|@|$)/.test(container.Image || "");
   }
 
   async findLocalStackContainer(): Promise<string> {
@@ -34,18 +47,29 @@ export class DockerApiClient {
     })) as Array<{
       Id: string;
       Names?: string[];
+      Image?: string;
+      Ports?: Array<{ PrivatePort?: number; PublicPort?: number; Type?: string }>;
     }>;
 
-    const configuredName = (
+    const explicitName = (
       process.env.MAIN_CONTAINER_NAME ||
       process.env.LOCALSTACK_MAIN_CONTAINER_NAME ||
-      "localstack-main"
+      ""
     ).trim();
+    const configuredName = explicitName || "localstack-main";
 
     const byConfiguredName = (running || []).find((c) =>
       this.matchesConfiguredContainerName(c, configuredName)
     );
     if (byConfiguredName) return byConfiguredName.Id as string;
+
+    if (!explicitName) {
+      const byGatewayPort = (running || []).find((c) => this.publishesConfiguredGatewayPort(c));
+      if (byGatewayPort) return byGatewayPort.Id as string;
+
+      const byLocalStackImage = (running || []).find((c) => this.hasLocalStackImage(c));
+      if (byLocalStackImage) return byLocalStackImage.Id as string;
+    }
 
     throw new Error(
       `Could not find a running LocalStack container named "${configuredName}". ` +
