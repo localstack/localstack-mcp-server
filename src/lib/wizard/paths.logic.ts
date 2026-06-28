@@ -7,6 +7,14 @@ export function cursorConfigPath(ctx: ClientContext): string {
   return path.join(ctx.homeDir, ".cursor", "mcp.json");
 }
 
+/**
+ * Antigravity 2.0 keeps a single MCP config shared by the Antigravity IDE and
+ * the Antigravity CLI at ~/.gemini/config/mcp_config.json (macOS/Linux/Windows).
+ */
+export function antigravityConfigPath(ctx: ClientContext): string {
+  return path.join(ctx.homeDir, ".gemini", "config", "mcp_config.json");
+}
+
 /** Claude Desktop ships for macOS and Windows only — null elsewhere. */
 export function claudeDesktopConfigPath(ctx: ClientContext): string | null {
   if (ctx.platform === "darwin") {
