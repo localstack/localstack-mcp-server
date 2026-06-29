@@ -2,6 +2,7 @@ export type InstallMethod = "npx" | "docker";
 
 export type ClientId =
   | "cursor"
+  | "antigravity"
   | "claude-code"
   | "claude-desktop"
   | "vscode"

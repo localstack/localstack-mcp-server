@@ -1,5 +1,6 @@
 import {
   amazonQConfigPath,
+  antigravityConfigPath,
   claudeCodeUserConfigPath,
   claudeDesktopConfigPath,
   codexConfigPath,
@@ -21,6 +22,12 @@ describe("client config paths", () => {
   it("resolves Cursor's global config in the home directory", () => {
     expect(cursorConfigPath(mac)).toBe("/Users/dev/.cursor/mcp.json");
     expect(cursorConfigPath(linux)).toBe("/home/dev/.cursor/mcp.json");
+  });
+
+  it("resolves Antigravity's shared MCP config in the home directory", () => {
+    expect(antigravityConfigPath(mac)).toBe("/Users/dev/.gemini/config/mcp_config.json");
+    expect(antigravityConfigPath(linux)).toBe("/home/dev/.gemini/config/mcp_config.json");
+    expect(antigravityConfigPath(win)).toContain(".gemini/config/mcp_config.json");
   });
 
   it("resolves Claude Desktop on macOS and Windows, null on Linux", () => {

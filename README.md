@@ -103,7 +103,7 @@ The wizard:
 - checks the prerequisites (Node.js, LocalStack CLI, Docker) and tells you how to fix anything missing,
 - picks up your `LOCALSTACK_AUTH_TOKEN` from the environment, or asks for it,
 - lets you pass extra LocalStack config (e.g. `DEBUG=1,PERSISTENCE=1`),
-- detects your installed MCP clients (Cursor, Claude Code, Claude Desktop, VS Code, Codex, OpenCode, Amazon Q CLI) and writes the right configuration for each one you select.
+- detects your installed MCP clients (Cursor, Antigravity, Claude Code, Claude Desktop, VS Code, Codex, OpenCode, Amazon Q CLI) and writes the right configuration for each one you select.
 
 It can also run fully non-interactively, e.g. in dotfiles or scripts:
 

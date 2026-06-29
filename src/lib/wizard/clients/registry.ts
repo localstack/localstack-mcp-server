@@ -3,6 +3,7 @@ import * as path from "path";
 import { opencodeEntry, standardEntry, vscodeEntry } from "../entry-builders.logic";
 import {
   amazonQConfigPath,
+  antigravityConfigPath,
   claudeDesktopConfigPath,
   cursorConfigPath,
   opencodeConfigDir,
@@ -25,6 +26,18 @@ const cursorAdapter = createFileClientAdapter({
   restartNote: "Restart Cursor — the server appears under Cursor Settings > MCP.",
   configPath: (ctx) => cursorConfigPath(ctx),
   detectInstalled: async (ctx) => exists(path.join(ctx.homeDir, ".cursor")),
+  rootPath: ["mcpServers"],
+  buildEntry: standardEntry,
+});
+
+const antigravityAdapter = createFileClientAdapter({
+  id: "antigravity",
+  label: "Antigravity",
+  restartNote:
+    "Restart Antigravity — the server appears under the Agent panel ▸ MCP Servers ▸ Manage MCP Servers.",
+  configPath: (ctx) => antigravityConfigPath(ctx),
+  // ~/.gemini is Antigravity's home (the standalone Gemini CLI that also used it is retired).
+  detectInstalled: async (ctx) => exists(path.join(ctx.homeDir, ".gemini")),
   rootPath: ["mcpServers"],
   buildEntry: standardEntry,
 });
@@ -99,6 +112,7 @@ const amazonQAdapter = createFileClientAdapter({
  */
 export const CLIENT_ADAPTERS: ClientAdapter[] = [
   cursorAdapter,
+  antigravityAdapter,
   claudeCodeAdapter,
   claudeDesktopAdapter,
   vscodeAdapter,
