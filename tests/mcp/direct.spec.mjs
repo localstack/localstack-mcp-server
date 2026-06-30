@@ -19,6 +19,7 @@ const EXPECTED_TOOLS = [
   "localstack-aws-replicator",
   "localstack-docs",
   "localstack-app-inspector",
+  "localstack-preflight",
 ];
 
 const EXPECTED_PROMPT = "infrastructure-tester";
@@ -58,6 +59,17 @@ test("smoke tests the infrastructure tester prompt", async ({ mcp }) => {
   expect(result.messages[0].content.type).toBe("text");
   expect(result.messages[0].content.text).toContain("# Infrastructure Tester (LocalStack)");
   expect(result.messages[0].content.text).toContain("`./infra`");
+});
+
+test("preflight tool lists AWS services with coverage percentages", async ({ mcp }) => {
+  test.skip(!process.env.LOCALSTACK_COVERAGE_URL, "LOCALSTACK_COVERAGE_URL not set — coverage extension not available");
+
+  const result = await mcp.callTool("localstack-preflight", {
+    action: "list_services",
+  });
+
+  expect(result).not.toBeToolError();
+  expect(result).toContainToolText("s3");
 });
 
 test("docs tool returns useful documentation snippets", async ({ mcp }) => {

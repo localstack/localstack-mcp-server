@@ -79,7 +79,7 @@ export const schema = {
 // Define tool metadata
 export const metadata: ToolMetadata = {
   name: "localstack-deployer",
-  description: "Deploys or destroys AWS infrastructure on LocalStack using CDK, Terraform, or SAM.",
+  description: "Deploys or destroys AWS infrastructure on a RUNNING LocalStack instance using CDK, Terraform (via tflocal), or SAM. Runs real commands — requires LocalStack to be running. Do NOT use this to check whether IaC will work on LocalStack; use localstack-preflight for static compatibility analysis instead.",
   annotations: {
     title: "LocalStack Deployer",
     readOnlyHint: false,
