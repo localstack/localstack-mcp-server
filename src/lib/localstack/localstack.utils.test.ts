@@ -1,10 +1,16 @@
 import {
+  checkLocalStackCli,
+  detectLifecycleCli,
   getGatewayHealth,
   getLocalStackStatus,
   getSnowflakeEmulatorStatus,
+  startRuntime,
 } from "./localstack.utils";
 import { runCommand } from "../../core/command-runner";
 import { httpClient } from "../../core/http-client";
+import { spawn } from "child_process";
+import { EventEmitter } from "events";
+import { PassThrough } from "stream";
 
 jest.mock("../../core/command-runner", () => ({
   runCommand: jest.fn(),
@@ -15,8 +21,21 @@ jest.mock("../../core/http-client", () => ({
   HttpError: class HttpError extends Error {},
 }));
 
+jest.mock("child_process", () => ({
+  spawn: jest.fn(),
+}));
+
 const mockedRunCommand = runCommand as jest.MockedFunction<typeof runCommand>;
 const mockedRequest = httpClient.request as jest.MockedFunction<typeof httpClient.request>;
+const mockedSpawn = spawn as jest.MockedFunction<typeof spawn>;
+
+function mockChildProcess() {
+  const child = new EventEmitter() as any;
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  mockedSpawn.mockReturnValueOnce(child);
+  return child;
+}
 
 const cliUnavailable = () =>
   mockedRunCommand.mockResolvedValue({
@@ -32,6 +51,7 @@ describe("localstack.utils", () => {
   beforeEach(() => {
     mockedRunCommand.mockReset();
     mockedRequest.mockReset();
+    mockedSpawn.mockReset();
   });
 
   describe("getGatewayHealth", () => {
@@ -60,6 +80,14 @@ describe("localstack.utils", () => {
 
     test("reports not reachable when the gateway probe fails", async () => {
       gatewayUnreachable();
+
+      const health = await getGatewayHealth();
+      expect(health.reachable).toBe(false);
+      expect(health.ready).toBe(false);
+    });
+
+    test("does not treat arbitrary text responses as a LocalStack gateway", async () => {
+      mockedRequest.mockResolvedValueOnce("not localstack" as any);
 
       const health = await getGatewayHealth();
       expect(health.reachable).toBe(false);
@@ -144,6 +172,65 @@ describe("localstack.utils", () => {
     });
   });
 
+  describe("detectLifecycleCli", () => {
+    const onlyAvailable = (bin: string) =>
+      mockedRunCommand.mockImplementation(async (cmd: string) =>
+        cmd === bin
+          ? ({ stdout: `${bin} 1.0.0`, stderr: "", exitCode: 0 } as never)
+          : ({ stdout: "", stderr: "", exitCode: null, error: new Error("ENOENT") } as never)
+      );
+
+    test("prefers the localstack CLI when available", async () => {
+      onlyAvailable("localstack");
+      expect(await detectLifecycleCli()).toBe("localstack");
+    });
+
+    test("falls back to lstk when only lstk is present", async () => {
+      onlyAvailable("lstk");
+      expect(await detectLifecycleCli()).toBe("lstk");
+    });
+
+    test("uses the requested CLI preference order", async () => {
+      mockedRunCommand.mockResolvedValue({
+        stdout: "ok",
+        stderr: "",
+        exitCode: 0,
+      } as never);
+
+      expect(await detectLifecycleCli(["lstk", "localstack"])).toBe("lstk");
+      expect(mockedRunCommand).toHaveBeenCalledWith(
+        "lstk",
+        ["--version"],
+        expect.objectContaining({ timeout: 5000 })
+      );
+    });
+
+    test("returns null when neither CLI is installed", async () => {
+      mockedRunCommand.mockResolvedValue({
+        stdout: "",
+        stderr: "",
+        exitCode: null,
+        error: new Error("ENOENT"),
+      } as never);
+      expect(await detectLifecycleCli()).toBeNull();
+    });
+  });
+
+  describe("checkLocalStackCli", () => {
+    test("reports unavailable when runCommand resolves with ENOENT", async () => {
+      mockedRunCommand.mockResolvedValue({
+        stdout: "",
+        stderr: "",
+        exitCode: null,
+        error: new Error("spawn localstack ENOENT"),
+      } as never);
+
+      const result = await checkLocalStackCli();
+      expect(result.isAvailable).toBe(false);
+      expect(result.errorMessage).toMatch(/not installed|not available/i);
+    });
+  });
+
   describe("getSnowflakeEmulatorStatus", () => {
     test("marks emulator healthy on success payload", async () => {
       mockedRunCommand.mockResolvedValueOnce({
@@ -168,6 +255,65 @@ describe("localstack.utils", () => {
       const result = await getSnowflakeEmulatorStatus();
       expect(result.isRunning).toBe(false);
       expect(result.isReady).toBe(false);
+    });
+  });
+
+  describe("startRuntime", () => {
+    test("reports lstk zero-exit failures immediately with stdout when readiness is absent", async () => {
+      const child = mockChildProcess();
+      const getStatus = jest
+        .fn()
+        .mockResolvedValueOnce({ isRunning: false, isReady: false })
+        .mockResolvedValueOnce({ isRunning: false, isReady: false });
+
+      const resultPromise = startRuntime({
+        cli: "lstk",
+        startArgs: ["start", "--non-interactive"],
+        getStatus,
+        processLabel: "LocalStack",
+        alreadyRunningMessage: "already running",
+        successTitle: "started",
+        statusHeading: "Status",
+        timeoutMessage: "timed out",
+      });
+
+      await Promise.resolve();
+      child.stdout.write("Error: Port 4566 already in use\n");
+      child.emit("close", 0);
+
+      const text = (await resultPromise).content[0].text;
+      expect(text).toMatch(/exited before it became ready/i);
+      expect(text).toContain("Port 4566 already in use");
+    });
+
+    test("treats lstk zero-exit as success when readiness is already available", async () => {
+      const child = mockChildProcess();
+      const getStatus = jest
+        .fn()
+        .mockResolvedValueOnce({ isRunning: false, isReady: false })
+        .mockResolvedValueOnce({
+          isRunning: true,
+          isReady: true,
+          statusOutput: "LocalStack gateway is reachable",
+        });
+
+      const resultPromise = startRuntime({
+        cli: "lstk",
+        startArgs: ["start", "--non-interactive"],
+        getStatus,
+        processLabel: "LocalStack",
+        alreadyRunningMessage: "already running",
+        successTitle: "started",
+        statusHeading: "Status",
+        timeoutMessage: "timed out",
+      });
+
+      await Promise.resolve();
+      child.emit("close", 0);
+
+      const text = (await resultPromise).content[0].text;
+      expect(text).toContain("started");
+      expect(text).toContain("LocalStack gateway is reachable");
     });
   });
 });

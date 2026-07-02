@@ -16,23 +16,20 @@ export interface SnowflakeCliCheckResult {
   errorMessage?: string;
 }
 
-/**
- * Check if LocalStack CLI is installed and available in the system PATH
- * @returns Promise with availability status, version (if available), and error message (if not available)
- */
-export async function checkLocalStackCli(): Promise<LocalStackCliCheckResult> {
-  try {
-    await runCommand("localstack", ["--help"]);
-    const { stdout: version } = await runCommand("localstack", ["--version"]);
+const CLI_CHECK_TIMEOUT = 5000;
 
-    return {
-      isAvailable: true,
-      version: version.trim(),
-    };
-  } catch (error) {
-    return {
-      isAvailable: false,
-      errorMessage: `❌ LocalStack CLI is not installed or not available in PATH.
+function cliSpawnOptions() {
+  return {
+    timeout: CLI_CHECK_TIMEOUT,
+    shell: process.platform === "win32",
+  };
+}
+
+function localStackCliUnavailable(details?: string): LocalStackCliCheckResult {
+  const suffix = details?.trim() ? `\n\nDetails: ${details.trim()}` : "";
+  return {
+    isAvailable: false,
+    errorMessage: `❌ LocalStack CLI is not installed or not available in PATH.
 
 Please install LocalStack by following the official documentation:
 https://docs.localstack.cloud/aws/getting-started/installation/
@@ -42,9 +39,61 @@ Installation options:
 - Using Docker: Use the LocalStack Docker image
 - Using Homebrew (macOS): brew install localstack/tap/localstack-cli
 
-After installation, make sure the 'localstack' command is available in your PATH.`,
+After installation, make sure the 'localstack' command is available in your PATH.${suffix}`,
+  };
+}
+
+/**
+ * Check if LocalStack CLI is installed and available in the system PATH
+ * @returns Promise with availability status, version (if available), and error message (if not available)
+ */
+export async function checkLocalStackCli(): Promise<LocalStackCliCheckResult> {
+  try {
+    const help = await runCommand("localstack", ["--help"], cliSpawnOptions());
+    if (help.error || help.exitCode !== 0) {
+      return localStackCliUnavailable(help.error?.message || help.stderr);
+    }
+
+    const versionResult = await runCommand("localstack", ["--version"], cliSpawnOptions());
+    if (versionResult.error || versionResult.exitCode !== 0) {
+      return localStackCliUnavailable(versionResult.error?.message || versionResult.stderr);
+    }
+
+    return {
+      isAvailable: true,
+      version: versionResult.stdout.trim(),
     };
+  } catch (error) {
+    return localStackCliUnavailable(error instanceof Error ? error.message : String(error));
   }
+}
+
+export type LifecycleCli = "localstack" | "lstk";
+
+/**
+ * Whether a CLI is usable. `runCommand` resolves (rather than throws) on a missing
+ * binary, so we inspect the actual exit code / error — this returns false when the
+ * binary isn't on PATH.
+ */
+async function cliAvailable(bin: string): Promise<boolean> {
+  const { error, exitCode } = await runCommand(bin, ["--version"], cliSpawnOptions());
+  return !error && exitCode === 0;
+}
+
+/**
+ * Pick a CLI capable of starting LocalStack. Prefers the Python `localstack` CLI for
+ * backward compatibility, falling back to `lstk` (the newer Go CLI, which also forwards
+ * `LOCALSTACK_*` env). Returns null when neither is installed: a running container can
+ * still be detected and driven via the gateway + Docker API, but *creating* one needs a
+ * CLI.
+ */
+export async function detectLifecycleCli(
+  preferredOrder: LifecycleCli[] = ["localstack", "lstk"]
+): Promise<LifecycleCli | null> {
+  for (const cli of preferredOrder) {
+    if (await cliAvailable(cli)) return cli;
+  }
+  return null;
 }
 
 /**
@@ -53,8 +102,19 @@ After installation, make sure the 'localstack' command is available in your PATH
  */
 export async function checkSnowflakeCli(): Promise<SnowflakeCliCheckResult> {
   try {
-    await runCommand("snow", ["--help"]);
-    const { stdout: version } = await runCommand("snow", ["--version"]);
+    const help = await runCommand("snow", ["--help"], cliSpawnOptions());
+    if (help.error || help.exitCode !== 0) {
+      throw help.error || new Error(help.stderr || `snow --help exited with code ${help.exitCode}`);
+    }
+    const {
+      stdout: version,
+      error,
+      exitCode,
+      stderr,
+    } = await runCommand("snow", ["--version"], cliSpawnOptions());
+    if (error || exitCode !== 0) {
+      throw error || new Error(stderr || `snow --version exited with code ${exitCode}`);
+    }
 
     return {
       isAvailable: true,
@@ -150,7 +210,11 @@ export async function getGatewayHealth(): Promise<GatewayHealth> {
       version?: string;
     }>("/_localstack/health", { method: "GET", timeout: GATEWAY_HEALTH_TIMEOUT });
 
-    const services = data && typeof data === "object" && data.services ? data.services : undefined;
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      return { reachable: false, ready: false };
+    }
+
+    const services = data.services ? data.services : undefined;
 
     const ready = Object.values(services || {}).some((state) => READY_SERVICE_STATES.has(state));
 
@@ -303,6 +367,7 @@ export async function getSnowflakeEmulatorStatus(): Promise<SnowflakeStatusResul
  * environment overrides, and optional post-start validation hooks.
  */
 export async function startRuntime({
+  cli = "localstack",
   startArgs,
   getStatus,
   processLabel,
@@ -313,6 +378,8 @@ export async function startRuntime({
   envVars,
   onReady,
 }: {
+  /** Lifecycle CLI binary to spawn — `localstack` (default) or `lstk`. */
+  cli?: LifecycleCli;
   startArgs: string[];
   getStatus: () => Promise<RuntimeStatus>;
   processLabel: string;
@@ -322,7 +389,7 @@ export async function startRuntime({
   timeoutMessage: string;
   envVars?: Record<string, string>;
   onReady?: () => Promise<ReturnType<typeof ResponseBuilder.error> | null>;
-}) {
+}): Promise<ReturnType<typeof ResponseBuilder.markdown>> {
   const statusCheck = await getStatus();
   if (statusCheck.isReady || statusCheck.isRunning) {
     return ResponseBuilder.markdown(alreadyRunningMessage);
@@ -336,29 +403,77 @@ export async function startRuntime({
   if (process.env.LOCALSTACK_AUTH_TOKEN) {
     environment.LOCALSTACK_AUTH_TOKEN = process.env.LOCALSTACK_AUTH_TOKEN;
   }
+  // Force UTF-8 for the spawned Python `localstack` CLI so its emoji output doesn't
+  // throw UnicodeEncodeError under the Windows cp1252 code page.
+  if (cli === "localstack") {
+    if (!environment.PYTHONIOENCODING) environment.PYTHONIOENCODING = "utf-8";
+    if (!environment.PYTHONUTF8) environment.PYTHONUTF8 = "1";
+  }
 
   return new Promise((resolve) => {
-    const child = spawn("localstack", startArgs, {
+    const child = spawn(cli, startArgs, {
       env: environment,
-      stdio: ["ignore", "ignore", "pipe"],
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: process.platform === "win32",
     });
 
+    let stdout = "";
     let stderr = "";
-    child.stderr.on("data", (data) => {
+    child.stdout?.on("data", (data) => {
+      stdout += data.toString();
+    });
+    child.stderr?.on("data", (data) => {
       stderr += data.toString();
     });
 
     let earlyExit = false;
     let poll: NodeJS.Timeout;
+    let resolved = false;
+    const finish = (response: ReturnType<typeof ResponseBuilder.markdown>) => {
+      if (resolved) return;
+      resolved = true;
+      if (poll) clearInterval(poll);
+      resolve(response);
+    };
+    const failureDetails = () => {
+      const details: string[] = [];
+      const trimmedStdout = stdout.trim();
+      const trimmedStderr = stderr.trim();
+      if (trimmedStdout) details.push(`Stdout:\n${trimmedStdout}`);
+      if (trimmedStderr) details.push(`Stderr:\n${trimmedStderr}`);
+      return details.length ? `\n\n${details.join("\n\n")}` : "";
+    };
+    const successResponse = (status: RuntimeStatus) => {
+      let resultMessage = `${successTitle}\n\n`;
+      if (envVars)
+        resultMessage += `✅ Custom environment variables passed to lifecycle CLI: ${Object.keys(envVars).join(", ")}\n`;
+      if (status.statusOutput) resultMessage += `\n**${statusHeading}:**\n${status.statusOutput}`;
+      return ResponseBuilder.markdown(resultMessage);
+    };
+    const finishIfReady = async (): Promise<boolean> => {
+      const status = await getStatus();
+      if (!(status.isReady || status.isRunning)) return false;
+
+      if (onReady) {
+        const preflight = await onReady();
+        if (preflight) {
+          finish(preflight);
+          return true;
+        }
+      }
+
+      finish(successResponse(status));
+      return true;
+    };
+
     child.on("error", (err) => {
       earlyExit = true;
-      if (poll) clearInterval(poll);
-      resolve(
+      finish(
         ResponseBuilder.markdown(`❌ Failed to start ${processLabel} process: ${err.message}`)
       );
     });
 
-    child.on("close", (code) => {
+    child.on("close", async (code) => {
       if (earlyExit) return;
       // A non-zero exit is a real failure: stop polling and report it.
       // A zero exit is expected in non-interactive environments (e.g. inside a
@@ -367,10 +482,31 @@ export async function startRuntime({
       // polling so readiness is still detected and the promise resolves — clearing
       // the interval here would leave the start call hanging forever.
       if (code !== 0) {
-        if (poll) clearInterval(poll);
-        resolve(
+        finish(
           ResponseBuilder.markdown(
-            `❌ ${processLabel} process exited unexpectedly with code ${code}.\n\nStderr:\n${stderr}`
+            `❌ ${processLabel} process exited unexpectedly with code ${code}.${failureDetails()}`
+          )
+        );
+        return;
+      }
+
+      if (cli === "lstk") {
+        try {
+          if (await finishIfReady()) return;
+        } catch (error) {
+          finish(
+            ResponseBuilder.markdown(
+              `❌ ${processLabel} process exited before it became ready. Failed to verify status: ${
+                error instanceof Error ? error.message : String(error)
+              }${failureDetails()}`
+            )
+          );
+          return;
+        }
+
+        finish(
+          ResponseBuilder.markdown(
+            `❌ ${processLabel} process exited before it became ready.${failureDetails()}`
           )
         );
       }
@@ -382,26 +518,22 @@ export async function startRuntime({
 
     poll = setInterval(async () => {
       timeWaited += pollInterval;
-      const status = await getStatus();
-      if (status.isReady || status.isRunning) {
-        if (onReady) {
-          const preflight = await onReady();
-          if (preflight) {
-            clearInterval(poll);
-            resolve(preflight);
-            return;
-          }
-        }
+      try {
+        if (await finishIfReady()) return;
+      } catch (error) {
+        finish(
+          ResponseBuilder.markdown(
+            `❌ Failed to check ${processLabel} status: ${
+              error instanceof Error ? error.message : String(error)
+            }${failureDetails()}`
+          )
+        );
+        return;
+      }
 
-        clearInterval(poll);
-        let resultMessage = `${successTitle}\n\n`;
-        if (envVars)
-          resultMessage += `✅ Custom environment variables applied: ${Object.keys(envVars).join(", ")}\n`;
-        if (status.statusOutput) resultMessage += `\n**${statusHeading}:**\n${status.statusOutput}`;
-        resolve(ResponseBuilder.markdown(resultMessage));
-      } else if (timeWaited >= maxWaitTime) {
-        clearInterval(poll);
-        resolve(ResponseBuilder.markdown(timeoutMessage));
+      if (timeWaited >= maxWaitTime) {
+        const details = failureDetails();
+        finish(ResponseBuilder.markdown(details ? `${timeoutMessage}${details}` : timeoutMessage));
       }
     }, pollInterval);
   });

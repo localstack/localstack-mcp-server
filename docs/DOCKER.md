@@ -10,10 +10,11 @@ The image is multi-arch (`linux/amd64` and `linux/arm64`).
 ## How it works (Docker-out-of-Docker)
 
 The container talks to your **host Docker daemon** through the bind-mounted
-`/var/run/docker.sock`. When you ask the server to start LocalStack, `localstack
-start` launches a **sibling** `localstack-main` container on the host (not nested
-inside the MCP container). The MCP server and the IaC CLIs reach that sibling over
-the host gateway.
+`/var/run/docker.sock`. When you ask the server to start LocalStack, the bundled
+`localstack start` launches a **sibling** `localstack-main` container on the host
+(not nested inside the MCP container). Stop/restart operations then act on the
+detected sibling container through the Docker API. The MCP server and the IaC CLIs
+reach that sibling over the host gateway.
 
 ```
 MCP client ── stdio ──► docker run … (MCP server)
@@ -52,15 +53,15 @@ docker run -i --rm \
   localstack/localstack-mcp-server:latest
 ```
 
-| Flag | Why it's needed |
-| --- | --- |
-| `-v /var/run/docker.sock:/var/run/docker.sock` | Lets the bundled LocalStack CLI drive the host Docker daemon (start/stop the sibling, `awslocal` exec). |
+| Flag                                                                       | Why it's needed                                                                                                                                           |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-v /var/run/docker.sock:/var/run/docker.sock`                             | Lets the bundled LocalStack CLI start the sibling container and lets Docker-based tools stop/restart it and run `awslocal` inside it.                     |
 | `-v "$HOME/.localstack-mcp:$HOME/.localstack-mcp"` + `-e XDG_CACHE_HOME=…` | Puts LocalStack's license/machine/volume files on an **identically-pathed** host directory so the host daemon can bind-mount them into `localstack-main`. |
-| `--add-host host.docker.internal:host-gateway` | Resolves `host.docker.internal` on Linux. Harmless on Docker Desktop (Mac/Windows), where it already resolves. |
-| `--add-host s3.host.docker.internal:host-gateway` | Lets CDK's virtual-hosted S3 endpoint resolve when `cdklocal` uses `AWS_ENDPOINT_URL_S3=http://s3.host.docker.internal:4566`. |
-| `--add-host snowflake.localhost.localstack.cloud:host-gateway` | Lets the Snowflake CLI reach the sibling Snowflake emulator through the hostname the emulator expects for routing. |
-| `-e LOCALSTACK_AUTH_TOKEN` | Required by **every** tool in this server. |
-| `-e LOCALSTACK_HOSTNAME=host.docker.internal` | Tells the server + IaC CLIs where the sibling LocalStack lives. |
+| `--add-host host.docker.internal:host-gateway`                             | Resolves `host.docker.internal` on Linux. Harmless on Docker Desktop (Mac/Windows), where it already resolves.                                            |
+| `--add-host s3.host.docker.internal:host-gateway`                          | Lets CDK's virtual-hosted S3 endpoint resolve when `cdklocal` uses `AWS_ENDPOINT_URL_S3=http://s3.host.docker.internal:4566`.                             |
+| `--add-host snowflake.localhost.localstack.cloud:host-gateway`             | Lets the Snowflake CLI reach the sibling Snowflake emulator through the hostname the emulator expects for routing.                                        |
+| `-e LOCALSTACK_AUTH_TOKEN`                                                 | Required by **every** tool in this server.                                                                                                                |
+| `-e LOCALSTACK_HOSTNAME=host.docker.internal`                              | Tells the server + IaC CLIs where the sibling LocalStack lives.                                                                                           |
 
 ## MCP client configuration
 
@@ -120,12 +121,12 @@ alias covers bootstrap asset uploads.
 
 ## Troubleshooting
 
-| Symptom | Cause / fix |
-| --- | --- |
-| `Mounts denied: … is not shared from the host` | The cache bind mount / `XDG_CACHE_HOME` is missing or not under a Docker-shared root. Use a path under your home directory and mount it one-to-one. |
-| Tools report `LocalStack Not Running` after `start` | Check `LOCALSTACK_HOSTNAME=host.docker.internal` is set and `--add-host` is present (Linux). |
-| `Auth Token Required` | `LOCALSTACK_AUTH_TOKEN` must be passed through (every tool requires it). |
-| `Could not find a running LocalStack container named "localstack-main"` | Set `MAIN_CONTAINER_NAME` if you renamed it. |
+| Symptom                                                                                                     | Cause / fix                                                                                                                                         |
+| ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Mounts denied: … is not shared from the host`                                                              | The cache bind mount / `XDG_CACHE_HOME` is missing or not under a Docker-shared root. Use a path under your home directory and mount it one-to-one. |
+| Tools report `LocalStack Not Running` after `start`                                                         | Check `LOCALSTACK_HOSTNAME=host.docker.internal` is set and `--add-host` is present (Linux).                                                        |
+| `Auth Token Required`                                                                                       | `LOCALSTACK_AUTH_TOKEN` must be passed through (every tool requires it).                                                                            |
+| `LocalStack container not found` or `Could not find a running LocalStack container named "localstack-main"` | Set `MAIN_CONTAINER_NAME` if you use a custom LocalStack container name.                                                                            |
 
 ## Validating an image yourself
 
