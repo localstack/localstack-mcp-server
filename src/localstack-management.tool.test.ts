@@ -4,6 +4,7 @@
 import localstackManagement from "./tools/localstack-management";
 import { runCommand } from "./core/command-runner";
 import { httpClient } from "./core/http-client";
+import { LocalStackContainerNotFoundError } from "./lib/docker/docker.client";
 
 jest.mock("./core/command-runner", () => ({ runCommand: jest.fn() }));
 jest.mock("./core/http-client", () => ({
@@ -17,10 +18,20 @@ jest.mock("./core/analytics", () => ({
 
 const mockFindContainer = jest.fn();
 const mockStopContainer = jest.fn();
+const mockInspectContainer = jest.fn();
 jest.mock("./lib/docker/docker.client", () => ({
+  LocalStackContainerNotFoundError: class LocalStackContainerNotFoundError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = "LocalStackContainerNotFoundError";
+    }
+  },
+  isLocalStackContainerNotFoundError: (error: unknown) =>
+    error instanceof Error && error.name === "LocalStackContainerNotFoundError",
   DockerApiClient: jest.fn().mockImplementation(() => ({
     findLocalStackContainer: mockFindContainer,
     stopContainer: mockStopContainer,
+    inspectContainer: mockInspectContainer,
   })),
 }));
 
@@ -40,6 +51,7 @@ describe("localstack-management status (pre-start)", () => {
     mockedRequest.mockReset();
     mockFindContainer.mockReset();
     mockStopContainer.mockReset();
+    mockInspectContainer.mockReset();
     process.env.LOCALSTACK_AUTH_TOKEN = "test-token";
     delete process.env.MAIN_CONTAINER_NAME;
   });
@@ -89,15 +101,22 @@ describe("localstack-management lifecycle (provenance-agnostic)", () => {
     mockedRequest.mockReset();
     mockFindContainer.mockReset();
     mockStopContainer.mockReset();
+    mockInspectContainer.mockReset();
     process.env.LOCALSTACK_AUTH_TOKEN = "test-token";
     delete process.env.MAIN_CONTAINER_NAME;
   });
 
   test("start reports a clear error when neither the localstack nor lstk CLI is present", async () => {
+    mockedRequest.mockRejectedValue(new Error("ECONNREFUSED"));
     // Both CLI presence probes (`--version`) fail → no lifecycle CLI available.
     mockedRunCommand.mockImplementation(async (_cmd: string, args: string[]) => {
       if (args[0] === "--version") {
-        return { stdout: "", stderr: "not found", exitCode: null, error: new Error("ENOENT") } as never;
+        return {
+          stdout: "",
+          stderr: "not found",
+          exitCode: null,
+          error: new Error("ENOENT"),
+        } as never;
       }
       return { stdout: "", stderr: "", exitCode: 0 } as never;
     });
@@ -108,6 +127,27 @@ describe("localstack-management lifecycle (provenance-agnostic)", () => {
     const text = textOf(res);
     expect(text).toContain("No LocalStack CLI found");
     expect(text).toMatch(/lstk/);
+  });
+
+  test("start reports already-running before requiring a lifecycle CLI", async () => {
+    mockedRequest.mockResolvedValueOnce({
+      services: { s3: "available" },
+      edition: "pro",
+      version: "4.0.0",
+    });
+    mockedRunCommand.mockResolvedValue({
+      stdout: "",
+      stderr: "not found",
+      exitCode: null,
+      error: new Error("ENOENT"),
+    } as never);
+
+    const res = (await localstackManagement({ action: "start", service: "aws" } as never)) as {
+      content: Array<{ text: string }>;
+    };
+    const text = textOf(res);
+    expect(text).toMatch(/already running/i);
+    expect(mockedRunCommand).not.toHaveBeenCalled();
   });
 
   test("stop stops the detected container via the Docker API (no CLI)", async () => {
@@ -126,7 +166,8 @@ describe("localstack-management lifecycle (provenance-agnostic)", () => {
   });
 
   test("stop reports not-running (no error) when no container is found", async () => {
-    mockFindContainer.mockRejectedValue(new Error("no container"));
+    mockFindContainer.mockRejectedValue(new LocalStackContainerNotFoundError("no container"));
+    mockedRequest.mockRejectedValue(new Error("ECONNREFUSED"));
 
     const res = (await localstackManagement({ action: "stop", service: "aws" } as never)) as {
       content: Array<{ text: string }>;
@@ -135,5 +176,64 @@ describe("localstack-management lifecycle (provenance-agnostic)", () => {
     expect(text.trimStart().startsWith("❌")).toBe(false);
     expect(text).toMatch(/not running/i);
     expect(mockStopContainer).not.toHaveBeenCalled();
+  });
+
+  test("stop reports Docker lookup failures instead of pretending LocalStack is stopped", async () => {
+    mockFindContainer.mockRejectedValue(new Error("connect ECONNREFUSED /var/run/docker.sock"));
+
+    const res = (await localstackManagement({ action: "stop", service: "aws" } as never)) as {
+      content: Array<{ text: string }>;
+    };
+    const text = textOf(res);
+    expect(text).toMatch(/Docker lookup failed/i);
+    expect(mockStopContainer).not.toHaveBeenCalled();
+  });
+
+  test("stop reports Docker stop failures as structured errors", async () => {
+    mockFindContainer.mockResolvedValue("abc123");
+    mockStopContainer.mockRejectedValue(new Error("permission denied"));
+
+    const res = (await localstackManagement({ action: "stop", service: "aws" } as never)) as {
+      content: Array<{ text: string }>;
+    };
+    const text = textOf(res);
+    expect(text).toMatch(/Failed to stop LocalStack/i);
+    expect(text).toMatch(/permission denied/i);
+  });
+
+  test("restart does not stop the running container when no start CLI is available", async () => {
+    mockFindContainer.mockResolvedValue("abc123");
+    mockInspectContainer.mockResolvedValue({ name: "localstack-aws", env: [] });
+    mockedRunCommand.mockResolvedValue({
+      stdout: "",
+      stderr: "not found",
+      exitCode: null,
+      error: new Error("ENOENT"),
+    } as never);
+
+    const res = (await localstackManagement({ action: "restart", service: "aws" } as never)) as {
+      content: Array<{ text: string }>;
+    };
+    const text = textOf(res);
+    expect(text).toContain("No LocalStack CLI found");
+    expect(mockStopContainer).not.toHaveBeenCalled();
+  });
+
+  test("restart aborts when Docker stop fails", async () => {
+    mockFindContainer.mockResolvedValue("abc123");
+    mockInspectContainer.mockResolvedValue({ name: "localstack-main", env: [] });
+    mockStopContainer.mockRejectedValue(new Error("permission denied"));
+    mockedRunCommand.mockImplementation(async (cmd: string, args: string[]) =>
+      cmd === "localstack" && args[0] === "--version"
+        ? ({ stdout: "LocalStack CLI 4.0.0", stderr: "", exitCode: 0 } as never)
+        : ({ stdout: "", stderr: "", exitCode: 0 } as never)
+    );
+
+    const res = (await localstackManagement({ action: "restart", service: "aws" } as never)) as {
+      content: Array<{ text: string }>;
+    };
+    const text = textOf(res);
+    expect(text).toMatch(/Failed to stop LocalStack/i);
+    expect(text).toMatch(/permission denied/i);
   });
 });

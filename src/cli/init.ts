@@ -85,7 +85,7 @@ async function resolveMethod(
           {
             value: "npx",
             label: "npx (Node on this machine)",
-            hint: "uses your local Node 20+, LocalStack CLI, and Docker",
+            hint: "uses your local Node 20+, localstack or lstk, and Docker",
           },
           {
             value: "docker",
