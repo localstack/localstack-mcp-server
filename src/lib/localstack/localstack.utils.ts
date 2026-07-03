@@ -17,10 +17,11 @@ export interface SnowflakeCliCheckResult {
 }
 
 const CLI_CHECK_TIMEOUT = 5000;
+const SNOWFLAKE_CLI_CHECK_TIMEOUT = 30000;
 
-function cliSpawnOptions() {
+function cliSpawnOptions(timeoutMs: number = CLI_CHECK_TIMEOUT) {
   return {
-    timeout: CLI_CHECK_TIMEOUT,
+    timeout: timeoutMs,
     shell: process.platform === "win32",
   };
 }
@@ -102,7 +103,7 @@ export async function detectLifecycleCli(
  */
 export async function checkSnowflakeCli(): Promise<SnowflakeCliCheckResult> {
   try {
-    const help = await runCommand("snow", ["--help"], cliSpawnOptions());
+    const help = await runCommand("snow", ["--help"], cliSpawnOptions(SNOWFLAKE_CLI_CHECK_TIMEOUT));
     if (help.error || help.exitCode !== 0) {
       throw help.error || new Error(help.stderr || `snow --help exited with code ${help.exitCode}`);
     }
@@ -111,7 +112,7 @@ export async function checkSnowflakeCli(): Promise<SnowflakeCliCheckResult> {
       error,
       exitCode,
       stderr,
-    } = await runCommand("snow", ["--version"], cliSpawnOptions());
+    } = await runCommand("snow", ["--version"], cliSpawnOptions(SNOWFLAKE_CLI_CHECK_TIMEOUT));
     if (error || exitCode !== 0) {
       throw error || new Error(stderr || `snow --version exited with code ${exitCode}`);
     }
