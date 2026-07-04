@@ -1,9 +1,13 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
-import { runCommand, stripAnsiCodes } from "../core/command-runner";
 import { requireAuthToken } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { withToolAnalytics } from "../core/analytics";
+import {
+  PlatformApiClient,
+  describePlatformError,
+  type EphemeralInstance,
+} from "../lib/localstack/platform.client";
 
 export const schema = {
   action: z
@@ -18,7 +22,7 @@ export const schema = {
     .int()
     .positive()
     .optional()
-    .describe("Lifetime in minutes for create action. Defaults to CLI default when omitted."),
+    .describe("Lifetime in minutes for create action. Defaults to the platform default when omitted."),
   extension: z
     .string()
     .optional()
@@ -35,7 +39,7 @@ export const schema = {
     .record(z.string(), z.string())
     .optional()
     .describe(
-      "Additional environment variables to pass to the ephemeral instance (create action only), translated to repeated --env KEY=VALUE flags."
+      "Additional environment variables to pass to the ephemeral instance (create action only)."
     ),
 };
 
@@ -73,15 +77,19 @@ export default async function localstackEphemeralInstances({
       const authError = requireAuthToken();
       if (authError) return authError;
 
+      // Ephemeral instances are cloud-hosted: everything goes through the LocalStack
+      // platform API — no local container, CLI, or Docker daemon involved.
+      const client = new PlatformApiClient(process.env.LOCALSTACK_AUTH_TOKEN!.trim());
+
       switch (action) {
         case "create":
-          return await handleCreate({ name, lifetime, extension, cloudPod, envVars });
+          return await handleCreate(client, { name, lifetime, extension, cloudPod, envVars });
         case "list":
-          return await handleList();
+          return await handleList(client);
         case "logs":
-          return await handleLogs({ name });
+          return await handleLogs(client, { name });
         case "delete":
-          return await handleDelete({ name });
+          return await handleDelete(client, { name });
         default:
           return ResponseBuilder.error("Unknown action", `Unsupported action: ${action}`);
       }
@@ -89,46 +97,9 @@ export default async function localstackEphemeralInstances({
   );
 }
 
-function cleanOutput(stdout: string, stderr: string): { stdout: string; stderr: string; combined: string } {
-  const cleanStdout = stripAnsiCodes(stdout || "").trim();
-  const cleanStderr = stripAnsiCodes(stderr || "").trim();
-  const combined = [cleanStdout, cleanStderr].filter((part) => part.length > 0).join("\n").trim();
-  return { stdout: cleanStdout, stderr: cleanStderr, combined };
-}
-
-function parseJsonFromText(text: string): unknown {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const startObject = trimmed.indexOf("{");
-    const endObject = trimmed.lastIndexOf("}");
-    if (startObject !== -1 && endObject > startObject) {
-      const candidate = trimmed.slice(startObject, endObject + 1);
-      try {
-        return JSON.parse(candidate);
-      } catch {
-        // continue
-      }
-    }
-    const startArray = trimmed.indexOf("[");
-    const endArray = trimmed.lastIndexOf("]");
-    if (startArray !== -1 && endArray > startArray) {
-      const candidate = trimmed.slice(startArray, endArray + 1);
-      try {
-        return JSON.parse(candidate);
-      } catch {
-        // continue
-      }
-    }
-    return null;
-  }
-}
-
-function formatCreateResponse(payload: Record<string, unknown>): string {
+function formatCreateResponse(payload: EphemeralInstance): string {
   const endpoint = String(payload.endpoint_url ?? "N/A");
-  const id = String(payload.id ?? "N/A");
+  const id = String(payload.id ?? payload.instance_name ?? "N/A");
   const status = String(payload.status ?? "unknown");
   const creationTime = String(payload.creation_time ?? "N/A");
   const expiryTime = String(payload.expiry_time ?? "N/A");
@@ -149,29 +120,27 @@ Use this endpoint with your tools, for example:
 \`aws --endpoint-url=${endpoint} s3 ls\``;
 }
 
-async function handleCreate({
-  name,
-  lifetime,
-  extension,
-  cloudPod,
-  envVars,
-}: {
-  name?: string;
-  lifetime?: number;
-  extension?: string;
-  cloudPod?: string;
-  envVars?: Record<string, string>;
-}) {
+async function handleCreate(
+  client: PlatformApiClient,
+  {
+    name,
+    lifetime,
+    extension,
+    cloudPod,
+    envVars,
+  }: {
+    name?: string;
+    lifetime?: number;
+    extension?: string;
+    cloudPod?: string;
+    envVars?: Record<string, string>;
+  }
+) {
   if (!name?.trim()) {
     return ResponseBuilder.error(
       "Missing Required Parameter",
       "The `create` action requires the `name` parameter."
     );
-  }
-
-  const args = ["ephemeral", "create", "--name", name.trim()];
-  if (lifetime !== undefined) {
-    args.push("--lifetime", String(lifetime));
   }
 
   const mergedEnvVars: Record<string, string> = { ...(envVars || {}) };
@@ -182,63 +151,50 @@ async function handleCreate({
     mergedEnvVars.CLOUD_POD_NAME = cloudPod;
   }
 
-  for (const [key, value] of Object.entries(mergedEnvVars)) {
+  for (const key of Object.keys(mergedEnvVars)) {
     if (!key || key.includes("=")) {
       return ResponseBuilder.error(
         "Invalid Environment Variable Key",
         `Invalid env var key '${key}'. Keys must be non-empty and cannot contain '='.`
       );
     }
-    args.push("--env", `${key}=${value}`);
   }
 
-  const result = await runCommand("localstack", args, {
-    env: { ...process.env },
-    timeout: 180000,
-  });
-  const cleaned = cleanOutput(result.stdout, result.stderr);
-
-  if (result.exitCode !== 0) {
+  try {
+    const instance = await client.createEphemeralInstance({
+      name: name.trim(),
+      lifetime,
+      envVars: mergedEnvVars,
+    });
+    return ResponseBuilder.markdown(formatCreateResponse(instance));
+  } catch (error) {
     return ResponseBuilder.error(
       "Create Failed",
-      cleaned.combined || "Failed to create ephemeral instance."
+      describePlatformError(error, `ephemeral instance '${name}'`)
     );
   }
-
-  const parsed = parseJsonFromText(cleaned.stdout) || parseJsonFromText(cleaned.combined);
-  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-    return ResponseBuilder.markdown(formatCreateResponse(parsed as Record<string, unknown>));
-  }
-
-  return ResponseBuilder.markdown(
-    `## Ephemeral Instance Created\n\n${cleaned.combined || "Instance created successfully."}`
-  );
 }
 
-async function handleList() {
-  const result = await runCommand("localstack", ["ephemeral", "list"], {
-    env: { ...process.env },
-    timeout: 120000,
-  });
-  const cleaned = cleanOutput(result.stdout, result.stderr);
-
-  if (result.exitCode !== 0) {
-    return ResponseBuilder.error("List Failed", cleaned.combined || "Failed to list ephemeral instances.");
-  }
-
-  const parsed = parseJsonFromText(cleaned.stdout) || parseJsonFromText(cleaned.combined);
-  if (parsed === null) {
+async function handleList(client: PlatformApiClient) {
+  try {
+    const instances = await client.listEphemeralInstances();
+    if (instances.length === 0) {
+      return ResponseBuilder.markdown(
+        "## Ephemeral Instances\n\nNo ephemeral instances found in your LocalStack Cloud workspace."
+      );
+    }
     return ResponseBuilder.markdown(
-      `## Ephemeral Instances\n\n\`\`\`\n${cleaned.combined || "No instances found."}\n\`\`\``
+      `## Ephemeral Instances\n\n\`\`\`json\n${JSON.stringify(instances, null, 2)}\n\`\`\``
+    );
+  } catch (error) {
+    return ResponseBuilder.error(
+      "List Failed",
+      describePlatformError(error, "ephemeral instances")
     );
   }
-
-  return ResponseBuilder.markdown(
-    `## Ephemeral Instances\n\n\`\`\`json\n${JSON.stringify(parsed, null, 2)}\n\`\`\``
-  );
 }
 
-async function handleLogs({ name }: { name?: string }) {
+async function handleLogs(client: PlatformApiClient, { name }: { name?: string }) {
   if (!name?.trim()) {
     return ResponseBuilder.error(
       "Missing Required Parameter",
@@ -246,29 +202,23 @@ async function handleLogs({ name }: { name?: string }) {
     );
   }
 
-  const result = await runCommand("localstack", ["ephemeral", "logs", "--name", name.trim()], {
-    env: { ...process.env },
-    timeout: 180000,
-  });
-  const cleaned = cleanOutput(result.stdout, result.stderr);
-
-  if (result.exitCode !== 0) {
+  try {
+    const logs = await client.getEphemeralInstanceLogs(name.trim());
+    if (!logs.trim()) {
+      return ResponseBuilder.markdown(`No logs available for ephemeral instance '${name}'.`);
+    }
+    return ResponseBuilder.markdown(
+      `## Ephemeral Instance Logs: ${name}\n\n\`\`\`\n${logs}\n\`\`\``
+    );
+  } catch (error) {
     return ResponseBuilder.error(
       "Logs Failed",
-      cleaned.combined || `Failed to fetch logs for instance '${name}'.`
+      describePlatformError(error, `ephemeral instance '${name}'`)
     );
   }
-
-  if (!cleaned.combined) {
-    return ResponseBuilder.markdown(`No logs available for ephemeral instance '${name}'.`);
-  }
-
-  return ResponseBuilder.markdown(
-    `## Ephemeral Instance Logs: ${name}\n\n\`\`\`\n${cleaned.combined}\n\`\`\``
-  );
 }
 
-async function handleDelete({ name }: { name?: string }) {
+async function handleDelete(client: PlatformApiClient, { name }: { name?: string }) {
   if (!name?.trim()) {
     return ResponseBuilder.error(
       "Missing Required Parameter",
@@ -276,18 +226,13 @@ async function handleDelete({ name }: { name?: string }) {
     );
   }
 
-  const result = await runCommand("localstack", ["ephemeral", "delete", "--name", name.trim()], {
-    env: { ...process.env },
-    timeout: 120000,
-  });
-  const cleaned = cleanOutput(result.stdout, result.stderr);
-
-  if (result.exitCode !== 0) {
+  try {
+    await client.deleteEphemeralInstance(name.trim());
+    return ResponseBuilder.markdown(`Successfully deleted instance: ${name} ✅`);
+  } catch (error) {
     return ResponseBuilder.error(
       "Delete Failed",
-      cleaned.combined || `Failed to delete ephemeral instance '${name}'.`
+      describePlatformError(error, `ephemeral instance '${name}'`)
     );
   }
-
-  return ResponseBuilder.markdown(cleaned.combined || `Successfully deleted instance: ${name} ✅`);
 }
