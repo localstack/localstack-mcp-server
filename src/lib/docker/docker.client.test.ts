@@ -397,3 +397,53 @@ describe("DockerApiClient", () => {
     expect(res.stderr).toContain("something went wrong");
   });
 });
+
+describe("decodeDockerLogBuffer", () => {
+  const frame = (streamType: number, text: string) => {
+    const payload = Buffer.from(text, "utf8");
+    const header = Buffer.alloc(8);
+    header[0] = streamType;
+    header.writeUInt32BE(payload.length, 4);
+    return Buffer.concat([header, payload]);
+  };
+
+  test("preserves chronological interleaving of stdout and stderr frames", () => {
+    const { decodeDockerLogBuffer } = jest.requireActual("./docker.client");
+    const multiplexed = Buffer.concat([
+      frame(1, "line one (stdout)\n"),
+      frame(2, "line two (stderr)\n"),
+      frame(1, "line three (stdout)\n"),
+    ]);
+    expect(decodeDockerLogBuffer(multiplexed)).toBe(
+      "line one (stdout)\nline two (stderr)\nline three (stdout)\n"
+    );
+  });
+
+  test("passes through raw (TTY) output without multiplex headers", () => {
+    const { decodeDockerLogBuffer } = jest.requireActual("./docker.client");
+    expect(decodeDockerLogBuffer(Buffer.from("plain text log\n", "utf8"))).toBe(
+      "plain text log\n"
+    );
+  });
+
+  test("handles empty buffers", () => {
+    const { decodeDockerLogBuffer } = jest.requireActual("./docker.client");
+    expect(decodeDockerLogBuffer(Buffer.alloc(0))).toBe("");
+  });
+});
+
+describe("describeDockerConnectivityError", () => {
+  test("maps socket errors to an actionable daemon-unreachable message", () => {
+    const { describeDockerConnectivityError } = jest.requireActual("./docker.client");
+    const err = Object.assign(new Error("connect ENOENT /var/run/docker.sock"), {
+      code: "ENOENT",
+    });
+    expect(describeDockerConnectivityError(err)).toMatch(/Docker daemon is not reachable/);
+    expect(describeDockerConnectivityError(err)).toMatch(/DOCKER_HOST/);
+  });
+
+  test("passes through unrelated errors", () => {
+    const { describeDockerConnectivityError } = jest.requireActual("./docker.client");
+    expect(describeDockerConnectivityError(new Error("kaboom"))).toBe("kaboom");
+  });
+});
