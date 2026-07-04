@@ -39,6 +39,20 @@ export class LocalStackLogRetriever {
         timeout: 30000,
       });
 
+      if (cmd.error || cmd.exitCode !== 0) {
+        const details = [cmd.stderr, cmd.stdout, cmd.error?.message]
+          .filter((part) => part && part.trim())
+          .join("\n");
+        return {
+          success: false,
+          logs: [],
+          totalLines: 0,
+          errorMessage: details
+            ? `Failed to retrieve logs: ${details}`
+            : "Failed to retrieve logs from the LocalStack CLI.",
+        };
+      }
+
       if (!cmd.stdout && cmd.stderr) {
         return {
           success: false,

@@ -49,16 +49,21 @@ export async function checkPrereqs(method: InstallMethod): Promise<PrereqResult[
   const results: PrereqResult[] = [];
 
   const dockerPromise = dockerStatus();
-  const localstackPromise =
-    method === "npx" ? commandWorks("localstack", ["--version"]) : Promise.resolve(false);
+  const lifecycleCliPromise =
+    method === "npx"
+      ? Promise.all([
+          commandWorks("localstack", ["--version"]),
+          commandWorks("lstk", ["--version"]),
+        ]).then(([localstackOk, lstkOk]) => localstackOk || lstkOk)
+      : Promise.resolve(false);
 
   if (method === "npx") {
     results.push(checkNodeVersion());
     results.push({
-      name: "LocalStack CLI",
-      ok: await localstackPromise,
+      name: "LocalStack lifecycle CLI",
+      ok: await lifecycleCliPromise,
       fatal: false,
-      hint: "install it with `brew install localstack/tap/localstack-cli` or `pip install localstack` — needed by the lifecycle tools",
+      hint: "install either `localstack` (`brew install localstack/tap/localstack-cli` or `pip install localstack`) or `lstk` — needed when the MCP server starts or restarts LocalStack",
     });
   }
 
