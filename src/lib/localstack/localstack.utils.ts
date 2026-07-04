@@ -103,25 +103,21 @@ export async function detectLifecycleCli(
  */
 export async function checkSnowflakeCli(): Promise<SnowflakeCliCheckResult> {
   try {
-    const help = await runCommand("snow", ["--help"], cliSpawnOptions(SNOWFLAKE_CLI_CHECK_TIMEOUT));
-    if (help.error || help.exitCode !== 0) {
-      throw help.error || new Error(help.stderr || `snow --help exited with code ${help.exitCode}`);
-    }
-    const {
-      stdout: version,
-      error,
-      exitCode,
-      stderr,
-    } = await runCommand("snow", ["--version"], cliSpawnOptions(SNOWFLAKE_CLI_CHECK_TIMEOUT));
+    const { stdout, error, exitCode, stderr } = await runCommand(
+      "snow",
+      ["--version"],
+      cliSpawnOptions(SNOWFLAKE_CLI_CHECK_TIMEOUT)
+    );
     if (error || exitCode !== 0) {
       throw error || new Error(stderr || `snow --version exited with code ${exitCode}`);
     }
 
     return {
       isAvailable: true,
-      version: version.trim(),
+      version: stdout.trim(),
     };
   } catch (error) {
+    const details = error instanceof Error ? error.message : String(error);
     return {
       isAvailable: false,
       errorMessage: `❌ Snowflake CLI (snow) is not installed or not available in PATH.
@@ -133,7 +129,9 @@ Installation options:
 - Using pip: pip install snowflake-cli-labs
 - Using Homebrew (macOS): brew install snowflake-cli
 
-After installation, make sure the 'snow' command is available in your PATH.`,
+After installation, make sure the 'snow' command is available in your PATH.${
+        details.trim() ? `\n\nDetails: ${details.trim()}` : ""
+      }`,
     };
   }
 }
