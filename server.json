@@ -12,7 +12,9 @@
     {
       "src": "https://raw.githubusercontent.com/localstack/localstack-mcp-server/main/icon.png",
       "mimeType": "image/png",
-      "sizes": ["256x256"]
+      "sizes": [
+        "256x256"
+      ]
     }
   ],
   "packages": [
@@ -101,6 +103,41 @@
           "format": "string",
           "isSecret": false,
           "name": "APP_INSPECTOR"
+        },
+        {
+          "description": "Docker image the management start action launches for the AWS stack (LOCALSTACK_IMAGE_NAME wins over IMAGE_NAME). Defaults to localstack/localstack-pro:latest.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "LOCALSTACK_IMAGE_NAME"
+        },
+        {
+          "description": "Host directory mounted at /var/lib/localstack in the LocalStack container. Defaults to the per-OS cache path the LocalStack CLI used; inside Docker it defaults to the localstack-mcp named volume.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "LOCALSTACK_VOLUME_DIR"
+        },
+        {
+          "description": "Override the gateway port bindings for the start action (comma-separated [host]:port entries). When set, the implicit 443 binding is skipped.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "GATEWAY_LISTEN"
+        },
+        {
+          "description": "Explicit LocalStack container name for Docker-based tools and the container created by start. Defaults to localstack-main (auto-detection covers common names).",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "MAIN_CONTAINER_NAME"
+        },
+        {
+          "description": "Docker daemon endpoint used for all container operations (unix://, npipe://, tcp://). Defaults to the platform's standard socket.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "DOCKER_HOST"
         }
       ]
     }

@@ -71,8 +71,8 @@ This server provides your AI with dedicated tools for managing your LocalStack e
 | [`localstack-chaos-injector`](./src/tools/localstack-chaos-injector.ts)           | Injects and manages chaos experiment faults for system resilience testing  | - Inject, add, remove, and clear service fault rules<br/>- Configure network latency effects<br/>- Comprehensive fault targeting by service, region, and operation<br/>- Built-in workflow guidance for chaos experiments<br/>- Requires a valid LocalStack Auth Token                                                                                                                                                                                               |
 | [`localstack-cloud-pods`](./src/tools/localstack-cloud-pods.ts)                   | Manages remote LocalStack Cloud Pods for development workflows             | - Save current state as a Cloud Pod<br/>- Load previously saved Cloud Pods instantly<br/>- Delete Cloud Pods from remote cloud-backed storage<br/>- Use this for managed remote state snapshots, not local export/import files<br/>- Requires a valid LocalStack Auth Token                                                                                                                                                                                          |
 | [`localstack-state-management`](./src/tools/localstack-state-management.ts)       | Manages local file-based LocalStack state export/import workflows          | - Export LocalStack state to a local file on disk through the LocalStack State REST API<br/>- Import LocalStack state from a local file<br/>- Inspect current LocalStack state as JSON metamodel data<br/>- Reset all state or only selected services<br/>- Supports service-level granularity for export, reset, and inspect<br/>- Use this for local disk workflows; use Cloud Pods for remote cloud-backed snapshots<br/>- Requires a valid LocalStack Auth Token |
-| [`localstack-extensions`](./src/tools/localstack-extensions.ts)                   | Installs, uninstalls, lists, and discovers LocalStack Extensions           | - Manage installed extensions via CLI actions (`list`, `install`, `uninstall`)<br/>- Browse the LocalStack Extensions marketplace (`available`)<br/>- Requires a valid LocalStack Auth Token                                                                                                                                                                                                                                                                         |
-| [`localstack-ephemeral-instances`](./src/tools/localstack-ephemeral-instances.ts) | Manages cloud-hosted LocalStack Ephemeral Instances                        | - Create temporary cloud-hosted LocalStack instances and get an endpoint URL<br/>- List available ephemeral instances, fetch logs, and delete instances<br/>- Supports lifetime, extension preload, Cloud Pod preload, and custom env vars on create<br/>- Requires a valid LocalStack Auth Token and LocalStack CLI                                                                                                                                                 |
+| [`localstack-extensions`](./src/tools/localstack-extensions.ts)                   | Installs, uninstalls, lists, and discovers LocalStack Extensions           | - Manage installed extensions (`list`, `install`, `uninstall`) inside the running container<br/>- Browse the LocalStack Extensions marketplace (`available`)<br/>- Requires a valid LocalStack Auth Token                                                                                                                                                                                                                                                                         |
+| [`localstack-ephemeral-instances`](./src/tools/localstack-ephemeral-instances.ts) | Manages cloud-hosted LocalStack Ephemeral Instances                        | - Create temporary cloud-hosted LocalStack instances and get an endpoint URL<br/>- List available ephemeral instances, fetch logs, and delete instances<br/>- Supports lifetime, extension preload, Cloud Pod preload, and custom env vars on create<br/>- Requires a valid LocalStack Auth Token (talks to the LocalStack platform API directly)                                                                                                                                                 |
 | [`localstack-aws-client`](./src/tools/localstack-aws-client.ts)                   | Runs AWS CLI commands inside the LocalStack for AWS container              | - Executes commands via `awslocal` inside the running container<br/>- Sanitizes commands to block shell chaining<br/>- Auto-detects LocalStack coverage errors and links to docs                                                                                                                                                                                                                                                                                     |
 | [`localstack-aws-replicator`](./src/tools/localstack-aws-replicator.ts)           | Replicates external AWS resources into a running LocalStack instance       | - Start single-resource replication jobs with a resource type and identifier or ARN<br/>- Start batch replication jobs, such as SSM parameters under a path prefix<br/>- Poll job status by job ID and list existing jobs<br/>- List resource types supported by the running Replicator extension<br/>- Reads source AWS credentials from the MCP server environment and supports optional target account or region overrides                                        |
 | [`localstack-app-inspector`](./src/tools/localstack-app-inspector.ts)             | Inspects LocalStack application traces, spans, events, and IAM evaluations | - Enable or disable App Inspector for the running LocalStack instance<br/>- List and inspect traces to understand AWS service-to-service flows<br/>- Drill into spans, events, payload metadata, and IAM policy evaluation events<br/>- Filter by service, region, operation, resource, ARN, status, and time range<br/>- Requires a valid LocalStack Auth Token and the App Inspector feature in the connected LocalStack license                                   |
@@ -100,7 +100,7 @@ npx -y @localstack/localstack-mcp-server init
 The wizard:
 
 - lets you choose how to run the server (`npx` on your machine, or the self-contained Docker image),
-- checks the prerequisites (Node.js, a LocalStack lifecycle CLI, Docker) and tells you how to fix anything missing,
+- checks the prerequisites (Node.js, Docker) and tells you how to fix anything missing,
 - picks up your `LOCALSTACK_AUTH_TOKEN` from the environment, or asks for it,
 - lets you pass extra LocalStack config (e.g. `DEBUG=1,PERSISTENCE=1`),
 - detects your installed MCP clients (Cursor, Antigravity, Claude Code, Claude Desktop, VS Code, Codex, OpenCode, Amazon Q CLI) and writes the right configuration for each one you select.
@@ -121,7 +121,7 @@ Run `npx -y @localstack/localstack-mcp-server init --help` for all options.
 
 ### Prerequisites
 
-- A LocalStack lifecycle CLI (`localstack` or `lstk`) and Docker installed in your system path if you want the MCP server to start or restart LocalStack
+- Docker installed and running — the MCP server manages the LocalStack container directly through the Docker API (no LocalStack CLI needed)
 - [`cdklocal`](https://github.com/localstack/aws-cdk-local), [`tflocal`](https://github.com/localstack/terraform-local), or [`samlocal`](https://github.com/localstack/aws-sam-cli-local) installed in your system path if you want to deploy CDK, Terraform, or SAM projects
 - Snowflake CLI (`snow`) installed in your system path if you want to use the Snowflake tool
 - A [valid LocalStack Auth Token](https://docs.localstack.cloud/aws/getting-started/auth-token/) configured as `LOCALSTACK_AUTH_TOKEN` (**required for all MCP tools**)
@@ -129,7 +129,7 @@ Run `npx -y @localstack/localstack-mcp-server init --help` for all options.
 
 ### Run with npx
 
-Add the following to your MCP client's configuration file (e.g., `~/.cursor/mcp.json`). This configuration uses `npx` to run the server, which will automatically download and install the package if needed. LocalStack and any deployment CLIs used by tools run from your host PATH.
+Add the following to your MCP client's configuration file (e.g., `~/.cursor/mcp.json`). This configuration uses `npx` to run the server, which will automatically download and install the package if needed. The server manages LocalStack through your Docker daemon; any deployment CLIs used by tools run from your host PATH.
 
 ```json
 {
@@ -167,7 +167,7 @@ If you installed from source, change `command` and `args` to point to your local
 
 ### Run with Docker
 
-The `localstack/localstack-mcp-server` Docker image bundles the LocalStack CLI, `awslocal`, Terraform/`tflocal`, CDK/`cdklocal`, SAM/`samlocal`, Snowflake CLI, and Docker CLI. The only required host dependency is Docker. The container uses the mounted Docker socket to run LocalStack as a sibling container on the host.
+The `localstack/localstack-mcp-server` Docker image bundles Terraform/`tflocal`, CDK/`cdklocal`, SAM/`samlocal`, and the Snowflake CLI. The only required host dependency is Docker. The container uses the mounted Docker socket to run LocalStack as a sibling container on the host; state lives in a named Docker volume (`localstack-mcp`) unless `LOCALSTACK_VOLUME_DIR` points at a host directory.
 
 If you use the deployer tool with local Terraform, CDK, or SAM projects, bind-mount those project paths into the MCP container and pass the in-container path to the tool. The simplest convention is to mount projects at the same absolute path they use on the host.
 
@@ -179,8 +179,6 @@ If you use the deployer tool with local Terraform, CDK, or SAM projects, bind-mo
       "args": [
         "run", "-i", "--rm",
         "-v", "/var/run/docker.sock:/var/run/docker.sock",
-        "-v", "/Users/you/.localstack-mcp:/Users/you/.localstack-mcp",
-        "-e", "XDG_CACHE_HOME=/Users/you/.localstack-mcp",
         "--add-host", "host.docker.internal:host-gateway",
         "--add-host", "s3.host.docker.internal:host-gateway",
         "--add-host", "snowflake.localhost.localstack.cloud:host-gateway",
@@ -203,11 +201,24 @@ See **[docs/DOCKER.md](./docs/DOCKER.md)** for the run command, MCP client confi
 | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
 | `LOCALSTACK_AUTH_TOKEN` (**required**)                         | The LocalStack Auth Token to use for the MCP server                                                                                                                                                                     | None          |
 | `MAIN_CONTAINER_NAME`                                          | The explicit LocalStack container name to use for Docker-based tools. When unset, the server auto-detects standard LocalStack containers such as `localstack-main` and `localstack-aws`, then LocalStack Docker images. | Auto-detect   |
+| `LOCALSTACK_IMAGE_NAME` / `IMAGE_NAME`                        | Docker image the `start` action launches for the AWS stack. `LOCALSTACK_IMAGE_NAME` wins when both are set (beware: bare `IMAGE_NAME` is a common CI variable).                                                          | `localstack/localstack-pro:latest` |
+| `LOCALSTACK_VOLUME_DIR`                                        | Host directory mounted at `/var/lib/localstack` in the LocalStack container. Defaults to the same per-OS cache path the LocalStack CLI used (state carries over); inside Docker it defaults to the `localstack-mcp` named volume. | Per-OS cache dir |
+| `GATEWAY_LISTEN`                                               | Override the gateway port bindings for `start` (comma-separated `[host]:port`). When set, the implicit `443` binding is skipped.                                                                                           | `:4566,:443` |
+| `DOCKER_HOST`                                                  | Docker daemon endpoint used for all container operations (`unix://`, `npipe://`, `tcp://`).                                                                                                                                | Platform default socket |
 | `MCP_ANALYTICS_DISABLED`                                       | Disable MCP analytics when set to `1`                                                                                                                                                                                   | `0`           |
 | `APP_INSPECTOR`                                                | Set to `1` in the LocalStack container environment to enable App Inspector by default across restarts. The MCP tool can also toggle App Inspector at runtime with `set-status`.                                         | `0`           |
 | `AWS_ACCESS_KEY_ID` (**required for AWS Replicator tool**)     | Source AWS access key used by AWS Replicator to read external AWS resources                                                                                                                                             | None          |
 | `AWS_SECRET_ACCESS_KEY` (**required for AWS Replicator tool**) | Source AWS secret access key used by AWS Replicator to read external AWS resources                                                                                                                                      | None          |
 | `AWS_DEFAULT_REGION` (**required for AWS Replicator tool**)    | Source AWS region used by AWS Replicator                                                                                                                                                                                | None          |
+
+### Migration notes (CLI-free lifecycle)
+
+Since v0.6.0 the MCP server no longer uses (or requires) the `localstack`/`lstk` CLI — the LocalStack container is created directly through the Docker Engine API. Behavioral differences from CLI-driven starts:
+
+- `~/.localstack/*.env` config profiles and `DOCKER_FLAGS` are **not** read at start. Pass configuration through the `envVars` argument of the `localstack-management` start action, or set `LOCALSTACK_`-prefixed variables in the MCP server's environment (LocalStack aliases `LOCALSTACK_<NAME>` to `<NAME>` natively).
+- Besides `LOCALSTACK_*`/`PROVIDER_OVERRIDE_*`, only a curated set of common unprefixed config variables is forwarded from the host environment (`DEBUG`, `LS_LOG`, `SERVICES`, `PERSISTENCE`, `EAGER_SERVICE_LOADING`, `ENFORCE_IAM`, `IAM_SOFT_MODE`, `EXTENSION_AUTO_INSTALL`, `APP_INSPECTOR`, `DNS_ADDRESS`, `MAIN_DOCKER_NETWORK`, and the `LAMBDA_*`/`CFN_*`/`SNOWFLAKE_*`/`SF_*` families).
+- Port 443 is published by default (matching the current LocalStack CLI). If something else uses port 443 locally, set `GATEWAY_LISTEN=:4566` to skip it.
+- If you previously used `lstk`, note the container the server creates is named `localstack-main` (externally started `localstack-aws` containers are still detected and managed; `restart` preserves their name, image, and volume).
 
 For AWS Replicator-specific source credentials, you can use the `AWS_REPLICATOR_SOURCE_` prefixed variants instead of the unprefixed variants. Do not mix the prefixed and unprefixed source credential groups; when any `AWS_REPLICATOR_SOURCE_` variable is set, the Replicator tool reads the source configuration only from that group.
 
