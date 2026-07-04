@@ -7,6 +7,7 @@ export interface InitFlags {
   clients?: ClientId[];
   token?: string;
   config?: string;
+  /** Deprecated: accepted for backward compatibility, ignored. */
   cacheDir?: string;
   workspace?: string;
   imageTag?: string;

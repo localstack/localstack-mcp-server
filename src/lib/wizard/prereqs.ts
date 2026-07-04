@@ -49,22 +49,9 @@ export async function checkPrereqs(method: InstallMethod): Promise<PrereqResult[
   const results: PrereqResult[] = [];
 
   const dockerPromise = dockerStatus();
-  const lifecycleCliPromise =
-    method === "npx"
-      ? Promise.all([
-          commandWorks("localstack", ["--version"]),
-          commandWorks("lstk", ["--version"]),
-        ]).then(([localstackOk, lstkOk]) => localstackOk || lstkOk)
-      : Promise.resolve(false);
 
   if (method === "npx") {
     results.push(checkNodeVersion());
-    results.push({
-      name: "LocalStack lifecycle CLI",
-      ok: await lifecycleCliPromise,
-      fatal: false,
-      hint: "install either `localstack` (`brew install localstack/tap/localstack-cli` or `pip install localstack`) or `lstk` — needed when the MCP server starts or restarts LocalStack",
-    });
   }
 
   const { installed: dockerInstalled, running: dockerRunning } = await dockerPromise;
@@ -72,8 +59,8 @@ export async function checkPrereqs(method: InstallMethod): Promise<PrereqResult[
   results.push({
     name: "Docker CLI",
     ok: dockerInstalled,
-    // Without Docker the docker-run config can never work; npx setups only
-    // need it later, at container start.
+    // Without Docker the docker-run config can never work; npx setups need the
+    // daemon too — the server drives the LocalStack container via the Docker API.
     fatal: method === "docker",
     hint: "install Docker from https://docs.docker.com/get-docker/",
   });
