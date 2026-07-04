@@ -13,8 +13,6 @@
  *   node tests/docker/validate-image.mjs -- \
  *     docker run -i --rm \
  *       -v /var/run/docker.sock:/var/run/docker.sock \
- *       -v "$HOME/.localstack-mcp:$HOME/.localstack-mcp" \
- *       -e XDG_CACHE_HOME="$HOME/.localstack-mcp" \
  *       --add-host host.docker.internal:host-gateway \
  *       --add-host s3.host.docker.internal:host-gateway \
  *       --add-host snowflake.localhost.localstack.cloud:host-gateway \
@@ -22,10 +20,9 @@
  *       -v "$PWD/data:/work/data" \
  *       localstack/localstack-mcp-server:dev
  *
- * The cache bind mount + XDG_CACHE_HOME are required for the management tool's
- * `start` action under Docker-out-of-Docker: `localstack start` asks the HOST
- * daemon to bind-mount its license/machine/volume files, whose source paths must
- * exist at an identical path on the host (see docs/DOCKER.md).
+ * The server creates the LocalStack sibling container itself through the mounted
+ * Docker socket; state lives in a named Docker volume by default (set
+ * LOCALSTACK_VOLUME_DIR to a HOST path to use a bind mount instead).
  *
  * Env knobs:
  *   HARNESS_DEPLOY_DIR   In-container path to the terraform sample (default /work/data/sample-terraform)
@@ -235,7 +232,7 @@ async function main() {
     } catch (e) { record("docs", "localstack-docs", false, String(e.message)); }
   }
 
-  // 4. management status (pre-start) — validates CLI + docker socket reachability
+  // 4. management status (pre-start) — validates gateway probe + docker socket reachability
   if (!SKIP.has("status")) {
     try {
       const r = await callTool("localstack-management", { action: "status" }, 60000);
