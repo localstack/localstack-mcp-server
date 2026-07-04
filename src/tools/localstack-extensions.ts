@@ -1,16 +1,30 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
-import { HttpClient, HttpError } from "../core/http-client";
-import { runCommand, stripAnsiCodes } from "../core/command-runner";
 import {
   runPreflights,
   requireLocalStackRunning,
   requireProFeature,
   requireAuthToken,
+  requireDockerDaemon,
 } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { ProFeature } from "../lib/localstack/license-checker";
 import { withToolAnalytics } from "../core/analytics";
+import { DockerApiClient } from "../lib/docker/docker.client";
+import { restartRuntimeInPlace } from "../lib/localstack/localstack.utils";
+import {
+  EXTENSIONS_MANAGER_COMMAND,
+  EXTENSIONS_VENV_REPAIR_SCRIPT,
+  formatInstalledExtensions,
+  parseExtensionEvents,
+  parseInstalledExtensions,
+  summarizeInstall,
+  summarizeUninstall,
+  type ExtensionOutcome,
+} from "../lib/localstack/extensions.logic";
+import { PlatformApiClient, describePlatformError } from "../lib/localstack/platform.client";
+
+const EXTENSION_EXEC_TIMEOUT_MS = 120000;
 
 export const schema = {
   action: z
@@ -43,25 +57,23 @@ export const metadata: ToolMetadata = {
   },
 };
 
-interface MarketplaceExtension {
-  name?: string;
-  summary?: string;
-  description?: string;
-  author?: string;
-  version?: string;
-}
-
 export default async function localstackExtensions({
   action,
   name,
   source,
 }: InferSchema<typeof schema>) {
   return withToolAnalytics("localstack-extensions", { action, name, source }, async () => {
-    const checks = [
-      requireAuthToken(),
-      requireLocalStackRunning(),
-      requireProFeature(ProFeature.EXTENSIONS),
-    ];
+    // `available` only needs the platform API; the container-touching actions need a
+    // running LocalStack (the extension manager runs inside it) + the Docker daemon.
+    const checks =
+      action === "available"
+        ? [requireAuthToken()]
+        : [
+            requireAuthToken(),
+            requireDockerDaemon(),
+            requireLocalStackRunning(),
+            requireProFeature(ProFeature.EXTENSIONS),
+          ];
 
     const preflightError = await runPreflights(checks);
     if (preflightError) return preflightError;
@@ -81,40 +93,66 @@ export default async function localstackExtensions({
   });
 }
 
-function cleanOutput(stdout: string, stderr: string) {
-  return {
-    stdout: stripAnsiCodes(stdout || "").trim(),
-    stderr: stripAnsiCodes(stderr || "").trim(),
-  };
+/**
+ * Run the extension manager module inside the running LocalStack container. The
+ * manager pip-installs into the extensions venv on /var/lib/localstack — the exact
+ * mechanism the `localstack extensions` CLI used, minus the throwaway container.
+ * DEBUG=0 keeps the JSON-lines event stream free of runtime debug logging.
+ */
+async function runExtensionManager(args: string[], { repairVenv = false } = {}) {
+  const docker = new DockerApiClient();
+  const containerId = await docker.findLocalStackContainer();
+  if (repairVenv) {
+    await docker.executeInContainer(containerId, ["sh", "-c", EXTENSIONS_VENV_REPAIR_SCRIPT], undefined, {
+      env: ["DEBUG=0"],
+      timeoutMs: EXTENSION_EXEC_TIMEOUT_MS,
+    });
+  }
+  return await docker.executeInContainer(
+    containerId,
+    [...EXTENSIONS_MANAGER_COMMAND, ...args],
+    undefined,
+    { env: ["DEBUG=0"], timeoutMs: EXTENSION_EXEC_TIMEOUT_MS }
+  );
 }
 
-function combineOutput(stdout: string, stderr: string): string {
-  return [stdout, stderr].filter((part) => part.trim().length > 0).join("\n").trim();
+function outcomeSummaryBlock(outcome: ExtensionOutcome): string {
+  return outcome.summaryLines.length
+    ? `\n\n\`\`\`\n${outcome.summaryLines.join("\n")}\n\`\`\``
+    : "";
+}
+
+/** Activate an install/uninstall by restarting the runtime in place. */
+async function activationSuffix(): Promise<string> {
+  const restart = await restartRuntimeInPlace();
+  if (restart.ok) {
+    return "\n\nLocalStack was restarted to activate the change. ✅";
+  }
+  return `\n\n⚠️ LocalStack restart did not confirm readiness: ${restart.detail} Please verify LocalStack status.`;
 }
 
 async function handleList() {
-  const cmd = await runCommand("localstack", ["extensions", "list"], {
-    env: { ...process.env },
-  });
-  const cleaned = cleanOutput(cmd.stdout, cmd.stderr);
-  const combined = combineOutput(cleaned.stdout, cleaned.stderr);
-  const combinedLower = combined.toLowerCase();
-
-  if (cmd.exitCode !== 0 && !combined) {
-    return ResponseBuilder.error("List Failed", cleaned.stderr || "Failed to list installed extensions.");
-  }
-
-  const looksEmpty =
-    !combined ||
-    combinedLower.includes("no extensions installed") ||
-    combinedLower.includes("no extension installed");
-  if (looksEmpty) {
-    return ResponseBuilder.markdown(
-      "No LocalStack extensions are currently installed.\n\nUse the `available` action to browse the marketplace."
+  let result;
+  try {
+    result = await runExtensionManager(["list"]);
+  } catch (error) {
+    return ResponseBuilder.error(
+      "List Failed",
+      `Could not run the extension manager in the LocalStack container: ${
+        error instanceof Error ? error.message : String(error)
+      }`
     );
   }
 
-  return ResponseBuilder.markdown(`## Installed LocalStack Extensions\n\n\`\`\`\n${combined}\n\`\`\``);
+  const extensions = parseInstalledExtensions(result.stdout);
+  if (extensions.length === 0 && result.exitCode !== 0) {
+    return ResponseBuilder.error(
+      "List Failed",
+      result.stderr || result.stdout || "Failed to list installed extensions."
+    );
+  }
+
+  return ResponseBuilder.markdown(formatInstalledExtensions(extensions));
 }
 
 async function handleInstall(name?: string, source?: string) {
@@ -128,60 +166,43 @@ async function handleInstall(name?: string, source?: string) {
   }
 
   const target = source || name!;
-  const cmd = await runCommand("localstack", ["extensions", "install", target], {
-    env: { ...process.env },
-    timeout: 120000,
-  });
-  const cleaned = cleanOutput(cmd.stdout, cmd.stderr);
-  const combined = combineOutput(cleaned.stdout, cleaned.stderr);
-  const combinedLower = combined.toLowerCase();
-
-  if (combinedLower.includes("could not resolve package")) {
-    return ResponseBuilder.error(
-      "Extension Not Found",
-      `Could not resolve the extension package '${name || target}'. Please verify it exists on PyPI, or provide a git repository URL using the source parameter.`
-    );
-  }
-
-  if (combinedLower.includes("no module named 'localstack.pro'")) {
-    return ResponseBuilder.error(
-      "Auth Token Required",
-      "LocalStack Pro modules are not available. Ensure LOCALSTACK_AUTH_TOKEN is set correctly and LocalStack is running with a valid license."
-    );
-  }
-
-  if (
-    combinedLower.includes("non-zero exit status") ||
-    combinedLower.includes("returned non-zero")
-  ) {
+  let result;
+  try {
+    result = await runExtensionManager(["install", target], { repairVenv: true });
+  } catch (error) {
     return ResponseBuilder.error(
       "Install Failed",
-      "The extension could not be installed from the provided source. The repository may not contain valid LocalStack extension code. Run the command again with --verbose for more details, or check that the repository contains a proper LocalStack extension."
+      `Could not run the extension manager in the LocalStack container: ${
+        error instanceof Error ? error.message : String(error)
+      }`
     );
   }
 
-  const hasSuccessPattern = combinedLower.includes("extension successfully installed");
-  if (cmd.exitCode !== 0 && !hasSuccessPattern) {
-    return ResponseBuilder.error("Install Failed", cleaned.stderr || "Extension installation failed.");
+  const outcome = summarizeInstall(parseExtensionEvents(result.stdout));
+
+  if (outcome.kind === "not-found") {
+    return ResponseBuilder.error(
+      "Extension Not Found",
+      `Could not resolve the extension package '${target}'. Please verify it exists on PyPI, or provide a git repository URL using the source parameter.`
+    );
+  }
+  if (!outcome.success) {
+    return ResponseBuilder.error(
+      "Install Failed",
+      `${outcome.errorDetail || "Extension installation failed."}${outcomeSummaryBlock(outcome)}`
+    );
   }
 
-  if (hasSuccessPattern || cmd.exitCode === 0) {
-    const restartCmd = await runCommand("localstack", ["restart"], { timeout: 60000 });
-    const restartCleaned = cleanOutput(restartCmd.stdout, restartCmd.stderr);
-    const restartCombined = combineOutput(restartCleaned.stdout, restartCleaned.stderr);
-
-    let response = `## Extension Installation Result\n\n\`\`\`\n${combined || "Extension successfully installed."}\n\`\`\`\n\n`;
-    response += "LocalStack was restarted to activate the extension.";
-    if (restartCombined) {
-      response += `\n\n### Restart Output\n\n\`\`\`\n${restartCombined}\n\`\`\``;
-    }
-    if (restartCmd.exitCode !== 0) {
-      response += "\n\n⚠️ Restart command reported an issue. Please verify LocalStack status.";
-    }
-    return ResponseBuilder.markdown(response);
+  if (outcome.kind === "already-installed") {
+    return ResponseBuilder.markdown(
+      `## Extension Installation Result${outcomeSummaryBlock(outcome)}\n\nThe extension is already installed — no restart needed.`
+    );
   }
 
-  return ResponseBuilder.error("Install Failed", cleaned.stderr || "Extension installation failed.");
+  const restartNote = await activationSuffix();
+  return ResponseBuilder.markdown(
+    `## Extension Installation Result${outcomeSummaryBlock(outcome)}${restartNote}`
+  );
 }
 
 async function handleUninstall(name?: string) {
@@ -192,67 +213,45 @@ async function handleUninstall(name?: string) {
     );
   }
 
-  const cmd = await runCommand("localstack", ["extensions", "uninstall", name], {
-    env: { ...process.env },
-    timeout: 60000,
-  });
-  const cleaned = cleanOutput(cmd.stdout, cmd.stderr);
-  const combined = combineOutput(cleaned.stdout, cleaned.stderr);
-  const combinedLower = combined.toLowerCase();
-
-  if (combinedLower.includes("no module named 'localstack.pro'")) {
+  let result;
+  try {
+    result = await runExtensionManager(["uninstall", name], { repairVenv: true });
+  } catch (error) {
     return ResponseBuilder.error(
-      "Auth Token Required",
-      "LocalStack Pro modules are not available. Ensure LOCALSTACK_AUTH_TOKEN is set correctly and LocalStack is running with a valid license."
+      "Uninstall Failed",
+      `Could not run the extension manager in the LocalStack container: ${
+        error instanceof Error ? error.message : String(error)
+      }`
     );
   }
 
-  const hasSuccessPattern = combinedLower.includes("extension successfully uninstalled");
-  if (cmd.exitCode !== 0 && !hasSuccessPattern) {
-    return ResponseBuilder.error("Uninstall Failed", cleaned.stderr || "Extension uninstallation failed.");
+  const outcome = summarizeUninstall(parseExtensionEvents(result.stdout));
+
+  if (outcome.kind === "not-installed") {
+    return ResponseBuilder.error(
+      "Extension Not Installed",
+      outcome.errorDetail || `Extension '${name}' is not installed.`
+    );
+  }
+  if (!outcome.success) {
+    return ResponseBuilder.error(
+      "Uninstall Failed",
+      `${outcome.errorDetail || "Extension uninstallation failed."}${outcomeSummaryBlock(outcome)}`
+    );
   }
 
-  if (hasSuccessPattern || cmd.exitCode === 0) {
-    const restartCmd = await runCommand("localstack", ["restart"], { timeout: 60000 });
-    const restartCleaned = cleanOutput(restartCmd.stdout, restartCmd.stderr);
-    const restartCombined = combineOutput(restartCleaned.stdout, restartCleaned.stderr);
-
-    let response = `## Extension Uninstall Result\n\n\`\`\`\n${combined || "Extension successfully uninstalled."}\n\`\`\`\n\n`;
-    response += "LocalStack was restarted to apply extension removal.";
-    if (restartCombined) {
-      response += `\n\n### Restart Output\n\n\`\`\`\n${restartCombined}\n\`\`\``;
-    }
-    if (restartCmd.exitCode !== 0) {
-      response += "\n\n⚠️ Restart command reported an issue. Please verify LocalStack status.";
-    }
-    return ResponseBuilder.markdown(response);
-  }
-
-  return ResponseBuilder.error("Uninstall Failed", cleaned.stderr || "Extension uninstallation failed.");
+  const restartNote = await activationSuffix();
+  return ResponseBuilder.markdown(
+    `## Extension Uninstall Result${outcomeSummaryBlock(outcome)}${restartNote}`
+  );
 }
 
 async function handleAvailable() {
   const token = process.env.LOCALSTACK_AUTH_TOKEN!;
-
-  const encoded = Buffer.from(`:${token}`).toString("base64");
-  const client = new HttpClient();
+  const client = new PlatformApiClient(token);
 
   try {
-    const marketplace = await client.request<MarketplaceExtension[]>(
-      "https://api.localstack.cloud/v1/extensions/marketplace",
-      {
-        method: "GET",
-        baseUrl: "",
-        headers: {
-          Authorization: `Basic ${encoded}`,
-          Accept: "application/json",
-        },
-      }
-    );
-
-    if (!Array.isArray(marketplace)) {
-      return ResponseBuilder.error("Marketplace Fetch Failed", "Unexpected marketplace response format.");
-    }
+    const marketplace = await client.getExtensionsMarketplace();
 
     const simplified = marketplace.map((item) => ({
       name: item.name || "unknown-extension",
@@ -268,14 +267,9 @@ async function handleAvailable() {
 
     return ResponseBuilder.markdown(markdown);
   } catch (error) {
-    if (error instanceof HttpError && (error.status === 401 || error.status === 403)) {
-      return ResponseBuilder.error(
-        "Authentication Failed",
-        "Could not fetch the marketplace. Ensure LOCALSTACK_AUTH_TOKEN is set correctly."
-      );
-    }
-
-    const message = error instanceof Error ? error.message : String(error);
-    return ResponseBuilder.error("Marketplace Fetch Failed", message);
+    return ResponseBuilder.error(
+      "Marketplace Fetch Failed",
+      describePlatformError(error, "the extensions marketplace")
+    );
   }
 }

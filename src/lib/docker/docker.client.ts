@@ -298,7 +298,8 @@ export class DockerApiClient {
   async executeInContainer(
     containerId: string,
     command: string[],
-    stdin?: string
+    stdin?: string,
+    options?: { env?: string[]; timeoutMs?: number }
   ): Promise<ContainerExecResult> {
     const container = this.docker.getContainer(containerId);
 
@@ -306,6 +307,7 @@ export class DockerApiClient {
       Cmd: command,
       AttachStdout: true,
       AttachStderr: true,
+      ...(options?.env?.length ? { Env: options.env } : {}),
       ...(stdin ? { AttachStdin: true } : {}),
     });
 
@@ -332,8 +334,21 @@ export class DockerApiClient {
     await new Promise<void>((resolve, reject) => {
       // demux combined docker stream into stdout/stderr
       (this.docker as any).modem.demuxStream(stream as any, stdoutStream, stderrStream);
-      stream.on("end", () => resolve());
-      stream.on("error", (e) => reject(e));
+      let timer: NodeJS.Timeout | undefined;
+      if (options?.timeoutMs) {
+        timer = setTimeout(() => {
+          (stream as unknown as { destroy?: () => void }).destroy?.();
+          reject(new Error(`Container exec timed out after ${options.timeoutMs}ms`));
+        }, options.timeoutMs);
+      }
+      stream.on("end", () => {
+        if (timer) clearTimeout(timer);
+        resolve();
+      });
+      stream.on("error", (e) => {
+        if (timer) clearTimeout(timer);
+        reject(e);
+      });
     });
 
     const inspect = (await exec.inspect()) as { ExitCode: number | null };
