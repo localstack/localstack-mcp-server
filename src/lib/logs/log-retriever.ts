@@ -1,4 +1,7 @@
-import { runCommand } from "../../core/command-runner";
+import {
+  DockerApiClient,
+  isLocalStackContainerNotFoundError,
+} from "../docker/docker.client";
 
 export interface LogEntry {
   timestamp?: string;
@@ -31,40 +34,40 @@ export interface LogRetrievalResult {
  */
 export class LocalStackLogRetriever {
   /**
-   * Retrieve logs from LocalStack
+   * Retrieve logs from the LocalStack container via the Docker Engine API
+   * (equivalent to `docker logs --tail N` on the main container).
    */
   async retrieveLogs(lines: number = 10000, filter?: string): Promise<LogRetrievalResult> {
     try {
-      const cmd = await runCommand("localstack", ["logs", "--tail", String(lines)], {
-        timeout: 30000,
-      });
-
-      if (cmd.error || cmd.exitCode !== 0) {
-        const details = [cmd.stderr, cmd.stdout, cmd.error?.message]
-          .filter((part) => part && part.trim())
-          .join("\n");
+      const docker = new DockerApiClient();
+      let output: string;
+      try {
+        const containerId = await docker.findLocalStackContainer();
+        output = await docker.getContainerLogs(containerId, { tail: lines });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.toLowerCase().includes("timed out")) {
+          return {
+            success: false,
+            logs: [],
+            totalLines: 0,
+            errorMessage:
+              "Log retrieval timed out. LocalStack may be generating large amounts of logs. Try reducing the number of lines or check if LocalStack is experiencing issues.",
+          };
+        }
         return {
           success: false,
           logs: [],
           totalLines: 0,
-          errorMessage: details
-            ? `Failed to retrieve logs: ${details}`
-            : "Failed to retrieve logs from the LocalStack CLI.",
+          errorMessage: isLocalStackContainerNotFoundError(error)
+            ? `Failed to retrieve logs: no running LocalStack container was found. ${message}`
+            : `Failed to retrieve logs from the Docker API: ${message}`,
         };
       }
 
-      if (!cmd.stdout && cmd.stderr) {
-        return {
-          success: false,
-          logs: [],
-          totalLines: 0,
-          errorMessage: `Failed to retrieve logs: ${cmd.stderr}`,
-        };
-      }
-
-      // Split on both LF and CRLF so a trailing \r from Windows child-process
-      // stdout doesn't pollute the parsed line text (fullLine/message).
-      const rawLines = (cmd.stdout || "").split(/\r?\n/).filter((line) => line.trim());
+      // Split on both LF and CRLF so stray \r characters don't pollute the parsed
+      // line text (fullLine/message).
+      const rawLines = (output || "").split(/\r?\n/).filter((line) => line.trim());
       let filteredLines = rawLines;
 
       if (filter) {
@@ -84,23 +87,13 @@ export class LocalStackLogRetriever {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
 
-      if (errorMessage.includes("timeout")) {
+      if (errorMessage.toLowerCase().includes("timed out")) {
         return {
           success: false,
           logs: [],
           totalLines: 0,
           errorMessage:
             "Log retrieval timed out. LocalStack may be generating large amounts of logs. Try reducing the number of lines or check if LocalStack is experiencing issues.",
-        };
-      }
-
-      if (errorMessage.includes("Command failed") || errorMessage.includes("not found")) {
-        return {
-          success: false,
-          logs: [],
-          totalLines: 0,
-          errorMessage:
-            "Unable to execute 'localstack logs' command. Please ensure LocalStack CLI is installed and LocalStack is running.",
         };
       }
 
