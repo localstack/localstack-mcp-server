@@ -103,10 +103,15 @@ async function runExtensionManager(args: string[], { repairVenv = false } = {}) 
   const docker = new DockerApiClient();
   const containerId = await docker.findLocalStackContainer();
   if (repairVenv) {
-    await docker.executeInContainer(containerId, ["sh", "-c", EXTENSIONS_VENV_REPAIR_SCRIPT], undefined, {
-      env: ["DEBUG=0"],
-      timeoutMs: EXTENSION_EXEC_TIMEOUT_MS,
-    });
+    await docker.executeInContainer(
+      containerId,
+      ["sh", "-c", EXTENSIONS_VENV_REPAIR_SCRIPT],
+      undefined,
+      {
+        env: ["DEBUG=0"],
+        timeoutMs: EXTENSION_EXEC_TIMEOUT_MS,
+      }
+    );
   }
   return await docker.executeInContainer(
     containerId,

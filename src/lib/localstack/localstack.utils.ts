@@ -247,35 +247,33 @@ export async function getSnowflakeEmulatorStatus(): Promise<SnowflakeStatusResul
   const body = "{}";
 
   try {
-    const response = await new Promise<{ statusCode: number; body: string }>(
-      (resolve, reject) => {
-        const req = httpRequest(
-          {
-            host,
-            port,
-            path: "/session",
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Host: `${SNOWFLAKE_ROUTING_HOST}:${port}`,
-              "Content-Length": Buffer.byteLength(body),
-            },
-            timeout: SNOWFLAKE_PROBE_TIMEOUT,
+    const response = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
+      const req = httpRequest(
+        {
+          host,
+          port,
+          path: "/session",
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Host: `${SNOWFLAKE_ROUTING_HOST}:${port}`,
+            "Content-Length": Buffer.byteLength(body),
           },
-          (res) => {
-            let data = "";
-            res.on("data", (chunk) => {
-              data += chunk.toString();
-            });
-            res.on("end", () => resolve({ statusCode: res.statusCode || 0, body: data }));
-          }
-        );
-        req.on("timeout", () => req.destroy(new Error("Snowflake health probe timed out")));
-        req.on("error", reject);
-        req.write(body);
-        req.end();
-      }
-    );
+          timeout: SNOWFLAKE_PROBE_TIMEOUT,
+        },
+        (res) => {
+          let data = "";
+          res.on("data", (chunk) => {
+            data += chunk.toString();
+          });
+          res.on("end", () => resolve({ statusCode: res.statusCode || 0, body: data }));
+        }
+      );
+      req.on("timeout", () => req.destroy(new Error("Snowflake health probe timed out")));
+      req.on("error", reject);
+      req.write(body);
+      req.end();
+    });
 
     const output = response.body.trim();
     const isSuccess = /"success"\s*:\s*true/.test(output);
@@ -481,7 +479,9 @@ export async function launchRuntime(
 
     const failureDetails = () => {
       const buffered = logBuffer ? tailLines(logBuffer.getBuffered(), CRASH_LOG_TAIL_LINES) : "";
-      return buffered ? `\n\nContainer logs (last ${CRASH_LOG_TAIL_LINES} lines):\n${buffered}` : "";
+      return buffered
+        ? `\n\nContainer logs (last ${CRASH_LOG_TAIL_LINES} lines):\n${buffered}`
+        : "";
     };
 
     const successResponse = (status: RuntimeStatus) => {

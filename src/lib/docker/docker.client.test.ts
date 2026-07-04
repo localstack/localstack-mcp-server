@@ -436,9 +436,7 @@ describe("decodeDockerLogBuffer", () => {
 
   test("passes through raw (TTY) output without multiplex headers", () => {
     const { decodeDockerLogBuffer } = jest.requireActual("./docker.client");
-    expect(decodeDockerLogBuffer(Buffer.from("plain text log\n", "utf8"))).toBe(
-      "plain text log\n"
-    );
+    expect(decodeDockerLogBuffer(Buffer.from("plain text log\n", "utf8"))).toBe("plain text log\n");
   });
 
   test("handles empty buffers", () => {

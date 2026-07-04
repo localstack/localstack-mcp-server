@@ -82,9 +82,7 @@ const AI_AGENT_DETECTORS: Array<[string, string[]]> = [
 
 export type LocalStackStack = "aws" | "snowflake";
 
-export type VolumeResolution =
-  | { type: "bind"; source: string }
-  | { type: "volume"; name: string };
+export type VolumeResolution = { type: "bind"; source: string } | { type: "volume"; name: string };
 
 export interface GatewayListenEntry {
   host: string;
@@ -163,9 +161,7 @@ export function parseGatewayListen(value: string, defaultIp: string): GatewayLis
     });
 }
 
-export function detectAiAgent(
-  hostEnv: Record<string, string | undefined>
-): string | undefined {
+export function detectAiAgent(hostEnv: Record<string, string | undefined>): string | undefined {
   for (const [agent, markers] of AI_AGENT_DETECTORS) {
     if (markers.some((marker) => hostEnv[marker])) return agent;
   }
@@ -204,7 +200,10 @@ export function resolveVolume({
   }
 
   if (platform === "darwin") {
-    return { type: "bind", source: joinPosix(homedir, "Library", "Caches", "localstack", "volume") };
+    return {
+      type: "bind",
+      source: joinPosix(homedir, "Library", "Caches", "localstack", "volume"),
+    };
   }
   if (platform === "win32") {
     const localAppData = hostEnv.LOCALAPPDATA?.trim() || `${homedir}\\AppData\\Local`;
@@ -214,7 +213,8 @@ export function resolveVolume({
     };
   }
   const cacheHome = hostEnv.XDG_CACHE_HOME?.trim();
-  const cacheBase = cacheHome && cacheHome.startsWith("/") ? cacheHome : joinPosix(homedir, ".cache");
+  const cacheBase =
+    cacheHome && cacheHome.startsWith("/") ? cacheHome : joinPosix(homedir, ".cache");
   return { type: "bind", source: joinPosix(cacheBase, "localstack", "volume") };
 }
 
@@ -268,9 +268,7 @@ function resolvePorts(input: ContainerSpecInput): ResolvedPorts {
     !Number.isInteger(servicePortEnd) ||
     servicePortEnd < servicePortStart
   ) {
-    throw new Error(
-      `Invalid EXTERNAL_SERVICE_PORTS range: ${servicePortStart}-${servicePortEnd}.`
-    );
+    throw new Error(`Invalid EXTERNAL_SERVICE_PORTS range: ${servicePortStart}-${servicePortEnd}.`);
   }
 
   const bindings: PortBindingEntry[] = [];

@@ -31,7 +31,13 @@ export function antigravityConfigPath(ctx: ClientContext): string {
 export function claudeDesktopConfigPath(ctx: ClientContext): string | null {
   const p = pathFor(ctx);
   if (ctx.platform === "darwin") {
-    return p.join(ctx.homeDir, "Library", "Application Support", "Claude", "claude_desktop_config.json");
+    return p.join(
+      ctx.homeDir,
+      "Library",
+      "Application Support",
+      "Claude",
+      "claude_desktop_config.json"
+    );
   }
   if (ctx.platform === "win32") {
     const appData = ctx.env.APPDATA || p.join(ctx.homeDir, "AppData", "Roaming");

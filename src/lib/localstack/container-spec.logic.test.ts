@@ -19,7 +19,12 @@ const baseInput = (overrides: Partial<ContainerSpecInput> = {}): ContainerSpecIn
 });
 
 const envMap = (spec: ReturnType<typeof buildLocalStackContainerSpec>) =>
-  Object.fromEntries(spec.Env.map((entry) => [entry.slice(0, entry.indexOf("=")), entry.slice(entry.indexOf("=") + 1)]));
+  Object.fromEntries(
+    spec.Env.map((entry) => [
+      entry.slice(0, entry.indexOf("=")),
+      entry.slice(entry.indexOf("=") + 1),
+    ])
+  );
 
 describe("resolveImage", () => {
   test("defaults to the pro image for the aws stack", () => {
@@ -189,7 +194,9 @@ describe("buildLocalStackContainerSpec", () => {
 
   test("EXTERNAL_SERVICE_PORTS overrides move both the published range and the env", () => {
     const spec = buildLocalStackContainerSpec(
-      baseInput({ hostEnv: { EXTERNAL_SERVICE_PORTS_START: "4600", EXTERNAL_SERVICE_PORTS_END: "4610" } })
+      baseInput({
+        hostEnv: { EXTERNAL_SERVICE_PORTS_START: "4600", EXTERNAL_SERVICE_PORTS_END: "4610" },
+      })
     );
     expect(spec.HostConfig.PortBindings["4600/tcp"]).toBeDefined();
     expect(spec.HostConfig.PortBindings["4610/tcp"]).toBeDefined();
@@ -286,7 +293,10 @@ describe("buildLocalStackContainerSpec", () => {
 
   test("restart recreation can pin the original image and name", () => {
     const spec = buildLocalStackContainerSpec(
-      baseInput({ imageOverride: "localstack/localstack-pro:3.9", containerNameOverride: "localstack-aws" })
+      baseInput({
+        imageOverride: "localstack/localstack-pro:3.9",
+        containerNameOverride: "localstack-aws",
+      })
     );
     expect(spec.Image).toBe("localstack/localstack-pro:3.9");
     expect(spec.name).toBe("localstack-aws");

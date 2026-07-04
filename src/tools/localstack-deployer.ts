@@ -3,11 +3,7 @@ import { type ToolMetadata, type InferSchema } from "xmcp";
 import { runCommand, stripAnsiCodes } from "../core/command-runner";
 import path from "path";
 import fs from "fs";
-import {
-  runPreflights,
-  requireAuthToken,
-  requireLocalStackRunning,
-} from "../core/preflight";
+import { runPreflights, requireAuthToken, requireLocalStackRunning } from "../core/preflight";
 import { DockerApiClient } from "../lib/docker/docker.client";
 import {
   checkDependencies,
@@ -102,153 +98,161 @@ export default async function localstackDeployer({
 }: InferSchema<typeof schema>) {
   return withToolAnalytics(
     "localstack-deployer",
-    { action, projectType, directory, stackName, templatePath, variables, s3Bucket, resolveS3, saveParams },
+    {
+      action,
+      projectType,
+      directory,
+      stackName,
+      templatePath,
+      variables,
+      s3Bucket,
+      resolveS3,
+      saveParams,
+    },
     async () => {
       const preflightError = await runPreflights([requireAuthToken(), requireLocalStackRunning()]);
       if (preflightError) return preflightError;
 
-  if (action === "create-stack") {
-    if (!stackName) {
-      return ResponseBuilder.error(
-        "Missing Parameter",
-        "The parameter 'stackName' is required for action 'create-stack'."
-      );
-    }
-    let resolvedTemplatePath = templatePath;
-    if (!resolvedTemplatePath) {
-      if (!directory) {
-        return ResponseBuilder.error(
-          "Missing Parameter",
-          "Provide 'templatePath' or a 'directory' containing a single .yaml/.yml CloudFormation template."
-        );
-      }
-      try {
-        const files = await fs.promises.readdir(directory);
-        const yamlFiles = files.filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"));
-        if (yamlFiles.length === 0) {
+      if (action === "create-stack") {
+        if (!stackName) {
           return ResponseBuilder.error(
-            "Template Not Found",
-            `No .yaml/.yml template found in directory '${directory}'.`
+            "Missing Parameter",
+            "The parameter 'stackName' is required for action 'create-stack'."
           );
         }
-        if (yamlFiles.length > 1) {
+        let resolvedTemplatePath = templatePath;
+        if (!resolvedTemplatePath) {
+          if (!directory) {
+            return ResponseBuilder.error(
+              "Missing Parameter",
+              "Provide 'templatePath' or a 'directory' containing a single .yaml/.yml CloudFormation template."
+            );
+          }
+          try {
+            const files = await fs.promises.readdir(directory);
+            const yamlFiles = files.filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"));
+            if (yamlFiles.length === 0) {
+              return ResponseBuilder.error(
+                "Template Not Found",
+                `No .yaml/.yml template found in directory '${directory}'.`
+              );
+            }
+            if (yamlFiles.length > 1) {
+              return ResponseBuilder.error(
+                "Multiple Templates Found",
+                `Multiple .yaml/.yml templates found in '${directory}'. Please specify 'templatePath'.\n\nFound:\n${yamlFiles
+                  .map((f) => `- ${f}`)
+                  .join("\n")}`
+              );
+            }
+            resolvedTemplatePath = path.join(directory, yamlFiles[0]);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return ResponseBuilder.error(
+              "Directory Read Error",
+              `Failed to read directory '${directory}'. ${message}`
+            );
+          }
+        }
+
+        let templateBody = "";
+        try {
+          templateBody = await fs.promises.readFile(resolvedTemplatePath, "utf-8");
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
           return ResponseBuilder.error(
-            "Multiple Templates Found",
-            `Multiple .yaml/.yml templates found in '${directory}'. Please specify 'templatePath'.\n\nFound:\n${yamlFiles
-              .map((f) => `- ${f}`)
-              .join("\n")}`
+            "Template Read Error",
+            `Failed to read template file at '${resolvedTemplatePath}'. ${message}`
           );
         }
-        resolvedTemplatePath = path.join(directory, yamlFiles[0]);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return ResponseBuilder.error(
-          "Directory Read Error",
-          `Failed to read directory '${directory}'. ${message}`
-        );
+
+        try {
+          const dockerClient = new DockerApiClient();
+          const containerId = await dockerClient.findLocalStackContainer();
+
+          const tempPath = `/tmp/ls-cfn-${Date.now()}.yaml`;
+          const writeRes = await dockerClient.executeInContainer(
+            containerId,
+            ["/bin/sh", "-c", `cat > ${tempPath}`],
+            templateBody
+          );
+          if (writeRes.exitCode !== 0) {
+            return ResponseBuilder.error(
+              "Template Upload Failed",
+              writeRes.stderr || `Failed to write template to ${tempPath}`
+            );
+          }
+
+          const createCmd = [
+            "awslocal",
+            "cloudformation",
+            "create-stack",
+            "--stack-name",
+            stackName,
+            "--template-body",
+            `file://${tempPath}`,
+          ];
+          const createRes = await dockerClient.executeInContainer(containerId, createCmd);
+
+          try {
+            await dockerClient.executeInContainer(containerId, [
+              "/bin/sh",
+              "-c",
+              `rm -f ${tempPath}`,
+            ]);
+          } catch {}
+
+          if (createRes.exitCode === 0) {
+            return ResponseBuilder.markdown(
+              createRes.stdout && createRes.stdout.trim()
+                ? createRes.stdout
+                : `Stack '${stackName}' creation initiated.\n\nTip: Use the 'localstack-aws-client' tool with 'cloudformation describe-stacks' to monitor stack status and wait for CREATE_COMPLETE.`
+            );
+          }
+          return ResponseBuilder.error(
+            "CloudFormation create-stack failed",
+            createRes.stderr || "Unknown error"
+          );
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return ResponseBuilder.error(
+            "CloudFormation Error",
+            `An unexpected error occurred: ${errorMessage}`
+          );
+        }
       }
-    }
 
-    let templateBody = "";
-    try {
-      templateBody = await fs.promises.readFile(resolvedTemplatePath, "utf-8");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return ResponseBuilder.error(
-        "Template Read Error",
-        `Failed to read template file at '${resolvedTemplatePath}'. ${message}`
-      );
-    }
-
-    try {
-      const dockerClient = new DockerApiClient();
-      const containerId = await dockerClient.findLocalStackContainer();
-
-      const tempPath = `/tmp/ls-cfn-${Date.now()}.yaml`;
-      const writeRes = await dockerClient.executeInContainer(
-        containerId,
-        ["/bin/sh", "-c", `cat > ${tempPath}`],
-        templateBody
-      );
-      if (writeRes.exitCode !== 0) {
-        return ResponseBuilder.error(
-          "Template Upload Failed",
-          writeRes.stderr || `Failed to write template to ${tempPath}`
-        );
+      if (action === "delete-stack") {
+        if (!stackName) {
+          return ResponseBuilder.error(
+            "Missing Parameter",
+            "The parameter 'stackName' is required for action 'delete-stack'."
+          );
+        }
+        try {
+          const dockerClient = new DockerApiClient();
+          const containerId = await dockerClient.findLocalStackContainer();
+          const command = ["awslocal", "cloudformation", "delete-stack", "--stack-name", stackName];
+          const result = await dockerClient.executeInContainer(containerId, command);
+          if (result.exitCode === 0) {
+            return ResponseBuilder.markdown(
+              result.stdout && result.stdout.trim()
+                ? result.stdout
+                : `Stack '${stackName}' deletion initiated.\n\nTip: Use the 'localstack-aws-client' tool with 'cloudformation describe-stacks' to monitor deletion status until DELETE_COMPLETE.`
+            );
+          }
+          return ResponseBuilder.error(
+            "CloudFormation delete-stack failed",
+            result.stderr || "Unknown error"
+          );
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return ResponseBuilder.error(
+            "CloudFormation Error",
+            `An unexpected error occurred: ${errorMessage}`
+          );
+        }
       }
-
-      const createCmd = [
-        "awslocal",
-        "cloudformation",
-        "create-stack",
-        "--stack-name",
-        stackName,
-        "--template-body",
-        `file://${tempPath}`,
-      ];
-      const createRes = await dockerClient.executeInContainer(containerId, createCmd);
-
-      try {
-        await dockerClient.executeInContainer(containerId, ["/bin/sh", "-c", `rm -f ${tempPath}`]);
-      } catch {}
-
-      if (createRes.exitCode === 0) {
-        return ResponseBuilder.markdown(
-          (createRes.stdout && createRes.stdout.trim())
-            ? createRes.stdout
-            : `Stack '${stackName}' creation initiated.\n\nTip: Use the 'localstack-aws-client' tool with 'cloudformation describe-stacks' to monitor stack status and wait for CREATE_COMPLETE.`
-        );
-      }
-      return ResponseBuilder.error(
-        "CloudFormation create-stack failed",
-        createRes.stderr || "Unknown error"
-      );
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      return ResponseBuilder.error(
-        "CloudFormation Error",
-        `An unexpected error occurred: ${errorMessage}`
-      );
-    }
-  }
-
-  if (action === "delete-stack") {
-    if (!stackName) {
-      return ResponseBuilder.error(
-        "Missing Parameter",
-        "The parameter 'stackName' is required for action 'delete-stack'."
-      );
-    }
-    try {
-      const dockerClient = new DockerApiClient();
-      const containerId = await dockerClient.findLocalStackContainer();
-      const command = [
-        "awslocal",
-        "cloudformation",
-        "delete-stack",
-        "--stack-name",
-        stackName,
-      ];
-      const result = await dockerClient.executeInContainer(containerId, command);
-      if (result.exitCode === 0) {
-        return ResponseBuilder.markdown(
-          (result.stdout && result.stdout.trim())
-            ? result.stdout
-            : `Stack '${stackName}' deletion initiated.\n\nTip: Use the 'localstack-aws-client' tool with 'cloudformation describe-stacks' to monitor deletion status until DELETE_COMPLETE.`
-        );
-      }
-      return ResponseBuilder.error(
-        "CloudFormation delete-stack failed",
-        result.stderr || "Unknown error"
-      );
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      return ResponseBuilder.error(
-        "CloudFormation Error",
-        `An unexpected error occurred: ${errorMessage}`
-      );
-    }
-  }
 
       let resolvedProjectType: "cdk" | "terraform" | "sam";
 
@@ -261,38 +265,41 @@ export default async function localstackDeployer({
         }
         const nonNullDirectory = directory as string;
 
-    // Validate the directory up front; a missing cwd otherwise surfaces as a misleading
-    // "spawn cdklocal/tflocal/samlocal ENOENT". Hint differs by run mode (Docker vs npx).
-    const resolvedDir = path.resolve(nonNullDirectory);
-    const dirExists = await fs.promises.stat(resolvedDir).then((s) => s.isDirectory()).catch(() => false);
-    if (!dirExists) {
-      return ResponseBuilder.error(
-        "Project Directory Not Found",
-        fs.existsSync("/.dockerenv")
-          ? `The directory "${resolvedDir}" was not found inside the container. Bind-mount your project at the same absolute path (\`-v ${resolvedDir}:${resolvedDir}\`) and pass that path as 'directory'.`
-          : `The directory "${resolvedDir}" was not found. Please check the path and try again.`
-      );
-    }
+        // Validate the directory up front; a missing cwd otherwise surfaces as a misleading
+        // "spawn cdklocal/tflocal/samlocal ENOENT". Hint differs by run mode (Docker vs npx).
+        const resolvedDir = path.resolve(nonNullDirectory);
+        const dirExists = await fs.promises
+          .stat(resolvedDir)
+          .then((s) => s.isDirectory())
+          .catch(() => false);
+        if (!dirExists) {
+          return ResponseBuilder.error(
+            "Project Directory Not Found",
+            fs.existsSync("/.dockerenv")
+              ? `The directory "${resolvedDir}" was not found inside the container. Bind-mount your project at the same absolute path (\`-v ${resolvedDir}:${resolvedDir}\`) and pass that path as 'directory'.`
+              : `The directory "${resolvedDir}" was not found. Please check the path and try again.`
+          );
+        }
 
-    // Step 1: Project Type Resolution
-    if (projectType === "auto") {
-      const inferredType = await inferProjectType(nonNullDirectory);
+        // Step 1: Project Type Resolution
+        if (projectType === "auto") {
+          const inferredType = await inferProjectType(nonNullDirectory);
 
-      if (inferredType === "ambiguous") {
-        return ResponseBuilder.error(
-          "Ambiguous Project Type",
-          `The directory "${directory}" contains multiple infrastructure project types. Please specify the project type explicitly:
+          if (inferredType === "ambiguous") {
+            return ResponseBuilder.error(
+              "Ambiguous Project Type",
+              `The directory "${directory}" contains multiple infrastructure project types. Please specify the project type explicitly:
 
 - Use \`projectType: 'cdk'\` to deploy as a CDK project
 - Use \`projectType: 'terraform'\` to deploy as a Terraform project
 - Use \`projectType: 'sam'\` to deploy as a SAM project`
-        );
-      }
+            );
+          }
 
-      if (inferredType === "unknown") {
-        return ResponseBuilder.error(
-          "Unknown Project Type",
-          `The directory "${directory}" does not appear to contain recognizable infrastructure-as-code files.
+          if (inferredType === "unknown") {
+            return ResponseBuilder.error(
+              "Unknown Project Type",
+              `The directory "${directory}" does not appear to contain recognizable infrastructure-as-code files.
 
 Expected files:
 - **CDK**: \`cdk.json\`, \`app.py\`, \`app.js\`, or \`app.ts\`
@@ -300,34 +307,34 @@ Expected files:
 - **SAM**: \`samconfig.toml\` or \`template.yaml/.yml\` with \`AWS::Serverless::*\` resources
 
 Please check the directory path or specify the project type explicitly.`
-        );
-      }
+            );
+          }
 
-      resolvedProjectType = inferredType as "cdk" | "terraform" | "sam";
-    } else {
-      resolvedProjectType = projectType as "cdk" | "terraform" | "sam";
-    }
+          resolvedProjectType = inferredType as "cdk" | "terraform" | "sam";
+        } else {
+          resolvedProjectType = projectType as "cdk" | "terraform" | "sam";
+        }
 
-    // Check Dependencies
-    const dependencyCheck = await checkDependencies(resolvedProjectType);
-    if (!dependencyCheck.isAvailable) {
-      return ResponseBuilder.error("Dependency Not Available", dependencyCheck.errorMessage!);
-    }
+        // Check Dependencies
+        const dependencyCheck = await checkDependencies(resolvedProjectType);
+        if (!dependencyCheck.isAvailable) {
+          return ResponseBuilder.error("Dependency Not Available", dependencyCheck.errorMessage!);
+        }
 
-    // Security Validation
-    const validationErrors = validateVariables(variables);
-    if (validationErrors.length > 0) {
-      return ResponseBuilder.error(
-        "Security Violation Detected",
-        `🛡️ **Security Violation Detected**
+        // Security Validation
+        const validationErrors = validateVariables(variables);
+        if (validationErrors.length > 0) {
+          return ResponseBuilder.error(
+            "Security Violation Detected",
+            `🛡️ **Security Violation Detected**
 
 Command injection attempt prevented. The following issues were found:
 
 ${validationErrors.map((error) => `- ${error}`).join("\n")}
 
 Please review your variables and ensure they don't contain shell metacharacters or invalid identifiers.`
-      );
-    }
+          );
+        }
 
         // Execute Commands Based on Project Type and Action
         return await executeDeploymentCommands(
@@ -394,7 +401,10 @@ async function executeTerraformCommands(
 
   if (action === "deploy") {
     events.push({ type: "header", title: "📦 Initializing Terraform", content: "" });
-    const initRes = await runCommand(baseCommand, ["init"], { cwd: directory, env: buildIacCliEnv() });
+    const initRes = await runCommand(baseCommand, ["init"], {
+      cwd: directory,
+      env: buildIacCliEnv(),
+    });
     events.push({ type: "output", content: stripAnsiCodes(initRes.stdout) });
     if (initRes.stderr) events.push({ type: "warning", content: stripAnsiCodes(initRes.stderr) });
     if (initRes.error) {
@@ -408,7 +418,10 @@ async function executeTerraformCommands(
 
     events.push({ type: "header", title: "🔨 Applying Terraform Configuration", content: "" });
     const applyArgs = ["apply", "-auto-approve", ...varArgs];
-    const applyRes = await runCommand(baseCommand, applyArgs, { cwd: directory, env: buildIacCliEnv() });
+    const applyRes = await runCommand(baseCommand, applyArgs, {
+      cwd: directory,
+      env: buildIacCliEnv(),
+    });
     events.push({ type: "output", content: stripAnsiCodes(applyRes.stdout) });
     if (applyRes.stderr) events.push({ type: "warning", content: stripAnsiCodes(applyRes.stderr) });
     if (applyRes.error) {
@@ -420,7 +433,10 @@ async function executeTerraformCommands(
       return events;
     }
 
-    const outputRes = await runCommand(baseCommand, ["output", "-json"], { cwd: directory, env: buildIacCliEnv() });
+    const outputRes = await runCommand(baseCommand, ["output", "-json"], {
+      cwd: directory,
+      env: buildIacCliEnv(),
+    });
     if (outputRes.stdout.trim()) {
       const parsed = parseTerraformOutputs(outputRes.stdout);
       events.push({ type: "output", content: parsed });
@@ -429,7 +445,10 @@ async function executeTerraformCommands(
   } else {
     events.push({ type: "header", title: "💥 Destroying Terraform Resources", content: "" });
     const destroyArgs = ["destroy", "-auto-approve", ...varArgs];
-    const destroyRes = await runCommand(baseCommand, destroyArgs, { cwd: directory, env: buildIacCliEnv() });
+    const destroyRes = await runCommand(baseCommand, destroyArgs, {
+      cwd: directory,
+      env: buildIacCliEnv(),
+    });
     events.push({ type: "output", content: stripAnsiCodes(destroyRes.stdout) });
     if (destroyRes.stderr)
       events.push({ type: "warning", content: stripAnsiCodes(destroyRes.stderr) });
@@ -514,7 +533,10 @@ async function executeSamCommands(
       buildArgs.push("--template-file", resolvedTemplatePath);
     }
     events.push({ type: "command", content: `${baseCommand} ${buildArgs.join(" ")}` });
-    const buildRes = await runCommand(baseCommand, buildArgs, { cwd: directory, env: buildIacCliEnv() });
+    const buildRes = await runCommand(baseCommand, buildArgs, {
+      cwd: directory,
+      env: buildIacCliEnv(),
+    });
     events.push({ type: "output", content: stripAnsiCodes(buildRes.stdout) });
     if (buildRes.stderr) events.push({ type: "warning", content: stripAnsiCodes(buildRes.stderr) });
     if (buildRes.error) {
@@ -551,7 +573,10 @@ async function executeSamCommands(
       deployArgs.push("--save-params");
     }
     if (variables && Object.keys(variables).length > 0) {
-      deployArgs.push("--parameter-overrides", ...Object.entries(variables).map(([k, v]) => `${k}=${v}`));
+      deployArgs.push(
+        "--parameter-overrides",
+        ...Object.entries(variables).map(([k, v]) => `${k}=${v}`)
+      );
     }
 
     events.push({ type: "command", content: `${baseCommand} ${deployArgs.join(" ")}` });
@@ -560,7 +585,8 @@ async function executeSamCommands(
       env: buildIacCliEnv({ CI: "true" }),
     });
     events.push({ type: "output", content: stripAnsiCodes(deployRes.stdout) });
-    if (deployRes.stderr) events.push({ type: "warning", content: stripAnsiCodes(deployRes.stderr) });
+    if (deployRes.stderr)
+      events.push({ type: "warning", content: stripAnsiCodes(deployRes.stderr) });
     if (deployRes.error) {
       events.push({
         type: "error",
@@ -572,11 +598,22 @@ async function executeSamCommands(
     events.push({ type: "success", content: "SAM application deployed successfully!" });
   } else {
     events.push({ type: "header", title: "💥 Deleting SAM Application", content: "" });
-    const deleteArgs = ["delete", "--no-prompts", "--region", resolvedRegion, "--stack-name", resolvedStackName];
+    const deleteArgs = [
+      "delete",
+      "--no-prompts",
+      "--region",
+      resolvedRegion,
+      "--stack-name",
+      resolvedStackName,
+    ];
     events.push({ type: "command", content: `${baseCommand} ${deleteArgs.join(" ")}` });
-    const deleteRes = await runCommand(baseCommand, deleteArgs, { cwd: directory, env: buildIacCliEnv() });
+    const deleteRes = await runCommand(baseCommand, deleteArgs, {
+      cwd: directory,
+      env: buildIacCliEnv(),
+    });
     events.push({ type: "output", content: stripAnsiCodes(deleteRes.stdout) });
-    if (deleteRes.stderr) events.push({ type: "warning", content: stripAnsiCodes(deleteRes.stderr) });
+    if (deleteRes.stderr)
+      events.push({ type: "warning", content: stripAnsiCodes(deleteRes.stderr) });
     if (deleteRes.error) {
       events.push({
         type: "error",

@@ -1,7 +1,4 @@
-import {
-  DockerApiClient,
-  isLocalStackContainerNotFoundError,
-} from "../docker/docker.client";
+import { DockerApiClient, isLocalStackContainerNotFoundError } from "../docker/docker.client";
 
 export interface LogEntry {
   timestamp?: string;

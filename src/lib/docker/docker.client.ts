@@ -404,7 +404,10 @@ export class DockerApiClient {
           for (const line of lines) {
             if (!line.trim()) continue;
             try {
-              const event = JSON.parse(line) as { error?: string; errorDetail?: { message?: string } };
+              const event = JSON.parse(line) as {
+                error?: string;
+                errorDetail?: { message?: string };
+              };
               if (event.error || event.errorDetail) {
                 pullError = event.error || event.errorDetail?.message || "unknown pull error";
               }
@@ -442,9 +445,7 @@ export class DockerApiClient {
     } catch (error) {
       const statusCode = (error as { statusCode?: number })?.statusCode;
       if (statusCode === 409) {
-        throw new LocalStackContainerConflictError(
-          `A container named "${name}" already exists.`
-        );
+        throw new LocalStackContainerConflictError(`A container named "${name}" already exists.`);
       }
       throw new Error(describeDockerConnectivityError(error));
     }

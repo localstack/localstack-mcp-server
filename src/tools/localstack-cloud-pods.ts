@@ -13,11 +13,7 @@ import { withToolAnalytics } from "../core/analytics";
 
 // Define the schema for tool parameters
 export const schema = {
-  action: z
-    .enum(["save", "load", "delete"])
-    .describe(
-      "The Cloud Pods action to perform."
-    ),
+  action: z.enum(["save", "load", "delete"]).describe("The Cloud Pods action to perform."),
 
   pod_name: z
     .string()

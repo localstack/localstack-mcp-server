@@ -5,8 +5,7 @@ import { runPreflights, requireAuthToken } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { withToolAnalytics } from "../core/analytics";
 
-const CRAWLCHAT_DOCS_ENDPOINT =
-  "https://wings.crawlchat.app/mcp/698f2c11e688991df3c7e020";
+const CRAWLCHAT_DOCS_ENDPOINT = "https://wings.crawlchat.app/mcp/698f2c11e688991df3c7e020";
 
 type CrawlChatDocsResult = {
   content: string;

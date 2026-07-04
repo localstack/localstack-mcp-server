@@ -54,14 +54,14 @@ docker run -i --rm \
   localstack/localstack-mcp-server:latest
 ```
 
-| Flag                                                           | Why it's needed                                                                                                                |
-| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Flag                                                           | Why it's needed                                                                                                               |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | `-v /var/run/docker.sock:/var/run/docker.sock`                 | Lets the server create/stop/restart the sibling LocalStack container, read its logs, and run `awslocal` inside it.            |
 | `--add-host host.docker.internal:host-gateway`                 | Resolves `host.docker.internal` on Linux. Harmless on Docker Desktop (Mac/Windows), where it already resolves.                |
 | `--add-host s3.host.docker.internal:host-gateway`              | Lets CDK's virtual-hosted S3 endpoint resolve when `cdklocal` uses `AWS_ENDPOINT_URL_S3=http://s3.host.docker.internal:4566`. |
 | `--add-host snowflake.localhost.localstack.cloud:host-gateway` | Lets the Snowflake CLI reach the sibling Snowflake emulator through the hostname the emulator expects for routing.            |
-| `-e LOCALSTACK_AUTH_TOKEN`                                     | Required by **every** tool in this server.                                                                                     |
-| `-e LOCALSTACK_HOSTNAME=host.docker.internal`                  | Tells the server + IaC CLIs where the sibling LocalStack lives.                                                                |
+| `-e LOCALSTACK_AUTH_TOKEN`                                     | Required by **every** tool in this server.                                                                                    |
+| `-e LOCALSTACK_HOSTNAME=host.docker.internal`                  | Tells the server + IaC CLIs where the sibling LocalStack lives.                                                               |
 
 ## MCP client configuration
 
@@ -74,19 +74,28 @@ expand `$HOME`/`$PWD` — use absolute paths.
     "localstack-mcp-server": {
       "command": "docker",
       "args": [
-        "run", "-i", "--rm",
-        "-v", "/var/run/docker.sock:/var/run/docker.sock",
-        "--add-host", "host.docker.internal:host-gateway",
-        "--add-host", "s3.host.docker.internal:host-gateway",
-        "--add-host", "snowflake.localhost.localstack.cloud:host-gateway",
-        "-e", "LOCALSTACK_AUTH_TOKEN",
-        "-e", "LOCALSTACK_HOSTNAME=host.docker.internal",
-        "-v", "/Users/you/projects:/Users/you/projects",
-        "localstack/localstack-mcp-server:latest"
+        "run",
+        "-i",
+        "--rm",
+        "-v",
+        "/var/run/docker.sock:/var/run/docker.sock",
+        "--add-host",
+        "host.docker.internal:host-gateway",
+        "--add-host",
+        "s3.host.docker.internal:host-gateway",
+        "--add-host",
+        "snowflake.localhost.localstack.cloud:host-gateway",
+        "-e",
+        "LOCALSTACK_AUTH_TOKEN",
+        "-e",
+        "LOCALSTACK_HOSTNAME=host.docker.internal",
+        "-v",
+        "/Users/you/projects:/Users/you/projects",
+        "localstack/localstack-mcp-server:latest",
       ],
-      "env": { "LOCALSTACK_AUTH_TOKEN": "<YOUR_TOKEN>" }
-    }
-  }
+      "env": { "LOCALSTACK_AUTH_TOKEN": "<YOUR_TOKEN>" },
+    },
+  },
 }
 ```
 
@@ -119,12 +128,12 @@ alias covers bootstrap asset uploads.
 
 ## Troubleshooting
 
-| Symptom                                                                                                     | Cause / fix                                                                                                  |
-| ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Tools report `LocalStack Not Running` after `start`                                                         | Check `LOCALSTACK_HOSTNAME=host.docker.internal` is set and `--add-host` is present (Linux).                 |
-| `Auth Token Required`                                                                                       | `LOCALSTACK_AUTH_TOKEN` must be passed through (every tool requires it).                                     |
-| `Docker Not Available` / daemon unreachable                                                                 | Ensure `/var/run/docker.sock` is mounted (or pass `DOCKER_HOST` for a non-default daemon).                   |
-| `LocalStack container not found` or `Could not find a running LocalStack container named "localstack-main"` | Set `MAIN_CONTAINER_NAME` if you use a custom LocalStack container name.                                     |
+| Symptom                                                                                                     | Cause / fix                                                                                                                                    |
+| ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tools report `LocalStack Not Running` after `start`                                                         | Check `LOCALSTACK_HOSTNAME=host.docker.internal` is set and `--add-host` is present (Linux).                                                   |
+| `Auth Token Required`                                                                                       | `LOCALSTACK_AUTH_TOKEN` must be passed through (every tool requires it).                                                                       |
+| `Docker Not Available` / daemon unreachable                                                                 | Ensure `/var/run/docker.sock` is mounted (or pass `DOCKER_HOST` for a non-default daemon).                                                     |
+| `LocalStack container not found` or `Could not find a running LocalStack container named "localstack-main"` | Set `MAIN_CONTAINER_NAME` if you use a custom LocalStack container name.                                                                       |
 | State disappeared after upgrading the image                                                                 | Old configs stored state under `$XDG_CACHE_HOME/localstack/volume` — keep that env var, or point `LOCALSTACK_VOLUME_DIR` at the old directory. |
 
 ## Validating an image yourself

@@ -10,7 +10,9 @@ export const schema = {
   iac_type: z
     .string()
     .optional()
-    .describe("(Optional) What IaC framework is it? Use auto, cdk, terraform, sam, or cloudformation."),
+    .describe(
+      "(Optional) What IaC framework is it? Use auto, cdk, terraform, sam, or cloudformation."
+    ),
   test_language: z
     .string()
     .optional()
@@ -22,11 +24,15 @@ export const schema = {
   mode: z
     .string()
     .optional()
-    .describe("(Optional) Run validation only, or also write and run tests? Use 'validate-only' or 'full'."),
+    .describe(
+      "(Optional) Run validation only, or also write and run tests? Use 'validate-only' or 'full'."
+    ),
   services_focus: z
     .string()
     .optional()
-    .describe("(Optional) Which AWS services should get extra attention? Example: s3,lambda,dynamodb."),
+    .describe(
+      "(Optional) Which AWS services should get extra attention? Example: s3,lambda,dynamodb."
+    ),
   user_focus: z
     .string()
     .optional()

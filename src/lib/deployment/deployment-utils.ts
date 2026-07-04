@@ -9,13 +9,7 @@ export interface DependencyCheckResult {
   errorMessage?: string;
 }
 
-export type ProjectType =
-  | "cdk"
-  | "terraform"
-  | "sam"
-  | "cloudformation"
-  | "ambiguous"
-  | "unknown";
+export type ProjectType = "cdk" | "terraform" | "sam" | "cloudformation" | "ambiguous" | "unknown";
 
 /**
  * Check if the required deployment tool (cdklocal or tflocal) is available in the system PATH
@@ -108,23 +102,26 @@ export async function inferProjectType(directory: string): Promise<ProjectType> 
     if (hasTemplateYaml) {
       const samTemplateFile = files.includes("template.yaml") ? "template.yaml" : "template.yml";
       try {
-        const templateContent = await fs.promises.readFile(path.join(directory, samTemplateFile), "utf-8");
+        const templateContent = await fs.promises.readFile(
+          path.join(directory, samTemplateFile),
+          "utf-8"
+        );
         hasServerlessResources = /AWS::Serverless::[A-Za-z]+/.test(templateContent);
       } catch {
         hasServerlessResources = false;
       }
     }
 
-    const hasCloudFormationTemplates = files.some((file) => file.endsWith(".yaml") || file.endsWith(".yml"));
+    const hasCloudFormationTemplates = files.some(
+      (file) => file.endsWith(".yaml") || file.endsWith(".yml")
+    );
 
     const isCdk = hasCdkJson || hasCdkFiles;
     const isTerraform = hasTerraformFiles;
     const isSam = hasSamConfig || hasServerlessResources;
     const isCloudFormation = hasCloudFormationTemplates && !isSam;
 
-    if (
-      [isCdk, isTerraform, isSam, isCloudFormation].filter(Boolean).length > 1
-    ) {
+    if ([isCdk, isTerraform, isSam, isCloudFormation].filter(Boolean).length > 1) {
       return "ambiguous";
     } else if (isCdk) {
       return "cdk";

@@ -55,9 +55,7 @@ describe("PlatformApiClient", () => {
   });
 
   test("logs joins content entries into plain text", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse([{ content: "line 1" }, { content: "line 2" }])
-    );
+    fetchMock.mockResolvedValueOnce(jsonResponse([{ content: "line 1" }, { content: "line 2" }]));
     const client = new PlatformApiClient("t");
     expect(await client.getEphemeralInstanceLogs("demo")).toBe("line 1\nline 2");
     const [url] = fetchMock.mock.calls[0];

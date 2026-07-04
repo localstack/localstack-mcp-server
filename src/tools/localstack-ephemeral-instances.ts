@@ -22,7 +22,9 @@ export const schema = {
     .int()
     .positive()
     .optional()
-    .describe("Lifetime in minutes for create action. Defaults to the platform default when omitted."),
+    .describe(
+      "Lifetime in minutes for create action. Defaults to the platform default when omitted."
+    ),
   extension: z
     .string()
     .optional()

@@ -7,11 +7,11 @@ import {
 } from "./extensions.logic";
 
 const installSuccessStream = [
-  '2026-07-04T10:00:00.000  INFO --- [MainThread] l.p.c.b.licensingv2 : Successfully activated cached license',
+  "2026-07-04T10:00:00.000  INFO --- [MainThread] l.p.c.b.licensingv2 : Successfully activated cached license",
   '{"event": "status", "message": "Checking installed extensions"}',
   '{"event": "status", "message": "Installing extension"}',
   '{"event": "pip", "message": "Collecting localstack-extension-httpbin"}',
-  'not json at all',
+  "not json at all",
   '{"event": "log", "message": "Extension successfully installed"}',
   '{"event": "extension", "message": "", "extra": {"name": "httpbin"}}',
   '{"event": "status", "message": "Extension installation completed"}',
@@ -133,6 +133,8 @@ describe("parseInstalledExtensions / formatInstalledExtensions", () => {
   });
 
   test("formats an empty list with marketplace guidance", () => {
-    expect(formatInstalledExtensions([])).toContain("No LocalStack extensions are currently installed");
+    expect(formatInstalledExtensions([])).toContain(
+      "No LocalStack extensions are currently installed"
+    );
   });
 });

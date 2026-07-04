@@ -26,8 +26,8 @@ export const EXTENSIONS_MANAGER_COMMAND = [
  *  - missing pip → bootstrap via ensurepip.
  */
 export const EXTENSIONS_VENV_REPAIR_SCRIPT = [
-  'V=/var/lib/localstack/lib/extensions/python_venv',
-  'PY=/opt/code/localstack/.venv/bin/python',
+  "V=/var/lib/localstack/lib/extensions/python_venv",
+  "PY=/opt/code/localstack/.venv/bin/python",
   'if [ ! -e "$V/pyvenv.cfg" ]; then "$PY" -m localstack.pro.core.bootstrap.extensions init; fi',
   'if ! "$V/bin/python" -c "import sys" >/dev/null 2>&1; then rm -f "$V/bin/python" "$V/bin/python3" "$V"/bin/python3.*; "$PY" -m venv --upgrade "$V"; fi',
   'if [ ! -x "$V/bin/pip" ]; then "$V/bin/python" -m ensurepip --upgrade >/dev/null 2>&1 || true; fi',
@@ -128,7 +128,12 @@ export function summarizeInstall(events: ExtensionEvent[]): ExtensionOutcome {
     return { kind: "installed", success: true, summaryLines };
   }
   if (logMessages.some((message) => message.includes("No change"))) {
-    return { kind: "no-change", success: false, summaryLines, errorDetail: "The package was installed but did not register any LocalStack extension." };
+    return {
+      kind: "no-change",
+      success: false,
+      summaryLines,
+      errorDetail: "The package was installed but did not register any LocalStack extension.",
+    };
   }
   return {
     kind: "failed",
@@ -156,7 +161,12 @@ export function summarizeUninstall(events: ExtensionEvent[]): ExtensionOutcome {
     };
   }
   if (logMessages.some((message) => message.includes("is not installed"))) {
-    return { kind: "not-installed", success: false, summaryLines, errorDetail: logMessages.find((m) => m.includes("is not installed")) };
+    return {
+      kind: "not-installed",
+      success: false,
+      summaryLines,
+      errorDetail: logMessages.find((m) => m.includes("is not installed")),
+    };
   }
   if (logMessages.some((message) => message.includes("Extension successfully uninstalled"))) {
     return { kind: "uninstalled", success: true, summaryLines };

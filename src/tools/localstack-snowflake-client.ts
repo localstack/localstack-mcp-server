@@ -51,10 +51,7 @@ async function requireSnowflakeConnectionProfile() {
   const listResult = await runCommand("snow", ["connection", "list"], { env: { ...process.env } });
   const listCombined = `${listResult.stdout || ""}\n${listResult.stderr || ""}`.toLowerCase();
 
-  if (
-    listResult.exitCode === 0 &&
-    listCombined.includes(SNOWFLAKE_CONNECTION_NAME.toLowerCase())
-  ) {
+  if (listResult.exitCode === 0 && listCombined.includes(SNOWFLAKE_CONNECTION_NAME.toLowerCase())) {
     return null;
   }
 
@@ -135,7 +132,10 @@ export default async function localstackSnowflakeClient({
         return ResponseBuilder.markdown(result.stdout || "");
       }
 
-      return ResponseBuilder.error("Connection Check Failed", (result.stderr || result.stdout || "").trim());
+      return ResponseBuilder.error(
+        "Connection Check Failed",
+        (result.stderr || result.stdout || "").trim()
+      );
     }
 
     const hasQuery = !!query;
@@ -160,7 +160,12 @@ export default async function localstackSnowflakeClient({
       return ResponseBuilder.markdown(result.stdout || "");
     }
 
-    const rawError = (result.stderr || result.stdout || result.error?.message || "Unknown error").trim();
+    const rawError = (
+      result.stderr ||
+      result.stdout ||
+      result.error?.message ||
+      "Unknown error"
+    ).trim();
     return ResponseBuilder.error(
       "Command Failed",
       `${rawError}\n\nCheck Snowflake feature coverage: https://docs.localstack.cloud/snowflake/feature-coverage/`

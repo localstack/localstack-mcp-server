@@ -62,9 +62,9 @@ export default async function localstackManagement({
   return withToolAnalytics("localstack-management", { action, service, envVars }, async () => {
     // Lifecycle runs entirely through the Docker Engine API + the LocalStack gateway;
     // no localstack/lstk CLI is required (or used).
-    const checks: Array<ReturnType<typeof requireAuthToken> | Promise<ReturnType<typeof requireAuthToken>>> = [
-      requireAuthToken(),
-    ];
+    const checks: Array<
+      ReturnType<typeof requireAuthToken> | Promise<ReturnType<typeof requireAuthToken>>
+    > = [requireAuthToken()];
 
     if (action === "start" || action === "restart" || action === "stop") {
       checks.push(requireDockerDaemon());
@@ -166,9 +166,7 @@ async function handleStop() {
       if (stale && !stale.running) {
         await dockerClient.removeContainer(stale.id);
         await dockerClient.waitForRemoval(stale.id);
-        return ResponseBuilder.markdown(
-          `🛑 Removed stopped LocalStack container "${stale.name}".`
-        );
+        return ResponseBuilder.markdown(`🛑 Removed stopped LocalStack container "${stale.name}".`);
       }
     } catch {
       // fall through to the gateway-based reporting below

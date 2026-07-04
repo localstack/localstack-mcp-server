@@ -242,7 +242,9 @@ describe("localstack.utils", () => {
 
       const text = result.content[0].text;
       expect(text).toContain("started successfully");
-      expect(text).toContain("Custom environment variables passed to the LocalStack container: DEBUG");
+      expect(text).toContain(
+        "Custom environment variables passed to the LocalStack container: DEBUG"
+      );
       expect(client.createAndStartContainer).toHaveBeenCalledTimes(1);
       const spec = client.createAndStartContainer.mock.calls[0][0];
       expect(spec.Image).toBe("localstack/localstack-pro:latest");
