@@ -112,7 +112,7 @@
       "id": "scenario-iam-soft-mode",
       "description": "localstack-iam-policy-analyzer: read mode, then set SOFT_MODE.",
       "mode": "mcp_host",
-      "scenario": "Check the current IAM enforcement mode in LocalStack using the IAM policy analyzer, then set the enforcement mode to SOFT_MODE.",
+      "scenario": "Check the current IAM enforcement mode in LocalStack using the IAM policy analyzer, then set the enforcement mode to SOFT_MODE with the set-mode action. Perform the set-mode call even if the current mode is already SOFT_MODE, so the setting is explicitly confirmed.",
       "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
       "iterations": 5,
       "accuracyThreshold": 0.8,
