@@ -1,17 +1,23 @@
 {
   "name": "localstack-mcp-gemini-comprehensive",
-  "description": "Scenario-based Gemini evals for LocalStack MCP tools.",
+  "description": "Scenario-based Gemini evals covering LocalStack MCP tools.",
   "cases": [
     {
-      "id": "scenario-start-localstack",
+      "id": "scenario-management-status",
+      "description": "localstack-management: status check of the AWS emulator.",
       "mode": "mcp_host",
-      "scenario": "Start LocalStack for AWS and confirm the runtime is running.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.0-flash", "temperature": 0 },
+      "scenario": "Check the current status of the LocalStack AWS emulator using the LocalStack management tool. If it is not running, start it. Report whether it is ready to accept requests.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
       "iterations": 5,
+      "accuracyThreshold": 0.8,
       "expect": {
         "toolsTriggered": {
           "calls": [
-            { "name": "localstack-management", "required": true }
+            {
+              "name": "localstack-management",
+              "arguments": { "action": "status" },
+              "required": true
+            }
           ],
           "order": "any"
         }
@@ -19,91 +25,320 @@
     },
     {
       "id": "scenario-deploy-terraform-project",
+      "description": "localstack-deployer: deploy the sample Terraform project.",
       "mode": "mcp_host",
-      "scenario": "Deploy the Terraform project in data/sample-terraform to LocalStack.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.0-flash", "temperature": 0 },
+      "scenario": "Deploy the Terraform project located in the data/sample-terraform directory of this repository to LocalStack using the LocalStack deployer tool, then report the Terraform outputs.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
       "iterations": 5,
+      "accuracyThreshold": 0.8,
       "expect": {
         "toolsTriggered": {
-          "calls": [{ "name": "localstack-deployer", "required": true }],
+          "calls": [
+            { "name": "localstack-deployer", "arguments": { "action": "deploy" }, "required": true }
+          ],
           "order": "any"
         }
       }
     },
     {
-      "id": "scenario-query-s3-buckets",
+      "id": "scenario-aws-client-list-buckets",
+      "description": "localstack-aws-client: run a pinned AWS CLI command.",
       "mode": "mcp_host",
-      "scenario": "Use AWS CLI on LocalStack to list S3 buckets.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.0-flash", "temperature": 0 },
+      "scenario": "Using the LocalStack AWS client tool, run the AWS CLI command \"s3 ls\" against LocalStack. Pass the command string exactly as s3 ls, with no aws or awslocal prefix and no extra flags. Then tell me which S3 buckets exist.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
       "iterations": 5,
+      "accuracyThreshold": 0.8,
       "expect": {
         "toolsTriggered": {
-          "calls": [{ "name": "localstack-aws-client", "required": true }],
+          "calls": [
+            {
+              "name": "localstack-aws-client",
+              "arguments": { "command": "s3 ls" },
+              "required": true
+            }
+          ],
           "order": "any"
         }
       }
     },
     {
-      "id": "scenario-cloud-pods-operation",
+      "id": "scenario-logs-analysis-errors",
+      "description": "localstack-logs-analysis: errors analysis of container logs.",
       "mode": "mcp_host",
-      "scenario": "Save the current LocalStack state in a Cloud Pod called mcptester-e2e-pod, then reset state and load that same pod back.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.0-flash", "temperature": 0 },
+      "scenario": "Use the LocalStack logs analysis tool to run an 'errors' analysis of the recent LocalStack container logs and report which AWS API calls failed.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
       "iterations": 5,
+      "accuracyThreshold": 0.8,
       "expect": {
         "toolsTriggered": {
-          "calls": [{ "name": "localstack-cloud-pods", "required": true }],
+          "calls": [
+            {
+              "name": "localstack-logs-analysis",
+              "arguments": { "analysisType": "errors" },
+              "required": true
+            }
+          ],
           "order": "any"
         }
       }
     },
     {
-      "id": "discover-docs-tool",
+      "id": "scenario-app-inspector-traces",
+      "description": "localstack-app-inspector: status check plus trace listing.",
       "mode": "mcp_host",
-      "scenario": "Find official LocalStack documentation about IAM policy enforcement modes and summarize it.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.0-flash", "temperature": 0 },
+      "scenario": "Using the LocalStack App Inspector tool, first check whether App Inspector is currently enabled, enable it only if it is disabled, and then list the most recent App Inspector traces.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
       "iterations": 5,
+      "accuracyThreshold": 0.8,
       "expect": {
-        "toolsTriggered": { "calls": [{ "name": "localstack-docs", "required": true }], "order": "any" }
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-app-inspector",
+              "arguments": { "action": "get-status" },
+              "required": true
+            },
+            {
+              "name": "localstack-app-inspector",
+              "arguments": { "action": "list-traces" },
+              "required": true
+            }
+          ],
+          "order": "any"
+        }
       }
     },
     {
-      "id": "discover-logs-analysis-tool",
+      "id": "scenario-iam-soft-mode",
+      "description": "localstack-iam-policy-analyzer: read mode, then set SOFT_MODE.",
       "mode": "mcp_host",
-      "scenario": "Analyze recent LocalStack logs and give me a summary of errors and API call failures.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.0-flash", "temperature": 0 },
+      "scenario": "Check the current IAM enforcement mode in LocalStack using the IAM policy analyzer, then set the enforcement mode to SOFT_MODE.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
       "iterations": 5,
+      "accuracyThreshold": 0.8,
       "expect": {
-        "toolsTriggered": { "calls": [{ "name": "localstack-logs-analysis", "required": true }], "order": "any" }
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-iam-policy-analyzer",
+              "arguments": { "action": "get-status" },
+              "required": true
+            },
+            {
+              "name": "localstack-iam-policy-analyzer",
+              "arguments": { "action": "set-mode", "mode": "SOFT_MODE" },
+              "required": true
+            }
+          ],
+          "order": "any"
+        }
       }
     },
     {
-      "id": "discover-extensions-tool",
+      "id": "scenario-state-inspect",
+      "description": "localstack-state-management: read-only inspect of runtime state.",
       "mode": "mcp_host",
-      "scenario": "Show me the available LocalStack extensions in the marketplace.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.0-flash", "temperature": 0 },
+      "scenario": "Using the LocalStack state management tool, inspect the in-memory state of the running LocalStack instance and tell me which AWS services currently hold state. Do not export, import, or reset anything.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
       "iterations": 5,
+      "accuracyThreshold": 0.8,
       "expect": {
-        "toolsTriggered": { "calls": [{ "name": "localstack-extensions", "required": true }], "order": "any" }
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-state-management",
+              "arguments": { "action": "inspect" },
+              "required": true
+            }
+          ],
+          "order": "any"
+        }
       }
     },
     {
-      "id": "discover-chaos-tool",
+      "id": "scenario-cloud-pods-roundtrip",
+      "description": "localstack-cloud-pods: save, load, and delete a named pod. NOTE: the eval host times out individual tool calls at ~60s (MCP SDK default; the tester's requestTimeoutMs is not applied), so this case needs a reasonably fresh container whose state saves quickly.",
       "mode": "mcp_host",
-      "scenario": "Inject 100ms latency and then clear all active chaos faults.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.0-flash", "temperature": 0 },
+      "scenario": "Using the LocalStack Cloud Pods tool, save the current LocalStack state to a remote Cloud Pod named mcptester-e2e-pod. If saving fails because a pod with that name already exists, delete the existing pod and save again. If a save, load, or delete attempt times out, retry that same operation once before giving up. After saving, load the Cloud Pod mcptester-e2e-pod back into LocalStack. Finally, delete the Cloud Pod mcptester-e2e-pod so nothing is left behind.",
+      "mcpHostConfig": {
+        "provider": "google",
+        "model": "gemini-2.5-flash",
+        "temperature": 0,
+        "maxToolCalls": 15
+      },
       "iterations": 5,
+      "accuracyThreshold": 0.8,
       "expect": {
-        "toolsTriggered": { "calls": [{ "name": "localstack-chaos-injector", "required": true }], "order": "any" }
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-cloud-pods",
+              "arguments": { "action": "save", "pod_name": "mcptester-e2e-pod" },
+              "required": true
+            },
+            {
+              "name": "localstack-cloud-pods",
+              "arguments": { "action": "load", "pod_name": "mcptester-e2e-pod" },
+              "required": true
+            },
+            {
+              "name": "localstack-cloud-pods",
+              "arguments": { "action": "delete", "pod_name": "mcptester-e2e-pod" },
+              "required": true
+            }
+          ],
+          "order": "strict"
+        }
       }
     },
     {
-      "id": "discover-iam-tool",
+      "id": "scenario-chaos-latency-cycle",
+      "description": "localstack-chaos-injector: inject, verify, and clear latency.",
       "mode": "mcp_host",
-      "scenario": "Check the current IAM enforcement mode in LocalStack and help me switch to SOFT_MODE.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.0-flash", "temperature": 0 },
+      "scenario": "Use the LocalStack chaos injector to add 100 milliseconds of network latency to LocalStack, then read back the currently configured latency to verify it was applied, and finally clear the latency so LocalStack returns to normal.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
       "iterations": 5,
+      "accuracyThreshold": 0.8,
       "expect": {
-        "toolsTriggered": { "calls": [{ "name": "localstack-iam-policy-analyzer", "required": true }], "order": "any" }
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-chaos-injector",
+              "arguments": { "action": "inject-latency", "latency_ms": 100 },
+              "required": true
+            },
+            {
+              "name": "localstack-chaos-injector",
+              "arguments": { "action": "get-latency" },
+              "required": true
+            },
+            {
+              "name": "localstack-chaos-injector",
+              "arguments": { "action": "clear-latency" },
+              "required": true
+            }
+          ],
+          "order": "strict"
+        }
+      }
+    },
+    {
+      "id": "scenario-extensions-marketplace",
+      "description": "localstack-extensions: browse the marketplace catalog.",
+      "mode": "mcp_host",
+      "scenario": "Browse the LocalStack Extensions marketplace and show me which extensions are available to install. I want the marketplace catalog of available extensions, not the list of extensions that are already installed.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
+      "iterations": 5,
+      "accuracyThreshold": 0.8,
+      "expect": {
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-extensions",
+              "arguments": { "action": "available" },
+              "required": true
+            }
+          ],
+          "order": "any"
+        }
+      }
+    },
+    {
+      "id": "scenario-replicator-read-only",
+      "description": "localstack-aws-replicator: read-only supported-resources and job listing.",
+      "mode": "mcp_host",
+      "scenario": "Using the LocalStack AWS replicator tool, first show me which resource types the AWS replicator supports for replication into LocalStack, and then list any replication jobs that currently exist. Do not start any replication job.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
+      "iterations": 5,
+      "accuracyThreshold": 0.8,
+      "expect": {
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-aws-replicator",
+              "arguments": { "action": "list-resources" },
+              "required": true
+            },
+            {
+              "name": "localstack-aws-replicator",
+              "arguments": { "action": "list" },
+              "required": true
+            }
+          ],
+          "order": "any"
+        }
+      }
+    },
+    {
+      "id": "scenario-ephemeral-list",
+      "description": "localstack-ephemeral-instances: read-only listing.",
+      "mode": "mcp_host",
+      "scenario": "List all LocalStack Ephemeral Instances that currently exist in my LocalStack Cloud account using the ephemeral instances tool, and summarize their names and statuses. Do not create, modify, or delete any instance.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
+      "iterations": 5,
+      "accuracyThreshold": 0.8,
+      "expect": {
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-ephemeral-instances",
+              "arguments": { "action": "list" },
+              "required": true
+            }
+          ],
+          "order": "any"
+        }
+      }
+    },
+    {
+      "id": "scenario-docs-search",
+      "description": "localstack-docs: documentation search.",
+      "mode": "mcp_host",
+      "scenario": "Search the official LocalStack documentation for how IAM policy enforcement modes work in LocalStack and summarize what the docs say. Use the LocalStack documentation search tool, not the IAM tools that act on the running instance.",
+      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
+      "iterations": 5,
+      "accuracyThreshold": 0.8,
+      "expect": {
+        "toolsTriggered": {
+          "calls": [{ "name": "localstack-docs", "required": true }],
+          "order": "any"
+        }
+      }
+    },
+    {
+      "id": "scenario-snowflake-full-flow",
+      "description": "localstack-snowflake-client: start emulator, check connection, run SQL. Runs LAST: the Snowflake stack and the AWS stack cannot run at the same time (both own the localstack-main container), so the AWS emulator must be stopped first and this case leaves the Snowflake emulator running.",
+      "mode": "mcp_host",
+      "scenario": "Work with the LocalStack Snowflake emulator: 1) Using the LocalStack management tool with service set to snowflake, start the Snowflake emulator. If it reports that it is already running, continue to step 2. If starting fails because a LocalStack container is already running, that container is the AWS emulator: stop it with the management tool, then start the Snowflake emulator with service snowflake again. If a start attempt times out, keep checking the Snowflake status with the management tool (service snowflake) until it reports ready — do not give up on a timeout. 2) Use the LocalStack Snowflake client to check the connection to the emulator. 3) Use the LocalStack Snowflake client to execute the SQL file data/sample-sql/snowflake_test.sql. 4) Run the query SHOW TABLES IN demo_db.public and tell me whether the customers table exists.",
+      "mcpHostConfig": {
+        "provider": "google",
+        "model": "gemini-2.5-flash",
+        "temperature": 0,
+        "maxToolCalls": 15
+      },
+      "iterations": 3,
+      "accuracyThreshold": 0.66,
+      "expect": {
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-management",
+              "arguments": { "service": "snowflake" },
+              "required": true
+            },
+            {
+              "name": "localstack-snowflake-client",
+              "arguments": { "action": "check-connection" },
+              "required": true
+            },
+            {
+              "name": "localstack-snowflake-client",
+              "arguments": { "action": "execute" },
+              "required": true
+            }
+          ],
+          "order": "strict"
+        }
       }
     }
   ]
