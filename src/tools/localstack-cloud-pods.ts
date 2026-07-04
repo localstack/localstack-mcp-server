@@ -7,7 +7,6 @@ import {
   runPreflights,
   requireAuthToken,
   requireLocalStackRunning,
-  requireLocalStackCli,
   requireProFeature,
 } from "../core/preflight";
 import { withToolAnalytics } from "../core/analytics";
@@ -55,7 +54,6 @@ export default async function localstackCloudPods({
     const preflightError = await runPreflights([
       requireAuthToken(),
       requireLocalStackRunning(),
-      requireLocalStackCli(),
       requireProFeature(ProFeature.CLOUD_PODS),
     ]);
     if (preflightError) return preflightError;

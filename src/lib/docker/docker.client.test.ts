@@ -324,6 +324,13 @@ describe("DockerApiClient", () => {
         Image: "localstack/localstack-pro:latest",
         Env: ["MAIN_CONTAINER_NAME=localstack-aws"],
       },
+      Mounts: [
+        {
+          Type: "bind",
+          Source: "/home/user/.cache/localstack/volume",
+          Destination: "/var/lib/localstack",
+        },
+      ],
     });
 
     const client = new DockerApiClient();
@@ -332,6 +339,14 @@ describe("DockerApiClient", () => {
       name: "localstack-aws",
       image: "localstack/localstack-pro:latest",
       env: ["MAIN_CONTAINER_NAME=localstack-aws"],
+      mounts: [
+        {
+          type: "bind",
+          name: undefined,
+          source: "/home/user/.cache/localstack/volume",
+          destination: "/var/lib/localstack",
+        },
+      ],
     });
   });
 

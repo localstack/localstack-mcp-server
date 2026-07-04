@@ -83,11 +83,19 @@ export function describeDockerConnectivityError(error: unknown): string {
   return message;
 }
 
+export interface ContainerMountInfo {
+  type?: string;
+  name?: string;
+  source?: string;
+  destination?: string;
+}
+
 export interface ContainerMetadata {
   id: string;
   name?: string;
   image?: string;
   env?: string[];
+  mounts?: ContainerMountInfo[];
 }
 
 export class LocalStackContainerNotFoundError extends Error {
@@ -242,6 +250,14 @@ export class DockerApiClient {
       name: this.normalizeContainerName(inspect?.Name),
       image: inspect?.Config?.Image,
       env: inspect?.Config?.Env,
+      mounts: (inspect?.Mounts || []).map(
+        (mount: { Type?: string; Name?: string; Source?: string; Destination?: string }) => ({
+          type: mount.Type,
+          name: mount.Name,
+          source: mount.Source,
+          destination: mount.Destination,
+        })
+      ),
     };
   }
 

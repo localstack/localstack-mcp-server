@@ -1,14 +1,23 @@
-import { spawn } from "child_process";
+import { existsSync } from "fs";
+import { mkdir } from "fs/promises";
+import { homedir } from "os";
+import { request as httpRequest } from "http";
 import { LOCALSTACK_BASE_URL, LOCALSTACK_HOSTNAME, LOCALSTACK_PORT } from "../../core/config";
 import { runCommand } from "../../core/command-runner";
 import { httpClient } from "../../core/http-client";
 import { ResponseBuilder } from "../../core/response-builder";
-
-export interface LocalStackCliCheckResult {
-  isAvailable: boolean;
-  version?: string;
-  errorMessage?: string;
-}
+import {
+  DockerApiClient,
+  LocalStackContainerConflictError,
+  type LogBufferHandle,
+} from "../docker/docker.client";
+import {
+  buildLocalStackContainerSpec,
+  resolveContainerName,
+  resolveVolume,
+  type LocalStackStack,
+  type VolumeResolution,
+} from "./container-spec.logic";
 
 export interface SnowflakeCliCheckResult {
   isAvailable: boolean;
@@ -16,85 +25,21 @@ export interface SnowflakeCliCheckResult {
   errorMessage?: string;
 }
 
-const CLI_CHECK_TIMEOUT = 5000;
 const SNOWFLAKE_CLI_CHECK_TIMEOUT = 30000;
 
-function cliSpawnOptions(timeoutMs: number = CLI_CHECK_TIMEOUT) {
-  return {
-    timeout: timeoutMs,
-    shell: process.platform === "win32",
-  };
+/** Version baked in at build time; used to tag containers we launch. */
+let SERVER_VERSION = "unknown";
+try {
+  // Statically inlined by the bundler.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  SERVER_VERSION = require("../../../package.json").version || "unknown";
+} catch {
+  // keep "unknown"
 }
 
-function localStackCliUnavailable(details?: string): LocalStackCliCheckResult {
-  const suffix = details?.trim() ? `\n\nDetails: ${details.trim()}` : "";
-  return {
-    isAvailable: false,
-    errorMessage: `❌ LocalStack CLI is not installed or not available in PATH.
-
-Please install LocalStack by following the official documentation:
-https://docs.localstack.cloud/aws/getting-started/installation/
-
-Installation options:
-- Using pip: pip install localstack
-- Using Docker: Use the LocalStack Docker image
-- Using Homebrew (macOS): brew install localstack/tap/localstack-cli
-
-After installation, make sure the 'localstack' command is available in your PATH.${suffix}`,
-  };
-}
-
-/**
- * Check if LocalStack CLI is installed and available in the system PATH
- * @returns Promise with availability status, version (if available), and error message (if not available)
- */
-export async function checkLocalStackCli(): Promise<LocalStackCliCheckResult> {
-  try {
-    const help = await runCommand("localstack", ["--help"], cliSpawnOptions());
-    if (help.error || help.exitCode !== 0) {
-      return localStackCliUnavailable(help.error?.message || help.stderr);
-    }
-
-    const versionResult = await runCommand("localstack", ["--version"], cliSpawnOptions());
-    if (versionResult.error || versionResult.exitCode !== 0) {
-      return localStackCliUnavailable(versionResult.error?.message || versionResult.stderr);
-    }
-
-    return {
-      isAvailable: true,
-      version: versionResult.stdout.trim(),
-    };
-  } catch (error) {
-    return localStackCliUnavailable(error instanceof Error ? error.message : String(error));
-  }
-}
-
-export type LifecycleCli = "localstack" | "lstk";
-
-/**
- * Whether a CLI is usable. `runCommand` resolves (rather than throws) on a missing
- * binary, so we inspect the actual exit code / error — this returns false when the
- * binary isn't on PATH.
- */
-async function cliAvailable(bin: string): Promise<boolean> {
-  const { error, exitCode } = await runCommand(bin, ["--version"], cliSpawnOptions());
-  return !error && exitCode === 0;
-}
-
-/**
- * Pick a CLI capable of starting LocalStack. Prefers the Python `localstack` CLI for
- * backward compatibility, falling back to `lstk` (the newer Go CLI, which also forwards
- * `LOCALSTACK_*` env). Returns null when neither is installed: a running container can
- * still be detected and driven via the gateway + Docker API, but *creating* one needs a
- * CLI.
- */
-export async function detectLifecycleCli(
-  preferredOrder: LifecycleCli[] = ["localstack", "lstk"]
-): Promise<LifecycleCli | null> {
-  for (const cli of preferredOrder) {
-    if (await cliAvailable(cli)) return cli;
-  }
-  return null;
+/** Whether the MCP server itself runs inside a container (changes bind IP + volume default). */
+export function isRunningInDocker(): boolean {
+  return existsSync("/.dockerenv");
 }
 
 /**
@@ -103,11 +48,10 @@ export async function detectLifecycleCli(
  */
 export async function checkSnowflakeCli(): Promise<SnowflakeCliCheckResult> {
   try {
-    const { stdout, error, exitCode, stderr } = await runCommand(
-      "snow",
-      ["--version"],
-      cliSpawnOptions(SNOWFLAKE_CLI_CHECK_TIMEOUT)
-    );
+    const { stdout, error, exitCode, stderr } = await runCommand("snow", ["--version"], {
+      timeout: SNOWFLAKE_CLI_CHECK_TIMEOUT,
+      shell: process.platform === "win32",
+    });
     if (error || exitCode !== 0) {
       throw error || new Error(stderr || `snow --version exited with code ${exitCode}`);
     }
@@ -154,6 +98,14 @@ export interface GatewayHealth {
   version?: string;
 }
 
+export interface SessionInfo {
+  version?: string;
+  edition?: string;
+  is_license_activated?: boolean;
+  session_id?: string;
+  uptime?: number;
+}
+
 export interface SnowflakeStatusResult {
   isRunning: boolean;
   statusOutput?: string;
@@ -168,14 +120,7 @@ export interface RuntimeStatus {
 }
 
 const SNOWFLAKE_ROUTING_HOST = "snowflake.localhost.localstack.cloud";
-const CLIENT_ONLY_ENV_KEYS = [
-  "HOSTNAME",
-  "LOCALSTACK_HOSTNAME",
-  "AWS_ENDPOINT_URL",
-  "AWS_ENDPOINT_URL_S3",
-  "S3_ENDPOINT",
-  "AWS_S3_FORCE_PATH_STYLE",
-];
+const SNOWFLAKE_PROBE_TIMEOUT = 10000;
 
 function getLocalStackEndpointHost() {
   return process.env.LOCALSTACK_HOSTNAME?.trim() || LOCALSTACK_HOSTNAME;
@@ -186,7 +131,7 @@ function getLocalStackEndpointPort() {
 }
 
 const GATEWAY_HEALTH_TIMEOUT = 3000;
-const CLI_STATUS_TIMEOUT = 5000;
+const SESSION_INFO_TIMEOUT = 3000;
 const READY_SERVICE_STATES = new Set(["available", "running"]);
 
 /**
@@ -194,12 +139,10 @@ const READY_SERVICE_STATES = new Set(["available", "running"]);
  *
  * Probes the LocalStack gateway health endpoint (`/_localstack/health`) directly over
  * HTTP. Any container exposing the gateway on :4566 answers this — regardless of who
- * started it (`localstack` CLI, `lstk`, docker-compose, raw `docker run`), what the
- * container is named, or whether a host-side CLI is installed.
+ * started it (this server, `lstk`, docker-compose, raw `docker run`) or what the
+ * container is named.
  *
- * This is the source of truth for "is LocalStack running?". A name + CLI check misses
- * runtimes started by `lstk` (container `localstack-aws`) or any external tool, even
- * though their gateway is healthy and reachable.
+ * This is the source of truth for "is LocalStack running?".
  */
 export async function getGatewayHealth(): Promise<GatewayHealth> {
   try {
@@ -231,12 +174,28 @@ export async function getGatewayHealth(): Promise<GatewayHealth> {
   }
 }
 
-function describeGatewayHealth(health: GatewayHealth): string {
+/** Best-effort read of `/_localstack/info` for status enrichment and restart detection. */
+export async function getSessionInfo(): Promise<SessionInfo | null> {
+  try {
+    const info = await httpClient.request<SessionInfo>("/_localstack/info", {
+      method: "GET",
+      timeout: SESSION_INFO_TIMEOUT,
+    });
+    if (!info || typeof info !== "object") return null;
+    return info;
+  } catch {
+    return null;
+  }
+}
+
+function describeGatewayHealth(health: GatewayHealth, info?: SessionInfo | null): string {
   const lines = [
     `LocalStack gateway is reachable at ${LOCALSTACK_BASE_URL} (detected via /_localstack/health).`,
   ];
-  if (health.edition) lines.push(`Edition: ${health.edition}`);
-  if (health.version) lines.push(`Version: ${health.version}`);
+  const edition = info?.edition || health.edition;
+  const version = info?.version || health.version;
+  if (edition) lines.push(`Edition: ${edition}`);
+  if (version) lines.push(`Version: ${version}`);
   if (health.services) {
     const total = Object.keys(health.services).length;
     const initialized = Object.values(health.services).filter((state) =>
@@ -244,211 +203,295 @@ function describeGatewayHealth(health: GatewayHealth): string {
     ).length;
     lines.push(`Services initialized: ${initialized}/${total}`);
   }
+  if (info?.is_license_activated !== undefined) {
+    lines.push(`License activated: ${info.is_license_activated ? "yes" : "no"}`);
+  }
+  if (typeof info?.uptime === "number") {
+    lines.push(`Uptime: ${info.uptime}s`);
+  }
   return lines.join("\n");
 }
 
-interface CliStatus {
-  output?: string;
-  running: boolean;
-  ready: boolean;
-}
-
 /**
- * Best-effort read of `localstack status` for human-readable output only.
- *
- * Crucially, a non-zero exit is NOT treated as "CLI unavailable": `localstack status`
- * exits non-zero when LocalStack isn't running (the exit code even differs by host —
- * 0 on Windows, non-zero on Linux) yet still prints a useful "stopped" table to
- * stdout. We use whatever stdout it produced and only report "unavailable" when there
- * is genuinely nothing to show.
+ * Get LocalStack status information. Running state is decided by the gateway probe;
+ * display detail is enriched from `/_localstack/info` when available.
  */
-async function tryCliStatus(timeoutMs = CLI_STATUS_TIMEOUT): Promise<CliStatus> {
-  const unavailable: CliStatus = { running: false, ready: false };
-  try {
-    const result = await runCommand("localstack", ["status"], { timeout: timeoutMs });
-    if (!result.stdout?.trim()) return unavailable;
+export async function getLocalStackStatus(): Promise<LocalStackStatusResult> {
+  const health = await getGatewayHealth();
 
-    const stdout = result.stdout;
+  if (!health.reachable) {
     return {
-      output: stdout.trim(),
-      running: stdout.includes("running"),
-      ready: stdout.includes("Ready") || stdout.includes("ready"),
+      isRunning: false,
+      isReady: false,
+      statusOutput: `LocalStack is not running — the gateway at ${LOCALSTACK_BASE_URL} is not reachable.`,
     };
-  } catch {
-    return unavailable;
-  }
-}
-
-interface LocalStackStatusOptions {
-  includeCliStatus?: boolean;
-}
-
-/**
- * Get LocalStack status information.
- *
- * Running state is decided by the gateway probe. The Python CLI's `status`
- * output is layered on as display-only detail when requested.
- *
- * @returns Promise with status details including running state and raw output
- */
-export async function getLocalStackStatus({
-  includeCliStatus = true,
-}: LocalStackStatusOptions = {}): Promise<LocalStackStatusResult> {
-  const [health, cli] = await Promise.all([
-    getGatewayHealth(),
-    includeCliStatus ? tryCliStatus() : Promise.resolve<CliStatus | undefined>(undefined),
-  ]);
-
-  const isRunning = health.reachable;
-  const isReady = health.ready;
-
-  if (!isRunning) {
-    const statusOutput =
-      cli?.output ||
-      `LocalStack is not running — the gateway at ${LOCALSTACK_BASE_URL} is not reachable.`;
-    return { isRunning: false, isReady: false, statusOutput };
   }
 
+  const info = await getSessionInfo();
   return {
-    isRunning,
-    isReady,
-    statusOutput: cli?.running && cli.output ? cli.output : describeGatewayHealth(health),
+    isRunning: true,
+    isReady: health.ready,
+    statusOutput: describeGatewayHealth(health, info),
   };
 }
 
 /**
- * Get Snowflake emulator status information by checking the Snowflake session endpoint
- * @returns Promise with status details including running state and raw output
+ * Get Snowflake emulator status by POSTing to its session endpoint. Uses node:http
+ * directly because the probe needs an explicit Host header
+ * (`snowflake.localhost.localstack.cloud`) — fetch/undici silently drops Host as a
+ * forbidden header.
  */
 export async function getSnowflakeEmulatorStatus(): Promise<SnowflakeStatusResult> {
-  try {
-    const host = getLocalStackEndpointHost();
-    const port = getLocalStackEndpointPort();
-    const { stdout, stderr, error, exitCode } = await runCommand("curl", [
-      "-sS",
-      "-X",
-      "POST",
-      "-H",
-      "Content-Type: application/json",
-      "-H",
-      `Host: ${SNOWFLAKE_ROUTING_HOST}:${port}`,
-      "-d",
-      "{}",
-      `http://${host}:${port}/session`,
-    ]);
+  const host = getLocalStackEndpointHost();
+  const port = Number(getLocalStackEndpointPort());
+  const body = "{}";
 
-    const output = (stdout || "").trim();
+  try {
+    const response = await new Promise<{ statusCode: number; body: string }>(
+      (resolve, reject) => {
+        const req = httpRequest(
+          {
+            host,
+            port,
+            path: "/session",
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Host: `${SNOWFLAKE_ROUTING_HOST}:${port}`,
+              "Content-Length": Buffer.byteLength(body),
+            },
+            timeout: SNOWFLAKE_PROBE_TIMEOUT,
+          },
+          (res) => {
+            let data = "";
+            res.on("data", (chunk) => {
+              data += chunk.toString();
+            });
+            res.on("end", () => resolve({ statusCode: res.statusCode || 0, body: data }));
+          }
+        );
+        req.on("timeout", () => req.destroy(new Error("Snowflake health probe timed out")));
+        req.on("error", reject);
+        req.write(body);
+        req.end();
+      }
+    );
+
+    const output = response.body.trim();
     const isSuccess = /"success"\s*:\s*true/.test(output);
 
     return {
-      isRunning: exitCode === 0 && isSuccess,
-      isReady: exitCode === 0 && isSuccess,
-      statusOutput: output || stderr.trim(),
-      ...(error
-        ? {
-            errorMessage: `Failed to reach Snowflake emulator endpoint: ${error.message}`,
-          }
-        : {}),
+      isRunning: isSuccess,
+      isReady: isSuccess,
+      statusOutput: output,
     };
   } catch (error) {
     return {
       isRunning: false,
-      errorMessage: `Failed to get Snowflake emulator status: ${
+      isReady: false,
+      errorMessage: `Failed to reach Snowflake emulator endpoint: ${
         error instanceof Error ? error.message : String(error)
       }`,
     };
   }
 }
 
-/**
- * Start a LocalStack runtime flavor and poll until it becomes available.
- * Supports custom startup args (e.g. default stack vs Snowflake stack), optional
- * environment overrides, and optional post-start validation hooks.
- */
-export async function startRuntime({
-  cli = "localstack",
-  startArgs,
-  getStatus,
-  processLabel,
-  alreadyRunningMessage,
-  successTitle,
-  statusHeading,
-  timeoutMessage,
-  envVars,
-  onReady,
-}: {
-  /** Lifecycle CLI binary to spawn — `localstack` (default) or `lstk`. */
-  cli?: LifecycleCli;
-  startArgs: string[];
+export interface LaunchRuntimeOptions {
+  stack: LocalStackStack;
+  envVars?: Record<string, string>;
   getStatus: () => Promise<RuntimeStatus>;
   processLabel: string;
   alreadyRunningMessage: string;
   successTitle: string;
   statusHeading: string;
   timeoutMessage: string;
-  envVars?: Record<string, string>;
   onReady?: () => Promise<ReturnType<typeof ResponseBuilder.error> | null>;
-}): Promise<ReturnType<typeof ResponseBuilder.markdown>> {
+  /** Restart-in-place recreation: pin the original container's identity. */
+  imageOverride?: string;
+  containerNameOverride?: string;
+  volumeOverride?: VolumeResolution;
+  /** Injectable for tests. */
+  dockerClient?: DockerApiClient;
+  pollIntervalMs?: number;
+  maxWaitMs?: number;
+}
+
+const POLL_INTERVAL_MS = 5000;
+const MAX_WAIT_MS = 120000;
+const CRASH_LOG_TAIL_LINES = 50;
+
+function tailLines(text: string, lines: number): string {
+  const allLines = text.split(/\r?\n/).filter((line) => line.trim());
+  return allLines.slice(-lines).join("\n");
+}
+
+function conflictResponse(processLabel: string, containerName: string, image?: string) {
+  const otherStack = image?.includes("/snowflake")
+    ? "the Snowflake emulator"
+    : "another LocalStack stack (likely the AWS emulator)";
+  return ResponseBuilder.error(
+    "LocalStack container already running",
+    `Starting ${processLabel} failed because a LocalStack container named "${containerName}"${
+      image ? ` (image: ${image})` : ""
+    } is already running — it belongs to ${otherStack}. ` +
+      `Stop it first with the localstack-management tool (action: stop), then retry this start.`
+  );
+}
+
+/**
+ * Start a LocalStack runtime flavor directly through the Docker Engine API (no
+ * localstack/lstk CLI involved) and poll until it becomes available.
+ */
+export async function launchRuntime(
+  options: LaunchRuntimeOptions
+): Promise<ReturnType<typeof ResponseBuilder.markdown>> {
+  const {
+    stack,
+    envVars,
+    getStatus,
+    processLabel,
+    alreadyRunningMessage,
+    successTitle,
+    statusHeading,
+    timeoutMessage,
+    onReady,
+  } = options;
+
   const statusCheck = await getStatus();
   if (statusCheck.isReady || statusCheck.isRunning) {
     return ResponseBuilder.markdown(alreadyRunningMessage);
   }
 
-  const environment = { ...process.env } as Record<string, string>;
-  for (const key of CLIENT_ONLY_ENV_KEYS) {
-    delete environment[key];
+  const authToken = process.env.LOCALSTACK_AUTH_TOKEN?.trim();
+  if (!authToken) {
+    return ResponseBuilder.error(
+      "Auth Token Required",
+      "LOCALSTACK_AUTH_TOKEN is required to start LocalStack."
+    );
   }
-  Object.assign(environment, envVars || {});
-  if (process.env.LOCALSTACK_AUTH_TOKEN) {
-    environment.LOCALSTACK_AUTH_TOKEN = process.env.LOCALSTACK_AUTH_TOKEN;
+
+  const docker = options.dockerClient ?? new DockerApiClient();
+  try {
+    await docker.ping();
+  } catch (error) {
+    return ResponseBuilder.error(
+      "Docker Not Available",
+      error instanceof Error ? error.message : String(error)
+    );
   }
-  // Force UTF-8 for the spawned Python `localstack` CLI so its emoji output doesn't
-  // throw UnicodeEncodeError under the Windows cp1252 code page.
-  if (cli === "localstack") {
-    if (!environment.PYTHONIOENCODING) environment.PYTHONIOENCODING = "utf-8";
-    if (!environment.PYTHONUTF8) environment.PYTHONUTF8 = "1";
+
+  const inDocker = isRunningInDocker();
+  const volume =
+    options.volumeOverride ??
+    resolveVolume({
+      hostEnv: process.env,
+      isInDocker: inDocker,
+      platform: process.platform,
+      homedir: homedir(),
+    });
+  if (volume.type === "bind" && !inDocker) {
+    try {
+      await mkdir(volume.source, { recursive: true });
+    } catch (error) {
+      return ResponseBuilder.error(
+        "Volume Directory Error",
+        `Could not create the LocalStack volume directory at ${volume.source}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+
+  const spec = buildLocalStackContainerSpec({
+    stack,
+    envVars,
+    hostEnv: process.env,
+    authToken,
+    isInDocker: inDocker,
+    volume,
+    serverVersion: SERVER_VERSION,
+    imageOverride: options.imageOverride,
+    containerNameOverride: options.containerNameOverride,
+  });
+
+  // Fail fast (or clean up) when the container name is taken. A running container is
+  // an actionable conflict; a stopped one is a stale leftover we remove ourselves.
+  try {
+    const existing = await docker.findContainerByNameAnyState(spec.name);
+    if (existing) {
+      if (existing.running) {
+        return conflictResponse(processLabel, spec.name, existing.image);
+      }
+      await docker.removeContainer(existing.id);
+      await docker.waitForRemoval(existing.id);
+    }
+  } catch (error) {
+    return ResponseBuilder.error(
+      "Docker lookup failed",
+      `Could not check for existing LocalStack containers: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+
+  try {
+    if (spec.HostConfig.NetworkMode) {
+      await docker.ensureNetwork(spec.HostConfig.NetworkMode);
+    }
+    if (!(await docker.imageExists(spec.Image))) {
+      await docker.pullImage(spec.Image);
+    }
+  } catch (error) {
+    return ResponseBuilder.error(
+      "Failed to prepare LocalStack start",
+      error instanceof Error ? error.message : String(error)
+    );
+  }
+
+  let containerId: string;
+  try {
+    containerId = await docker.createAndStartContainer(spec);
+  } catch (error) {
+    if (error instanceof LocalStackContainerConflictError) {
+      return conflictResponse(processLabel, spec.name);
+    }
+    return ResponseBuilder.error(
+      `Failed to start ${processLabel}`,
+      error instanceof Error ? error.message : String(error)
+    );
+  }
+
+  let logBuffer: LogBufferHandle | undefined;
+  try {
+    logBuffer = await docker.attachLogBuffer(containerId);
+  } catch {
+    // Diagnostics-only: readiness polling still works without the log stream.
   }
 
   return new Promise((resolve) => {
-    const child = spawn(cli, startArgs, {
-      env: environment,
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: process.platform === "win32",
-    });
-
-    let stdout = "";
-    let stderr = "";
-    child.stdout?.on("data", (data) => {
-      stdout += data.toString();
-    });
-    child.stderr?.on("data", (data) => {
-      stderr += data.toString();
-    });
-
-    let earlyExit = false;
     let poll: NodeJS.Timeout;
     let resolved = false;
     const finish = (response: ReturnType<typeof ResponseBuilder.markdown>) => {
       if (resolved) return;
       resolved = true;
       if (poll) clearInterval(poll);
+      logBuffer?.destroy();
       resolve(response);
     };
+
     const failureDetails = () => {
-      const details: string[] = [];
-      const trimmedStdout = stdout.trim();
-      const trimmedStderr = stderr.trim();
-      if (trimmedStdout) details.push(`Stdout:\n${trimmedStdout}`);
-      if (trimmedStderr) details.push(`Stderr:\n${trimmedStderr}`);
-      return details.length ? `\n\n${details.join("\n\n")}` : "";
+      const buffered = logBuffer ? tailLines(logBuffer.getBuffered(), CRASH_LOG_TAIL_LINES) : "";
+      return buffered ? `\n\nContainer logs (last ${CRASH_LOG_TAIL_LINES} lines):\n${buffered}` : "";
     };
+
     const successResponse = (status: RuntimeStatus) => {
       let resultMessage = `${successTitle}\n\n`;
       if (envVars)
-        resultMessage += `✅ Custom environment variables passed to lifecycle CLI: ${Object.keys(envVars).join(", ")}\n`;
+        resultMessage += `✅ Custom environment variables passed to the LocalStack container: ${Object.keys(envVars).join(", ")}\n`;
       if (status.statusOutput) resultMessage += `\n**${statusHeading}:**\n${status.statusOutput}`;
       return ResponseBuilder.markdown(resultMessage);
     };
+
     const finishIfReady = async (): Promise<boolean> => {
       const status = await getStatus();
       if (!(status.isReady || status.isRunning)) return false;
@@ -465,58 +508,27 @@ export async function startRuntime({
       return true;
     };
 
-    child.on("error", (err) => {
-      earlyExit = true;
+    // The follow-stream ending means the container exited (AutoRemove removes it
+    // immediately, so this buffered tail is the only surviving diagnostic).
+    logBuffer?.onExit(async () => {
+      // The runtime may have become ready in the same instant (unlikely but cheap to check).
+      try {
+        if (await finishIfReady()) return;
+      } catch {
+        // fall through to the failure response
+      }
       finish(
-        ResponseBuilder.markdown(`❌ Failed to start ${processLabel} process: ${err.message}`)
+        ResponseBuilder.markdown(
+          `❌ ${processLabel} container exited unexpectedly before becoming ready.${failureDetails()}`
+        )
       );
     });
 
-    child.on("close", async (code) => {
-      if (earlyExit) return;
-      // A non-zero exit is a real failure: stop polling and report it.
-      // A zero exit is expected in non-interactive environments (e.g. inside a
-      // container, where `localstack start` launches the runtime and returns
-      // instead of staying attached to stream logs). In that case we must keep
-      // polling so readiness is still detected and the promise resolves — clearing
-      // the interval here would leave the start call hanging forever.
-      if (code !== 0) {
-        finish(
-          ResponseBuilder.markdown(
-            `❌ ${processLabel} process exited unexpectedly with code ${code}.${failureDetails()}`
-          )
-        );
-        return;
-      }
-
-      if (cli === "lstk") {
-        try {
-          if (await finishIfReady()) return;
-        } catch (error) {
-          finish(
-            ResponseBuilder.markdown(
-              `❌ ${processLabel} process exited before it became ready. Failed to verify status: ${
-                error instanceof Error ? error.message : String(error)
-              }${failureDetails()}`
-            )
-          );
-          return;
-        }
-
-        finish(
-          ResponseBuilder.markdown(
-            `❌ ${processLabel} process exited before it became ready.${failureDetails()}`
-          )
-        );
-      }
-    });
-
-    const pollInterval = 5000;
-    const maxWaitTime = 120000;
+    const pollIntervalMs = options.pollIntervalMs ?? POLL_INTERVAL_MS;
+    const maxWaitMs = options.maxWaitMs ?? MAX_WAIT_MS;
     let timeWaited = 0;
-
     poll = setInterval(async () => {
-      timeWaited += pollInterval;
+      timeWaited += pollIntervalMs;
       try {
         if (await finishIfReady()) return;
       } catch (error) {
@@ -530,28 +542,79 @@ export async function startRuntime({
         return;
       }
 
-      if (timeWaited >= maxWaitTime) {
+      if (timeWaited >= maxWaitMs) {
         const details = failureDetails();
         finish(ResponseBuilder.markdown(details ? `${timeoutMessage}${details}` : timeoutMessage));
       }
-    }, pollInterval);
+    }, pollIntervalMs);
   });
 }
 
-/**
- * Validate LocalStack CLI availability and return early if not available
- * This is a helper function for tools that require LocalStack CLI
- */
-export async function ensureLocalStackCli() {
-  const cliCheck = await checkLocalStackCli();
+export interface InPlaceRestartResult {
+  ok: boolean;
+  detail: string;
+}
 
-  if (!cliCheck.isAvailable) {
+/**
+ * Restart the LocalStack runtime in place (`POST /_localstack/health {"action":
+ * "restart"}`) and wait for the NEW process to become ready. The POST returns
+ * immediately while the old process keeps answering health checks for a moment, so
+ * readiness is detected via the session transition (session_id change / uptime
+ * reset), not via the first successful health poll.
+ */
+export async function restartRuntimeInPlace({
+  pollIntervalMs = 2000,
+  maxWaitMs = 120000,
+}: { pollIntervalMs?: number; maxWaitMs?: number } = {}): Promise<InPlaceRestartResult> {
+  const before = await getSessionInfo();
+
+  try {
+    await httpClient.request("/_localstack/health", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "restart" }),
+    });
+  } catch (error) {
     return {
-      content: [{ type: "text", text: cliCheck.errorMessage! }],
+      ok: false,
+      detail: `Restart request failed: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 
-  return null; // CLI is available, continue with tool execution
+  let sawTransition = false;
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+
+    const health = await getGatewayHealth();
+    if (!health.reachable) {
+      // Gateway went down — the restart is in progress.
+      sawTransition = true;
+      continue;
+    }
+
+    if (!sawTransition && before) {
+      const info = await getSessionInfo();
+      if (info) {
+        const sessionChanged =
+          (info.session_id && before.session_id && info.session_id !== before.session_id) ||
+          (typeof info.uptime === "number" &&
+            typeof before.uptime === "number" &&
+            info.uptime < before.uptime);
+        if (sessionChanged) sawTransition = true;
+      }
+    }
+
+    const restarted = sawTransition || !before;
+    if (restarted && health.ready) {
+      return { ok: true, detail: "LocalStack runtime restarted and is ready." };
+    }
+  }
+
+  return {
+    ok: false,
+    detail: `LocalStack did not report ready within ${Math.round(maxWaitMs / 1000)}s after the restart request. It may still be restarting in the background.`,
+  };
 }
 
 /**
@@ -569,3 +632,5 @@ export async function ensureSnowflakeCli() {
 
   return null; // CLI is available, continue with tool execution
 }
+
+export { resolveContainerName };

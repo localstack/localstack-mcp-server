@@ -4,7 +4,6 @@ import { LocalStackLogRetriever, type LogEntry } from "../lib/logs/log-retriever
 import {
   runPreflights,
   requireAuthToken,
-  requireLocalStackCli,
   requireLocalStackRunning,
 } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
@@ -63,7 +62,6 @@ export default async function localstackLogsAnalysis({
     async () => {
       const preflightError = await runPreflights([
         requireAuthToken(),
-        requireLocalStackCli(),
         requireLocalStackRunning(),
       ]);
       if (preflightError) return preflightError;

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { runCommand, stripAnsiCodes } from "../core/command-runner";
-import { runPreflights, requireLocalStackCli, requireAuthToken } from "../core/preflight";
+import { requireAuthToken } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { withToolAnalytics } from "../core/analytics";
 
@@ -72,9 +72,6 @@ export default async function localstackEphemeralInstances({
     async () => {
       const authError = requireAuthToken();
       if (authError) return authError;
-
-      const preflightError = await runPreflights([requireLocalStackCli()]);
-      if (preflightError) return preflightError;
 
       switch (action) {
         case "create":

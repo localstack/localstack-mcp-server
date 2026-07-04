@@ -4,7 +4,6 @@ import { HttpClient, HttpError } from "../core/http-client";
 import { runCommand, stripAnsiCodes } from "../core/command-runner";
 import {
   runPreflights,
-  requireLocalStackCli,
   requireLocalStackRunning,
   requireProFeature,
   requireAuthToken,
@@ -60,7 +59,6 @@ export default async function localstackExtensions({
   return withToolAnalytics("localstack-extensions", { action, name, source }, async () => {
     const checks = [
       requireAuthToken(),
-      requireLocalStackCli(),
       requireLocalStackRunning(),
       requireProFeature(ProFeature.EXTENSIONS),
     ];
