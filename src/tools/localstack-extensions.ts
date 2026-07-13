@@ -104,7 +104,7 @@ async function runExtensionManager(args: string[], { repairVenv = false } = {}) 
   const docker = new DockerApiClient();
   const containerId = await docker.findLocalStackContainer();
   if (repairVenv) {
-    await docker.executeInContainer(
+    const repair = await docker.executeInContainer(
       containerId,
       ["sh", "-c", EXTENSIONS_VENV_REPAIR_SCRIPT],
       undefined,
@@ -113,6 +113,13 @@ async function runExtensionManager(args: string[], { repairVenv = false } = {}) 
         timeoutMs: EXTENSION_EXEC_TIMEOUT_MS,
       }
     );
+    if (repair.exitCode !== 0) {
+      // e.g. a custom image where the extension manager's interpreter lives at a
+      // different path — fail with the real cause instead of letting the manager
+      // produce an unrelated-looking error later.
+      const detail = repair.stderr || repair.stdout || `exit code ${repair.exitCode}`;
+      throw new Error(`the extensions environment could not be prepared: ${detail}`);
+    }
   }
   return await docker.executeInContainer(
     containerId,

@@ -31,6 +31,11 @@ export const EXTENSIONS_VENV_REPAIR_SCRIPT = [
   'if [ ! -e "$V/pyvenv.cfg" ]; then "$PY" -m localstack.pro.core.bootstrap.extensions init; fi',
   'if ! "$V/bin/python" -c "import sys" >/dev/null 2>&1; then rm -f "$V/bin/python" "$V/bin/python3" "$V"/bin/python3.*; "$PY" -m venv --upgrade "$V"; fi',
   'if [ ! -x "$V/bin/pip" ]; then "$V/bin/python" -m ensurepip --upgrade >/dev/null 2>&1 || true; fi',
+  // Final usability probe: the script's exit code must reflect whether the venv is
+  // actually usable (each `if` above returns 0 when its condition is false, so
+  // repair failures would otherwise be silently swallowed — e.g. on a custom image
+  // where the hardcoded interpreter path does not exist).
+  '"$V/bin/python" -c "import sys" && [ -x "$V/bin/pip" ]',
 ].join("\n");
 
 /**
