@@ -432,5 +432,41 @@ describe("localstack.utils", () => {
       expect(result.ok).toBe(false);
       expect(result.detail).toContain("Restart request failed");
     });
+
+    test("does not assume success when session info is unavailable and no downtime is seen", async () => {
+      // Missing /_localstack/info must read as "unknown", not as proof of a restart —
+      // a healthy gateway alone is what the OLD process looks like too.
+      mockedRequest.mockImplementation(async (endpoint: any, options: any) => {
+        const url = String(endpoint);
+        if (url.includes("/_localstack/info")) throw new Error("info endpoint unavailable");
+        if (url.includes("/_localstack/health") && options?.method === "POST") return {} as any;
+        return { services: { s3: "available" } } as any;
+      });
+
+      const result = await restartRuntimeInPlace({ pollIntervalMs: 5, maxWaitMs: 60 });
+      expect(result.ok).toBe(false);
+      expect(result.detail).toMatch(/Could not confirm/i);
+    });
+
+    test("adopts the first post-request session as baseline and confirms on a later change", async () => {
+      // /_localstack/info was unreachable before the POST; the first successful read
+      // becomes the comparison point, and a subsequent session change confirms.
+      let infoCalls = 0;
+      mockedRequest.mockImplementation(async (endpoint: any, options: any) => {
+        const url = String(endpoint);
+        if (url.includes("/_localstack/info")) {
+          infoCalls += 1;
+          if (infoCalls === 1) throw new Error("info endpoint unavailable");
+          return infoCalls <= 3
+            ? ({ session_id: "old", uptime: 500 } as any)
+            : ({ session_id: "new", uptime: 2 } as any);
+        }
+        if (url.includes("/_localstack/health") && options?.method === "POST") return {} as any;
+        return { services: { s3: "available" } } as any;
+      });
+
+      const result = await restartRuntimeInPlace({ pollIntervalMs: 5, maxWaitMs: 500 });
+      expect(result.ok).toBe(true);
+    });
   });
 });

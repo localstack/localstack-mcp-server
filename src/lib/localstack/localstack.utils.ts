@@ -566,7 +566,10 @@ export async function restartRuntimeInPlace({
   pollIntervalMs = 2000,
   maxWaitMs = 120000,
 }: { pollIntervalMs?: number; maxWaitMs?: number } = {}): Promise<InPlaceRestartResult> {
-  const before = await getSessionInfo();
+  // Baseline for the session-transition check. When /_localstack/info is not
+  // available the baseline stays unknown — that means the restart can only be
+  // confirmed by observing gateway downtime, never assumed.
+  let baseline = await getSessionInfo();
 
   try {
     await httpClient.request("/_localstack/health", {
@@ -593,27 +596,35 @@ export async function restartRuntimeInPlace({
       continue;
     }
 
-    if (!sawTransition && before) {
+    if (!sawTransition) {
       const info = await getSessionInfo();
       if (info) {
-        const sessionChanged =
-          (info.session_id && before.session_id && info.session_id !== before.session_id) ||
-          (typeof info.uptime === "number" &&
-            typeof before.uptime === "number" &&
-            info.uptime < before.uptime);
-        if (sessionChanged) sawTransition = true;
+        if (!baseline) {
+          // First observation after the POST. It may already be the new session,
+          // but that cannot be proven — use it as the comparison point and keep
+          // waiting for an explicit signal (downtime or a later session change).
+          baseline = info;
+        } else {
+          const sessionChanged =
+            (info.session_id && baseline.session_id && info.session_id !== baseline.session_id) ||
+            (typeof info.uptime === "number" &&
+              typeof baseline.uptime === "number" &&
+              info.uptime < baseline.uptime);
+          if (sessionChanged) sawTransition = true;
+        }
       }
     }
 
-    const restarted = sawTransition || !before;
-    if (restarted && health.ready) {
+    // Success requires an explicit restart signal — never assume it from
+    // missing session info.
+    if (sawTransition && health.ready) {
       return { ok: true, detail: "LocalStack runtime restarted and is ready." };
     }
   }
 
   return {
     ok: false,
-    detail: `LocalStack did not report ready within ${Math.round(maxWaitMs / 1000)}s after the restart request. It may still be restarting in the background.`,
+    detail: `Could not confirm the restart within ${Math.round(maxWaitMs / 1000)}s: the gateway stayed reachable and no session change was observed. LocalStack may still be restarting in the background — check its status before relying on the change.`,
   };
 }
 
