@@ -308,3 +308,15 @@ describe("buildLocalStackContainerSpec", () => {
     expect(envMap(spec).AI_AGENT).toBe("claude-code");
   });
 });
+
+describe("stackFromImage", () => {
+  const { stackFromImage } = jest.requireActual("./container-spec.logic");
+
+  test("classifies snowflake and aws images, including mirrors and digests", () => {
+    expect(stackFromImage("localstack/snowflake:latest")).toBe("snowflake");
+    expect(stackFromImage("registry.corp/localstack/snowflake@sha256:abc")).toBe("snowflake");
+    expect(stackFromImage("localstack/localstack-pro:latest")).toBe("aws");
+    expect(stackFromImage("localstack/localstack:4.5")).toBe("aws");
+    expect(stackFromImage(undefined)).toBeUndefined();
+  });
+});

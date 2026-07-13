@@ -11,7 +11,7 @@ import {
   isLocalStackContainerNotFoundError,
   type ContainerMetadata,
 } from "../lib/docker/docker.client";
-import type { VolumeResolution } from "../lib/localstack/container-spec.logic";
+import { stackFromImage, type VolumeResolution } from "../lib/localstack/container-spec.logic";
 import {
   runPreflights,
   requireProFeature,
@@ -70,9 +70,14 @@ export default async function localstackManagement({
       checks.push(requireDockerDaemon());
     }
 
-    if (service === "snowflake") {
-      // `start` can run when no LocalStack runtime is currently up; validate feature after startup.
-      if (action !== "start") checks.push(requireProFeature(ProFeature.SNOWFLAKE));
+    if (service === "snowflake" && action !== "start") {
+      // The SNOWFLAKE pro-feature check reads /_localstack/licenseinfo from the
+      // RUNNING container, so it is only meaningful when that container actually is
+      // the Snowflake stack. Checking against the AWS stack produces a misleading
+      // "license does not include snowflake" error, and `start` cannot be gated at
+      // all: nothing is running yet to ask (an unlicensed boot fails fast through
+      // the attached crash-log path instead).
+      checks.push(requireSnowflakeProIfSnowflakeRunning());
     }
 
     const preflightError = await runPreflights(checks);
@@ -100,6 +105,27 @@ interface StartOverrides {
   imageOverride?: string;
   containerNameOverride?: string;
   volumeOverride?: VolumeResolution;
+}
+
+/** Best-effort look at the running LocalStack container (null when none/undetectable). */
+async function inspectRunningContainer(): Promise<ContainerMetadata | null> {
+  try {
+    const dockerClient = new DockerApiClient();
+    const containerId = await dockerClient.findLocalStackContainer();
+    return await dockerClient.inspectContainer(containerId);
+  } catch {
+    return null;
+  }
+}
+
+/** Gate on the SNOWFLAKE pro feature only when the running container is the Snowflake stack. */
+async function requireSnowflakeProIfSnowflakeRunning() {
+  const metadata = await inspectRunningContainer();
+  if (!metadata || stackFromImage(metadata.image) !== "snowflake") {
+    // Not running / different stack — the handlers report those states accurately.
+    return null;
+  }
+  return await requireProFeature(ProFeature.SNOWFLAKE);
 }
 
 // Handle start action
@@ -263,8 +289,7 @@ function recreateOverrides(
   service: "aws" | "snowflake"
 ): StartOverrides | undefined {
   if (!metadata?.image) return undefined;
-  const previousStack = metadata.image.includes("/snowflake") ? "snowflake" : "aws";
-  if (previousStack !== service) return undefined;
+  if (stackFromImage(metadata.image) !== service) return undefined;
 
   const overrides: StartOverrides = {
     imageOverride: metadata.image,
@@ -295,6 +320,17 @@ async function handleStatus({ service }: { service: "aws" | "snowflake" }) {
   }
 
   if (service === "snowflake") {
+    // A reachable gateway may belong to the AWS stack — probing its Snowflake
+    // endpoint would misreport that as a Snowflake health failure. Say what is
+    // actually running instead.
+    const metadata = await inspectRunningContainer();
+    if (metadata && stackFromImage(metadata.image) === "aws") {
+      result +=
+        `\n\n⚠️  The running LocalStack container ("${metadata.name}", image: ${metadata.image}) is the AWS stack — ` +
+        "the Snowflake emulator is not running. Stop it first, then start with service: snowflake.";
+      return ResponseBuilder.markdown(result);
+    }
+
     const snowflakeStatus = await getSnowflakeEmulatorStatus();
 
     if (snowflakeStatus.isReady || snowflakeStatus.isRunning) {

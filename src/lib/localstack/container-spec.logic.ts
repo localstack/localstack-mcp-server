@@ -132,6 +132,13 @@ export function resolveImage(
   return override || DEFAULT_AWS_IMAGE;
 }
 
+/** Which stack a LocalStack container image belongs to (undefined when unknown). */
+export function stackFromImage(image?: string): LocalStackStack | undefined {
+  if (!image) return undefined;
+  if (/\/snowflake(:|@|$)/.test(image)) return "snowflake";
+  return "aws";
+}
+
 export function resolveContainerName(hostEnv: Record<string, string | undefined>): string {
   return (
     hostEnv.MAIN_CONTAINER_NAME?.trim() ||
