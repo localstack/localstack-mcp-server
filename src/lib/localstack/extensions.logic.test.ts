@@ -138,3 +138,51 @@ describe("parseInstalledExtensions / formatInstalledExtensions", () => {
     );
   });
 });
+
+describe("validateExtensionTarget", () => {
+  const { validateExtensionTarget } = jest.requireActual("./extensions.logic");
+
+  test("accepts PyPI-style names, extras, and version pins", () => {
+    expect(validateExtensionTarget({ name: "localstack-extension-typedb" })).toBeNull();
+    expect(validateExtensionTarget({ name: "localstack-extension-typedb==1.0.0" })).toBeNull();
+    expect(validateExtensionTarget({ name: "my_ext[extra1,extra2]==2.0.0rc1" })).toBeNull();
+  });
+
+  test("rejects names that look like pip options, paths, or shell noise", () => {
+    for (const name of [
+      "--index-url=https://evil.example/simple",
+      "-e .",
+      "../somewhere/local",
+      "./pkg",
+      "pkg; rm -rf /",
+      "pkg name with spaces",
+      "pkg>=1.0", // only == pins are supported
+    ]) {
+      expect(validateExtensionTarget({ name })).toMatch(/not a valid extension package name/);
+    }
+  });
+
+  test("accepts documented git+https sources on known hosts", () => {
+    expect(
+      validateExtensionTarget({
+        source:
+          "git+https://github.com/localstack/localstack-extensions.git#egg=localstack-keycloak&subdirectory=keycloak",
+      })
+    ).toBeNull();
+    expect(
+      validateExtensionTarget({ source: "git+https://gitlab.com/org/repo.git@v1.2.3" })
+    ).toBeNull();
+  });
+
+  test("rejects non-https, unknown-host, and non-git sources", () => {
+    for (const source of [
+      "git+ssh://git@github.com/org/repo.git",
+      "git+https://evil.example/org/repo.git",
+      "https://github.com/org/repo.git",
+      "file:///etc/passwd",
+      "git+https://github.com/org/repo.git --index-url=x",
+    ]) {
+      expect(validateExtensionTarget({ source })).toMatch(/not a supported extension source/);
+    }
+  });
+});

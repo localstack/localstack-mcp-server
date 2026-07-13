@@ -33,6 +33,36 @@ export const EXTENSIONS_VENV_REPAIR_SCRIPT = [
   'if [ ! -x "$V/bin/pip" ]; then "$V/bin/python" -m ensurepip --upgrade >/dev/null 2>&1 || true; fi',
 ].join("\n");
 
+/**
+ * Tool arguments reach `pip install` inside the LocalStack container, which has the
+ * docker socket mounted — so they are treated as untrusted input. Names must look
+ * like PyPI package specifiers (optional extras + `==` pin); anything resembling pip
+ * option syntax, path installs, or alternate URL schemes is rejected.
+ */
+export const EXTENSION_NAME_RE =
+  /^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9,._-]+\])?(==[A-Za-z0-9.*+!-]+)?$/;
+
+/** Git sources are limited to https on well-known hosts (matches the documented usage). */
+export const EXTENSION_GIT_SOURCE_RE =
+  /^git\+https:\/\/(github\.com|gitlab\.com|bitbucket\.org)\/[A-Za-z0-9._/-]+(@[A-Za-z0-9._/-]+)?(#[A-Za-z0-9._&=/-]+)?$/;
+
+/** Returns an error message for an invalid install/uninstall target, or null when fine. */
+export function validateExtensionTarget({
+  name,
+  source,
+}: {
+  name?: string;
+  source?: string;
+}): string | null {
+  if (name !== undefined && !EXTENSION_NAME_RE.test(name)) {
+    return `"${name}" is not a valid extension package name. Expected a PyPI-style name like localstack-extension-typedb, optionally with extras or a ==version pin.`;
+  }
+  if (source !== undefined && !EXTENSION_GIT_SOURCE_RE.test(source)) {
+    return `"${source}" is not a supported extension source. Use a git+https:// URL on github.com, gitlab.com, or bitbucket.org (e.g. git+https://github.com/org/repo.git#egg=my-extension).`;
+  }
+  return null;
+}
+
 export interface ExtensionEvent {
   event: string;
   message?: string;

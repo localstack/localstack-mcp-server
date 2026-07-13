@@ -20,6 +20,7 @@ import {
   parseInstalledExtensions,
   summarizeInstall,
   summarizeUninstall,
+  validateExtensionTarget,
   type ExtensionOutcome,
 } from "../lib/localstack/extensions.logic";
 import { PlatformApiClient, describePlatformError } from "../lib/localstack/platform.client";
@@ -170,6 +171,11 @@ async function handleInstall(name?: string, source?: string) {
     );
   }
 
+  const validationError = validateExtensionTarget({ name, source });
+  if (validationError) {
+    return ResponseBuilder.error("Invalid Extension Target", validationError);
+  }
+
   const target = source || name!;
   let result;
   try {
@@ -216,6 +222,11 @@ async function handleUninstall(name?: string) {
       "Missing Required Parameter",
       "The `uninstall` action requires the `name` parameter to be specified."
     );
+  }
+
+  const validationError = validateExtensionTarget({ name });
+  if (validationError) {
+    return ResponseBuilder.error("Invalid Extension Target", validationError);
   }
 
   let result;
