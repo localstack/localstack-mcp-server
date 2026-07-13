@@ -12,9 +12,7 @@
     {
       "src": "https://raw.githubusercontent.com/localstack/localstack-mcp-server/main/icon.png",
       "mimeType": "image/png",
-      "sizes": [
-        "256x256"
-      ]
+      "sizes": ["256x256"]
     }
   ],
   "packages": [
