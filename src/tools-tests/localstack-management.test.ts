@@ -1,4 +1,7 @@
-import localstackManagement from "./localstack-management";
+// Tool tests live outside src/tools/ because xmcp registers every src/tools/*.ts as a
+// tool (a *.test.ts there would be bundled into the server). The jest.mock specifiers
+// below resolve to the same modules the tool imports (this dir is a sibling of tools/).
+import localstackManagement from "../tools/localstack-management";
 import { DockerApiClient } from "../lib/docker/docker.client";
 import { getLocalStackStatus } from "../lib/localstack/localstack.utils";
 
