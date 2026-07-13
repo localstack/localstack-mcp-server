@@ -147,25 +147,55 @@ export function resolveContainerName(hostEnv: Record<string, string | undefined>
   );
 }
 
+function parsePort(text: string, context: string): number {
+  const port = Number(text);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid ${context} "${text}": port must be an integer 1-65535.`);
+  }
+  return port;
+}
+
 /**
- * Parse a GATEWAY_LISTEN value ("[host]:port" entries, comma-separated). Entries
- * without a host get the platform default bind IP.
+ * Parse a GATEWAY_LISTEN value (comma-separated `[host]:port` / `host:port` / `:port`
+ * / bare `port` entries). Hosts are stored bracket-less; IPv6 is handled explicitly
+ * because a naive `lastIndexOf(":")` would split inside the address. Entries without a
+ * host get the platform default bind IP; a host-only IPv6 (`[::1]`) gets the default
+ * gateway port.
  */
 export function parseGatewayListen(value: string, defaultIp: string): GatewayListenEntry[] {
-  return value
+  const entries = value
     .split(",")
     .map((entry) => entry.trim())
-    .filter(Boolean)
-    .map((entry) => {
-      const separator = entry.lastIndexOf(":");
-      const host = separator > 0 ? entry.slice(0, separator) : "";
-      const portText = separator >= 0 ? entry.slice(separator + 1) : entry;
-      const port = Number(portText);
-      if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-        throw new Error(`Invalid GATEWAY_LISTEN entry "${entry}": port must be 1-65535.`);
-      }
-      return { host: host || defaultIp, port };
-    });
+    .filter(Boolean);
+  if (entries.length === 0) {
+    throw new Error(`Invalid GATEWAY_LISTEN "${value}": no host:port entries.`);
+  }
+  return entries.map((entry) => {
+    let host = "";
+    let portText: string | undefined;
+    const bracket = entry.match(/^\[([^\]]+)\](?::(.+))?$/);
+    if (bracket) {
+      host = bracket[1]; // IPv6 address, stored without brackets
+      portText = bracket[2];
+    } else if (entry.includes(":")) {
+      const idx = entry.lastIndexOf(":");
+      host = entry.slice(0, idx);
+      portText = entry.slice(idx + 1);
+    } else {
+      portText = entry; // bare port (intentionally NOT treated as a hostname, unlike the CLI)
+    }
+    const port =
+      portText === undefined
+        ? DEFAULT_GATEWAY_CONTAINER_PORT
+        : parsePort(portText, `GATEWAY_LISTEN entry "${entry}"`);
+    return { host: host || defaultIp, port };
+  });
+}
+
+/** Re-bracket an IPv6 host for the container-side GATEWAY_LISTEN value / a Docker HostIp is fine bare. */
+function gatewayListenHostPart(host: string, defaultIp: string): string {
+  if (host === defaultIp) return "";
+  return host.includes(":") ? `[${host}]` : host;
 }
 
 export function detectAiAgent(hostEnv: Record<string, string | undefined>): string | undefined {
@@ -199,8 +229,10 @@ export function resolveVolume({
   if (explicit) return { type: "bind", source: normalizeBindPath(explicit) };
 
   if (isInDocker) {
+    // Only an ABSOLUTE legacy cache path can be a valid host bind source; a relative
+    // XDG_CACHE_HOME (or none) falls through to the named volume.
     const legacyCache = hostEnv.XDG_CACHE_HOME?.trim();
-    if (legacyCache) {
+    if (legacyCache && legacyCache.startsWith("/")) {
       return { type: "bind", source: joinPosix(legacyCache, "localstack", "volume") };
     }
     return { type: "volume", name: NAMED_VOLUME_NAME };
@@ -231,7 +263,11 @@ function joinPosix(...parts: string[]): string {
 
 /** Docker Desktop accepts drive-letter paths with forward slashes; avoids `\` escaping woes. */
 function normalizeBindPath(p: string): string {
-  return p.replace(/\\/g, "/");
+  const forward = p.replace(/\\/g, "/");
+  // Collapse duplicate separators (e.g. a trailing backslash in LOCALAPPDATA) while
+  // preserving a leading UNC "//".
+  const leading = forward.startsWith("//") ? "//" : "";
+  return leading + forward.slice(leading.length).replace(/\/{2,}/g, "/");
 }
 
 interface ResolvedPorts {
@@ -254,6 +290,9 @@ function firstDefined(
   return undefined;
 }
 
+/** Upper bound on how many external-service ports we will enumerate (default is 51). */
+const MAX_SERVICE_PORT_SPAN = 1000;
+
 function resolvePorts(input: ContainerSpecInput): ResolvedPorts {
   const { hostEnv, envVars = {} } = input;
   const defaultIp = input.isInDocker ? "0.0.0.0" : "127.0.0.1";
@@ -273,13 +312,36 @@ function resolvePorts(input: ContainerSpecInput): ResolvedPorts {
   if (
     !Number.isInteger(servicePortStart) ||
     !Number.isInteger(servicePortEnd) ||
+    servicePortStart < 1 ||
+    servicePortEnd > 65535 ||
     servicePortEnd < servicePortStart
   ) {
-    throw new Error(`Invalid EXTERNAL_SERVICE_PORTS range: ${servicePortStart}-${servicePortEnd}.`);
+    throw new Error(
+      `Invalid EXTERNAL_SERVICE_PORTS range ${servicePortStart}-${servicePortEnd}: expected 1 <= start <= end <= 65535.`
+    );
+  }
+  if (servicePortEnd - servicePortStart + 1 > MAX_SERVICE_PORT_SPAN) {
+    throw new Error(
+      `EXTERNAL_SERVICE_PORTS range ${servicePortStart}-${servicePortEnd} spans more than ${MAX_SERVICE_PORT_SPAN} ports; narrow it.`
+    );
   }
 
   const bindings: PortBindingEntry[] = [];
+  const seen = new Set<string>();
+  const claimedContainerPorts = new Set<number>();
+  const bindingKey = (b: PortBindingEntry) => `${b.containerPort}/${b.hostIp}/${b.hostPort}`;
+  const addBinding = (b: PortBindingEntry) => {
+    const key = bindingKey(b);
+    if (seen.has(key)) return; // dedupe identical triples (a repeated GATEWAY_LISTEN entry)
+    seen.add(key);
+    claimedContainerPorts.add(b.containerPort);
+    bindings.push(b);
+  };
+
   let containerGatewayListen: string;
+  // The bind host for the whole published set: the CLI binds all ports to
+  // GATEWAY_LISTEN[0].host, so a `0.0.0.0:4566` listener also exposes the service range.
+  let serviceBindHost = defaultIp;
 
   const gatewayListenRaw = firstDefined(
     ["GATEWAY_LISTEN", "LOCALSTACK_GATEWAY_LISTEN"],
@@ -287,26 +349,29 @@ function resolvePorts(input: ContainerSpecInput): ResolvedPorts {
     hostEnv
   );
   if (gatewayListenRaw) {
-    // CLI parity: each entry publishes port:port; the container-side env strips
-    // hosts equal to the default bind IP (`:4566`) and keeps explicit others.
     const entries = parseGatewayListen(gatewayListenRaw, defaultIp);
+    serviceBindHost = entries[0].host;
     for (const entry of entries) {
-      bindings.push({ containerPort: entry.port, hostIp: entry.host, hostPort: entry.port });
+      addBinding({ containerPort: entry.port, hostIp: entry.host, hostPort: entry.port });
     }
+    // Container-side value: strip the host when it equals the default bind IP (`:4566`),
+    // keep explicit hosts, re-bracketing IPv6 so the runtime's parser accepts it.
     containerGatewayListen = entries
-      .map((entry) => `${entry.host === defaultIp ? "" : entry.host}:${entry.port}`)
+      .map((entry) => `${gatewayListenHostPart(entry.host, defaultIp)}:${entry.port}`)
       .join(",");
   } else {
     // Default: gateway on <LOCALSTACK_PORT||4566> host-side (container always 4566),
     // plus the HTTPS gateway on 443 — the pro CLI adds it only when GATEWAY_LISTEN
     // is unset, and so do we.
-    const hostGatewayPort = Number(hostEnv.LOCALSTACK_PORT || DEFAULT_GATEWAY_CONTAINER_PORT);
-    bindings.push({
+    const hostGatewayPort = hostEnv.LOCALSTACK_PORT
+      ? parsePort(hostEnv.LOCALSTACK_PORT, "LOCALSTACK_PORT")
+      : DEFAULT_GATEWAY_CONTAINER_PORT;
+    addBinding({
       containerPort: DEFAULT_GATEWAY_CONTAINER_PORT,
       hostIp: defaultIp,
       hostPort: hostGatewayPort,
     });
-    bindings.push({
+    addBinding({
       containerPort: DEFAULT_HTTPS_GATEWAY_PORT,
       hostIp: defaultIp,
       hostPort: DEFAULT_HTTPS_GATEWAY_PORT,
@@ -314,9 +379,11 @@ function resolvePorts(input: ContainerSpecInput): ResolvedPorts {
     containerGatewayListen = `:${DEFAULT_GATEWAY_CONTAINER_PORT},:${DEFAULT_HTTPS_GATEWAY_PORT}`;
   }
 
-  // The Engine API has no range syntax — enumerate every service port.
+  // The Engine API has no range syntax — enumerate every service port, skipping any
+  // that a gateway entry already claims (a duplicate mapping fails the container start).
   for (let port = servicePortStart; port <= servicePortEnd; port++) {
-    bindings.push({ containerPort: port, hostIp: defaultIp, hostPort: port });
+    if (claimedContainerPorts.has(port)) continue;
+    addBinding({ containerPort: port, hostIp: serviceBindHost, hostPort: port });
   }
 
   return { bindings, containerGatewayListen, servicePortStart, servicePortEnd };
@@ -345,7 +412,7 @@ function buildEnv(input: ContainerSpecInput, ports: ResolvedPorts, name: string)
 
   // (c) explicit tool envVars win over anything host-derived
   for (const [key, value] of Object.entries(envVars)) {
-    if (CLIENT_ONLY_ENV_KEYS.has(key) && key !== "LOCALSTACK_AUTH_TOKEN") continue;
+    if (CLIENT_ONLY_ENV_KEYS.has(key)) continue;
     env.set(key, value);
   }
 
@@ -361,6 +428,23 @@ function buildEnv(input: ContainerSpecInput, ports: ResolvedPorts, name: string)
   env.set("LOCALSTACK_CLIENT_VERSION", input.serverVersion);
   const aiAgent = detectAiAgent(hostEnv);
   if (aiAgent) env.set("AI_AGENT", aiAgent);
+
+  // The container entrypoint re-exports `LOCALSTACK_X` -> `X` (except HOST/HOSTNAME/
+  // <digit>), so a forwarded `LOCALSTACK_<K>` would silently override an unprefixed
+  // value we control at runtime. For every key we set authoritatively here — the
+  // reserved keys and any unprefixed tool `envVars` — drop its `LOCALSTACK_` alias so
+  // our value actually wins inside the container.
+  const authoritativeKeys = [
+    "MAIN_CONTAINER_NAME",
+    "GATEWAY_LISTEN",
+    "EXTERNAL_SERVICE_PORTS_START",
+    "EXTERNAL_SERVICE_PORTS_END",
+    "DOCKER_HOST",
+    ...Object.keys(envVars).filter((key) => !key.startsWith("LOCALSTACK_")),
+  ];
+  for (const key of authoritativeKeys) {
+    env.delete(`LOCALSTACK_${key}`);
+  }
 
   return Array.from(env.entries()).map(([key, value]) => `${key}=${value}`);
 }

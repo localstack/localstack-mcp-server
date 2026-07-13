@@ -66,6 +66,19 @@ describe("parseGatewayListen", () => {
 
   test("rejects invalid ports", () => {
     expect(() => parseGatewayListen("abc", "127.0.0.1")).toThrow(/Invalid GATEWAY_LISTEN/);
+    expect(() => parseGatewayListen(":70000", "127.0.0.1")).toThrow(/1-65535/);
+    expect(() => parseGatewayListen(":0", "127.0.0.1")).toThrow(/1-65535/);
+    expect(() => parseGatewayListen(":-5", "127.0.0.1")).toThrow(/1-65535/);
+  });
+
+  test("parses IPv6 entries bracket-aware (lastIndexOf would split the address)", () => {
+    expect(parseGatewayListen("[::1]:4566", "127.0.0.1")).toEqual([{ host: "::1", port: 4566 }]);
+    // host-only IPv6 gets the default gateway port
+    expect(parseGatewayListen("[::1]", "127.0.0.1")).toEqual([{ host: "::1", port: 4566 }]);
+  });
+
+  test("rejects an all-empty value", () => {
+    expect(() => parseGatewayListen(" , ,", "127.0.0.1")).toThrow(/no host:port entries/);
   });
 });
 
@@ -94,6 +107,17 @@ describe("resolveVolume", () => {
     expect(
       resolveVolume({
         hostEnv: { LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local" },
+        isInDocker: false,
+        platform: "win32",
+        homedir: "C:\\Users\\me",
+      })
+    ).toEqual({ type: "bind", source: "C:/Users/me/AppData/Local/cache/localstack/volume" });
+  });
+
+  test("host windows collapses a trailing backslash in LOCALAPPDATA (no double slash)", () => {
+    expect(
+      resolveVolume({
+        hostEnv: { LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local\\" },
         isInDocker: false,
         platform: "win32",
         homedir: "C:\\Users\\me",
@@ -205,6 +229,73 @@ describe("buildLocalStackContainerSpec", () => {
     expect(envMap(spec).EXTERNAL_SERVICE_PORTS_END).toBe("4610");
   });
 
+  test("rejects invalid EXTERNAL_SERVICE_PORTS / LOCALSTACK_PORT rather than emitting bad bindings", () => {
+    expect(() =>
+      buildLocalStackContainerSpec(
+        baseInput({
+          hostEnv: { EXTERNAL_SERVICE_PORTS_START: "-5", EXTERNAL_SERVICE_PORTS_END: "10" },
+        })
+      )
+    ).toThrow(/EXTERNAL_SERVICE_PORTS/);
+    expect(() =>
+      buildLocalStackContainerSpec(
+        baseInput({
+          hostEnv: { EXTERNAL_SERVICE_PORTS_START: "5000", EXTERNAL_SERVICE_PORTS_END: "4000" },
+        })
+      )
+    ).toThrow(/EXTERNAL_SERVICE_PORTS/);
+    expect(() =>
+      buildLocalStackContainerSpec(
+        baseInput({
+          hostEnv: { EXTERNAL_SERVICE_PORTS_START: "1", EXTERNAL_SERVICE_PORTS_END: "65000" },
+        })
+      )
+    ).toThrow(/more than/);
+    expect(() =>
+      buildLocalStackContainerSpec(baseInput({ hostEnv: { LOCALSTACK_PORT: "abc" } }))
+    ).toThrow(/LOCALSTACK_PORT/);
+  });
+
+  test("binds the service range to the GATEWAY_LISTEN host (CLI parity)", () => {
+    const spec = buildLocalStackContainerSpec(
+      baseInput({ hostEnv: { GATEWAY_LISTEN: "0.0.0.0:4566" } })
+    );
+    // all published ports, not just the gateway, use the listener's host
+    expect(spec.HostConfig.PortBindings["4510/tcp"]).toEqual([
+      { HostIp: "0.0.0.0", HostPort: "4510" },
+    ]);
+  });
+
+  test("dedupes duplicate bindings and skips service ports a gateway entry already claims", () => {
+    // GATEWAY_LISTEN inside the service range must not double-bind 4510 (the CLI deduped).
+    const spec = buildLocalStackContainerSpec(baseInput({ hostEnv: { GATEWAY_LISTEN: ":4510" } }));
+    expect(spec.HostConfig.PortBindings["4510/tcp"]).toHaveLength(1);
+    // a repeated entry collapses to one binding
+    const dup = buildLocalStackContainerSpec(
+      baseInput({ hostEnv: { GATEWAY_LISTEN: ":4566,:4566" } })
+    );
+    expect(dup.HostConfig.PortBindings["4566/tcp"]).toHaveLength(1);
+  });
+
+  test("in-docker relative XDG_CACHE_HOME falls back to the named volume", () => {
+    const spec = buildLocalStackContainerSpec(
+      baseInput({
+        isInDocker: true,
+        volume: resolveVolume({
+          hostEnv: { XDG_CACHE_HOME: "relative/cache" },
+          isInDocker: true,
+          platform: "linux",
+          homedir: "/root",
+        }),
+      })
+    );
+    expect(spec.HostConfig.Mounts[0]).toEqual({
+      Type: "volume",
+      Source: "localstack-mcp",
+      Target: "/var/lib/localstack",
+    });
+  });
+
   test("env layering: shortlist < LOCALSTACK_* < envVars < reserved", () => {
     const spec = buildLocalStackContainerSpec(
       baseInput({
@@ -237,6 +328,36 @@ describe("buildLocalStackContainerSpec", () => {
     expect(env.DOCKER_HOST).toBe("unix:///var/run/docker.sock");
     expect(env.LOCALSTACK_CLIENT_NAME).toBe("localstack-mcp-server");
     expect(env.LOCALSTACK_CLIENT_VERSION).toBe("0.5.0");
+    // envVars set DEBUG unprefixed, so the LOCALSTACK_DEBUG alias must be dropped or
+    // the container entrypoint would re-export it and clobber our value at runtime.
+    expect(env.LOCALSTACK_DEBUG).toBeUndefined();
+  });
+
+  test("strips LOCALSTACK_ aliases of reserved keys so the entrypoint can't override them", () => {
+    // The container entrypoint re-exports LOCALSTACK_X -> X; a host-set
+    // LOCALSTACK_GATEWAY_LISTEN / LOCALSTACK_MAIN_CONTAINER_NAME / etc. would otherwise
+    // silently win over the values the builder computed.
+    const spec = buildLocalStackContainerSpec(
+      baseInput({
+        hostEnv: {
+          LOCALSTACK_GATEWAY_LISTEN: "127.0.0.1:9999",
+          LOCALSTACK_EXTERNAL_SERVICE_PORTS_START: "6000",
+          LOCALSTACK_EXTERNAL_SERVICE_PORTS_END: "6010",
+          LOCALSTACK_DOCKER_HOST: "tcp://evil:2375",
+        },
+      })
+    );
+    const env = envMap(spec);
+    // Note: LOCALSTACK_EXTERNAL_SERVICE_PORTS_* IS consumed to compute the range, so
+    // the published range reflects it — but the prefixed alias is not forwarded.
+    expect(env.LOCALSTACK_GATEWAY_LISTEN).toBeUndefined();
+    expect(env.LOCALSTACK_EXTERNAL_SERVICE_PORTS_START).toBeUndefined();
+    expect(env.LOCALSTACK_EXTERNAL_SERVICE_PORTS_END).toBeUndefined();
+    expect(env.LOCALSTACK_DOCKER_HOST).toBeUndefined();
+    expect(env.DOCKER_HOST).toBe("unix:///var/run/docker.sock");
+    // the range override was still honored (consumed before the alias was stripped)
+    expect(spec.HostConfig.PortBindings["6000/tcp"]).toBeDefined();
+    expect(env.EXTERNAL_SERVICE_PORTS_START).toBe("6000");
   });
 
   test("uses structured Mounts (bind + docker socket) — no Binds strings", () => {
