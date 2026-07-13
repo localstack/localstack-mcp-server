@@ -185,4 +185,45 @@ describe("validateExtensionTarget", () => {
       expect(validateExtensionTarget({ source })).toMatch(/not a supported extension source/);
     }
   });
+
+  test("rejects host-confusion sources (suffix / userinfo tricks)", () => {
+    for (const source of [
+      "git+https://github.com.evil.com/org/repo.git",
+      "git+https://github.com@evil.com/org/repo.git",
+      "git+https://evil.com@github.com/org/repo.git",
+      "git+https://github.comX/org/repo.git",
+    ]) {
+      expect(validateExtensionTarget({ source })).toMatch(/not a supported extension source/);
+    }
+  });
+
+  test("rejects '..' path traversal in the source fragment (subdirectory=)", () => {
+    expect(
+      validateExtensionTarget({
+        source: "git+https://github.com/org/repo#subdirectory=../../../../opt/code",
+      })
+    ).toMatch(/'\.\.'/);
+    expect(
+      validateExtensionTarget({
+        source: "git+https://github.com/org/repo#egg=x&subdirectory=../../etc",
+      })
+    ).toMatch(/'\.\.'/);
+  });
+
+  test("treats an empty name as absent so a source-only install is accepted", () => {
+    expect(
+      validateExtensionTarget({
+        name: "",
+        source: "git+https://github.com/org/repo.git",
+      })
+    ).toBeNull();
+  });
+
+  test("validates in linear time (no catastrophic backtracking)", () => {
+    const evil = "a".repeat(100000);
+    const start = Date.now();
+    validateExtensionTarget({ name: `${evil} ` }); // fails the regex
+    validateExtensionTarget({ source: `git+https://github.com/${evil}` });
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
 });

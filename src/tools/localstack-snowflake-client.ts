@@ -2,7 +2,12 @@ import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { runCommand } from "../core/command-runner";
 import { LOCALSTACK_PORT } from "../core/config";
-import { runPreflights, requireSnowflakeCli, requireProFeature } from "../core/preflight";
+import {
+  runPreflights,
+  requireAuthToken,
+  requireSnowflakeCli,
+  requireProFeature,
+} from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { ProFeature } from "../lib/localstack/license-checker";
 import { withToolAnalytics } from "../core/analytics";
@@ -115,6 +120,7 @@ export default async function localstackSnowflakeClient({
 }: InferSchema<typeof schema>) {
   return withToolAnalytics("localstack-snowflake-client", { action }, async () => {
     const preflightError = await runPreflights([
+      requireAuthToken(),
       requireSnowflakeCli(),
       requireProFeature(ProFeature.SNOWFLAKE),
       requireSnowflakeConnectionProfile(),

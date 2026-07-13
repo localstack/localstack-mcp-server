@@ -59,11 +59,20 @@ export function validateExtensionTarget({
   name?: string;
   source?: string;
 }): string | null {
-  if (name !== undefined && !EXTENSION_NAME_RE.test(name)) {
+  // Treat an empty name as "not provided" so a source-only install isn't rejected
+  // for a name it never supplied.
+  if (name && !EXTENSION_NAME_RE.test(name)) {
     return `"${name}" is not a valid extension package name. Expected a PyPI-style name like localstack-extension-typedb, optionally with extras or a ==version pin.`;
   }
-  if (source !== undefined && !EXTENSION_GIT_SOURCE_RE.test(source)) {
-    return `"${source}" is not a supported extension source. Use a git+https:// URL on github.com, gitlab.com, or bitbucket.org (e.g. git+https://github.com/org/repo.git#egg=my-extension).`;
+  if (source) {
+    if (!EXTENSION_GIT_SOURCE_RE.test(source)) {
+      return `"${source}" is not a supported extension source. Use a git+https:// URL on github.com, gitlab.com, or bitbucket.org (e.g. git+https://github.com/org/repo.git#egg=my-extension).`;
+    }
+    // Defense-in-depth: reject `..` path segments in the fragment (pip's subdirectory=
+    // could otherwise point its build root outside the clone).
+    if (/(^|[?#&/])\.\.(?=$|[/&])/.test(source)) {
+      return `"${source}" is not a supported extension source: '..' path segments are not allowed.`;
+    }
   }
   return null;
 }
