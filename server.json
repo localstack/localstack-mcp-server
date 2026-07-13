@@ -138,6 +138,27 @@
           "format": "string",
           "isSecret": false,
           "name": "DOCKER_HOST"
+        },
+        {
+          "description": "Host path of the Docker socket mounted into the LocalStack container (Lambda needs it). Validated to exist when set explicitly. Defaults to /var/run/docker.sock.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "DOCKER_SOCK"
+        },
+        {
+          "description": "Inclusive start of the host port range published for external LocalStack services on start (default 4510).",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "EXTERNAL_SERVICE_PORTS_START"
+        },
+        {
+          "description": "Inclusive end of the host port range published for external LocalStack services on start (default 4560).",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "EXTERNAL_SERVICE_PORTS_END"
         }
       ]
     }
