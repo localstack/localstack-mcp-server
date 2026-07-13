@@ -107,6 +107,7 @@ describe("localstack.utils", () => {
     delete process.env.LOCALSTACK_GATEWAY_LISTEN;
     delete process.env.MAIN_DOCKER_NETWORK;
     delete process.env.LOCALSTACK_MAIN_DOCKER_NETWORK;
+    delete process.env.DOCKER_SOCK;
   });
 
   describe("getGatewayHealth", () => {
@@ -313,8 +314,9 @@ describe("localstack.utils", () => {
         .mockResolvedValue({ isRunning: true, isReady: true });
 
       const result = await launchRuntime({ ...launchDefaults, getStatus, dockerClient: client });
-      expect(client.removeContainer).toHaveBeenCalledWith("stale-1");
-      expect(client.waitForRemoval).toHaveBeenCalledWith("stale-1");
+      // Fail-fast timeouts: pre-start housekeeping must not block for the default 60s.
+      expect(client.removeContainer).toHaveBeenCalledWith("stale-1", 10000);
+      expect(client.waitForRemoval).toHaveBeenCalledWith("stale-1", 10000);
       expect(result.content[0].text).toContain("started successfully");
     });
 
@@ -381,6 +383,20 @@ describe("localstack.utils", () => {
         dockerClient: client,
       });
       expect(result.content[0].text).toContain("LOCALSTACK_AUTH_TOKEN");
+    });
+
+    test("rejects an explicitly configured DOCKER_SOCK that does not exist", async () => {
+      process.env.DOCKER_SOCK = "/definitely/not/a/real/docker.sock";
+      const { client } = mockDockerClient();
+      const result = await launchRuntime({
+        ...launchDefaults,
+        getStatus: jest.fn().mockResolvedValue({ isRunning: false }),
+        dockerClient: client,
+      });
+      const text = result.content[0].text;
+      expect(text).toContain("DOCKER_SOCK");
+      expect(text).toContain("/definitely/not/a/real/docker.sock");
+      expect(client.createAndStartContainer).not.toHaveBeenCalled();
     });
   });
 

@@ -459,4 +459,12 @@ describe("describeDockerConnectivityError", () => {
     const { describeDockerConnectivityError } = jest.requireActual("./docker.client");
     expect(describeDockerConnectivityError(new Error("kaboom"))).toBe("kaboom");
   });
+
+  test("does not mislabel daemon API errors that merely mention a socket path", () => {
+    // e.g. a bad DOCKER_SOCK mount source at container creation — the daemon is fine.
+    const { describeDockerConnectivityError } = jest.requireActual("./docker.client");
+    const message =
+      "error while creating mount source path '/bad/docker.sock': mkdir /bad: read-only file system";
+    expect(describeDockerConnectivityError(new Error(message))).toBe(message);
+  });
 });

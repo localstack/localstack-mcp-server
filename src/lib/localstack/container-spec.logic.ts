@@ -385,7 +385,7 @@ export function buildLocalStackContainerSpec(input: ContainerSpecInput): LocalSt
       : { Type: "volume", Source: input.volume.name, Target: VOLUME_CONTAINER_PATH },
     {
       Type: "bind",
-      Source: input.hostEnv.DOCKER_SOCK?.trim() || DOCKER_SOCKET_CONTAINER_PATH,
+      Source: normalizeBindPath(input.hostEnv.DOCKER_SOCK?.trim() || DOCKER_SOCKET_CONTAINER_PATH),
       Target: DOCKER_SOCKET_CONTAINER_PATH,
     },
   ];

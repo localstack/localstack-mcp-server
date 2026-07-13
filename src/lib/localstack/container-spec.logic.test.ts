@@ -263,12 +263,17 @@ describe("buildLocalStackContainerSpec", () => {
     });
   });
 
-  test("honors DOCKER_SOCK for the socket mount source", () => {
+  test("honors DOCKER_SOCK for the socket mount source (normalized like other binds)", () => {
     const spec = buildLocalStackContainerSpec(
       baseInput({ hostEnv: { DOCKER_SOCK: "/run/user/1000/docker.sock" } })
     );
     expect(spec.HostConfig.Mounts[1].Source).toBe("/run/user/1000/docker.sock");
     expect(envMap(spec).DOCKER_HOST).toBe("unix:///var/run/docker.sock");
+
+    const windowsy = buildLocalStackContainerSpec(
+      baseInput({ hostEnv: { DOCKER_SOCK: "C:\\ProgramData\\docker.sock" } })
+    );
+    expect(windowsy.HostConfig.Mounts[1].Source).toBe("C:/ProgramData/docker.sock");
   });
 
   test("MAIN_DOCKER_NETWORK becomes NetworkMode and is forwarded as env", () => {

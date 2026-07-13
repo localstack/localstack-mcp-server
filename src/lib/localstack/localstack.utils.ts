@@ -400,6 +400,19 @@ export async function launchRuntime(
     }
   }
 
+  // An explicitly configured docker-socket source that doesn't exist would fail at
+  // container creation with an opaque daemon error — catch it here with a message
+  // that names the actual problem. (Inside Docker the path is host-side and cannot
+  // be checked from this process.)
+  const explicitDockerSock = process.env.DOCKER_SOCK?.trim();
+  if (explicitDockerSock && !inDocker && !existsSync(explicitDockerSock)) {
+    return ResponseBuilder.error(
+      "Invalid DOCKER_SOCK",
+      `DOCKER_SOCK is set to "${explicitDockerSock}", but that path does not exist on this machine. ` +
+        "The LocalStack container mounts the Docker socket from this path — fix it, or unset DOCKER_SOCK to use /var/run/docker.sock."
+    );
+  }
+
   const spec = buildLocalStackContainerSpec({
     stack,
     envVars,
@@ -414,14 +427,16 @@ export async function launchRuntime(
 
   // Fail fast (or clean up) when the container name is taken. A running container is
   // an actionable conflict; a stopped one is a stale leftover we remove ourselves.
+  // Short timeouts: this is pre-start housekeeping — a hung daemon should surface
+  // as an error in seconds, not block the start for two minutes.
   try {
     const existing = await docker.findContainerByNameAnyState(spec.name);
     if (existing) {
       if (existing.running) {
         return conflictResponse(processLabel, spec.name, existing.image);
       }
-      await docker.removeContainer(existing.id);
-      await docker.waitForRemoval(existing.id);
+      await docker.removeContainer(existing.id, 10000);
+      await docker.waitForRemoval(existing.id, 10000);
     }
   } catch (error) {
     return ResponseBuilder.error(

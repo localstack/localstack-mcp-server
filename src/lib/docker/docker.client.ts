@@ -62,6 +62,9 @@ export function decodeDockerLogBuffer(buffer: Buffer): string {
 /**
  * Translate raw Docker connectivity failures into an actionable message. Socket-level
  * errors otherwise surface as bare "connect ENOENT /var/run/docker.sock" strings.
+ * Only transport-level failures qualify (error codes, or connect-style messages) —
+ * daemon API errors that merely MENTION a socket path (e.g. a bad DOCKER_SOCK mount
+ * source at container creation) must pass through untouched, since the daemon is fine.
  */
 export function describeDockerConnectivityError(error: unknown): string {
   const err = error as { code?: string; message?: string } | undefined;
@@ -72,7 +75,7 @@ export function describeDockerConnectivityError(error: unknown): string {
     code === "ECONNREFUSED" ||
     code === "EACCES" ||
     code === "EPERM" ||
-    /docker_engine|docker\.sock/i.test(message)
+    /connect (ENOENT|ECONNREFUSED)|docker_engine/i.test(message)
   ) {
     return (
       "Docker daemon is not reachable. Start Docker (Desktop) and try again. " +
