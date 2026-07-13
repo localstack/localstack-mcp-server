@@ -24,7 +24,7 @@ export function cursorConfigPath(ctx: ClientContext): string {
  * the Antigravity CLI at ~/.gemini/config/mcp_config.json (macOS/Linux/Windows).
  */
 export function antigravityConfigPath(ctx: ClientContext): string {
-  return path.join(ctx.homeDir, ".gemini", "config", "mcp_config.json");
+  return pathFor(ctx).join(ctx.homeDir, ".gemini", "config", "mcp_config.json");
 }
 
 /** Claude Desktop ships for macOS and Windows only — null elsewhere. */

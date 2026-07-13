@@ -86,6 +86,9 @@ const launchDefaults = {
   timeoutMessage: "❌ timed out",
   pollIntervalMs: 10,
   maxWaitMs: 100,
+  // A named volume skips the host-dir mkdir side effect and keeps the spec
+  // independent of LOCALSTACK_VOLUME_DIR/XDG_CACHE_HOME on the test machine.
+  volumeOverride: { type: "volume", name: "test-volume" } as const,
 };
 
 describe("localstack.utils", () => {
@@ -93,6 +96,17 @@ describe("localstack.utils", () => {
     mockedRequest.mockReset();
     mockedHttpRequest.mockReset();
     process.env.LOCALSTACK_AUTH_TOKEN = "ls-test-token";
+    // launchRuntime builds its container spec from process.env — a developer
+    // machine with these set user-wide (e.g. the old identical-path workaround)
+    // must not change what the tests assert.
+    delete process.env.MAIN_CONTAINER_NAME;
+    delete process.env.LOCALSTACK_MAIN_CONTAINER_NAME;
+    delete process.env.LOCALSTACK_IMAGE_NAME;
+    delete process.env.IMAGE_NAME;
+    delete process.env.GATEWAY_LISTEN;
+    delete process.env.LOCALSTACK_GATEWAY_LISTEN;
+    delete process.env.MAIN_DOCKER_NETWORK;
+    delete process.env.LOCALSTACK_MAIN_DOCKER_NETWORK;
   });
 
   describe("getGatewayHealth", () => {
