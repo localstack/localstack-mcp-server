@@ -41,15 +41,21 @@ const LOG_BUFFER_MAX_CHARS = 64 * 1024;
  */
 export function decodeDockerLogBuffer(buffer: Buffer): string {
   if (buffer.length === 0) return "";
-  const firstByte = buffer[0];
-  // TTY containers stream raw output without multiplex headers.
-  if (firstByte !== 0 && firstByte !== 1 && firstByte !== 2) return buffer.toString("utf8");
+  // A real multiplex header is [stream_type ∈ {0,1,2}, 0, 0, 0, size(u32 BE)]. Requiring
+  // bytes 1-3 to be zero avoids mis-reading raw TTY output that merely starts with a
+  // low control byte (e.g. "\x01…") as a framed stream and dropping its first 8 bytes.
+  const looksFramed = (at: number) =>
+    at + 8 <= buffer.length &&
+    buffer[at] <= 2 &&
+    buffer[at + 1] === 0 &&
+    buffer[at + 2] === 0 &&
+    buffer[at + 3] === 0;
+
+  if (!looksFramed(0)) return buffer.toString("utf8");
 
   const chunks: Buffer[] = [];
   let offset = 0;
-  while (offset + 8 <= buffer.length) {
-    const streamType = buffer[offset];
-    if (streamType !== 0 && streamType !== 1 && streamType !== 2) break;
+  while (looksFramed(offset)) {
     const size = buffer.readUInt32BE(offset + 4);
     const end = Math.min(offset + 8 + size, buffer.length);
     chunks.push(buffer.subarray(offset + 8, end));
@@ -372,15 +378,23 @@ export class DockerApiClient {
     }
   }
 
-  async imageExists(imageName: string): Promise<boolean> {
+  async imageExists(imageName: string, timeoutMs = 15000): Promise<boolean> {
     try {
-      await this.docker.getImage(imageName).inspect();
+      await this.inspectImage(imageName, timeoutMs);
       return true;
     } catch (error) {
       const statusCode = (error as { statusCode?: number })?.statusCode;
       if (statusCode === 404) return false;
       throw new Error(describeDockerConnectivityError(error));
     }
+  }
+
+  private async inspectImage(imageName: string, timeoutMs: number): Promise<void> {
+    await this.withDockerRequestTimeout(
+      this.docker.getImage(imageName).inspect(),
+      timeoutMs,
+      "Docker image inspect"
+    );
   }
 
   /**
@@ -396,16 +410,13 @@ export class DockerApiClient {
       });
     });
 
-    await this.withDockerRequestTimeout(
-      new Promise<void>((resolve, reject) => {
-        let pending = "";
-        let pullError: string | undefined;
-        stream.on("data", (chunk: Buffer) => {
-          pending += chunk.toString("utf8");
-          const lines = pending.split("\n");
-          pending = lines.pop() || "";
-          for (const line of lines) {
-            if (!line.trim()) continue;
+    try {
+      await this.withDockerRequestTimeout(
+        new Promise<void>((resolve, reject) => {
+          let pending = "";
+          let pullError: string | undefined;
+          const scan = (line: string) => {
+            if (!line.trim()) return;
             try {
               const event = JSON.parse(line) as {
                 error?: string;
@@ -417,34 +428,61 @@ export class DockerApiClient {
             } catch {
               // Malformed progress lines are ignored; only well-formed error events fail the pull.
             }
-          }
-        });
-        stream.on("error", (err: Error) => reject(err));
-        stream.on("end", () => {
-          if (pullError) reject(new Error(`Failed to pull image ${imageName}: ${pullError}`));
-          else resolve();
-        });
-      }),
-      timeoutMs,
-      `Docker image pull (${imageName})`
-    );
+          };
+          stream.on("data", (chunk: Buffer) => {
+            pending += chunk.toString("utf8");
+            const lines = pending.split("\n");
+            pending = lines.pop() || "";
+            for (const line of lines) scan(line);
+          });
+          stream.on("error", (err: Error) => reject(err));
+          stream.on("end", () => {
+            // A final event without a trailing newline stays in `pending`; scan it so a
+            // late {"error":…} isn't silently dropped (which would surface later as a
+            // confusing "no such image" at container creation).
+            scan(pending);
+            if (pullError) reject(new Error(`Failed to pull image ${imageName}: ${pullError}`));
+            else resolve();
+          });
+        }),
+        timeoutMs,
+        `Docker image pull (${imageName})`
+      );
+    } catch (error) {
+      // Stop the background pull + its data handler when we give up (e.g. on timeout).
+      (stream as unknown as { destroy?: () => void }).destroy?.();
+      throw error;
+    }
   }
 
   /** Create a user-defined network when missing (Lambda containers must reach the gateway on it). */
-  async ensureNetwork(name: string): Promise<void> {
+  async ensureNetwork(name: string, requestTimeoutMs = 15000): Promise<void> {
     if (!name || name === "host" || name === "bridge" || name === "none") return;
-    const networks = (await this.docker.listNetworks({
-      filters: { name: [name] },
-    })) as Array<{ Name?: string }>;
+    const networks = (await this.withDockerRequestTimeout(
+      this.docker.listNetworks({ filters: { name: [name] } }),
+      requestTimeoutMs,
+      "Docker network list"
+    )) as Array<{ Name?: string }>;
     if ((networks || []).some((network) => network.Name === name)) return;
-    await this.docker.createNetwork({ Name: name });
+    await this.withDockerRequestTimeout(
+      this.docker.createNetwork({ Name: name }),
+      requestTimeoutMs,
+      "Docker network create"
+    );
   }
 
-  async createAndStartContainer(spec: LocalStackContainerSpec): Promise<string> {
+  async createAndStartContainer(
+    spec: LocalStackContainerSpec,
+    requestTimeoutMs = 30000
+  ): Promise<string> {
     const { name, ...createOptions } = spec;
-    let container;
+    let container: any;
     try {
-      container = await this.docker.createContainer({ ...createOptions, name });
+      container = await this.withDockerRequestTimeout(
+        this.docker.createContainer({ ...createOptions, name }),
+        requestTimeoutMs,
+        "Docker container create"
+      );
     } catch (error) {
       const statusCode = (error as { statusCode?: number })?.statusCode;
       if (statusCode === 409) {
@@ -452,7 +490,11 @@ export class DockerApiClient {
       }
       throw new Error(describeDockerConnectivityError(error));
     }
-    await container.start();
+    await this.withDockerRequestTimeout(
+      container.start(),
+      requestTimeoutMs,
+      "Docker container start"
+    );
     return container.id as string;
   }
 
@@ -460,14 +502,13 @@ export class DockerApiClient {
    * Attach a follow-mode log stream right after start and keep a rolling tail.
    * See LogBufferHandle for why this replaces post-exit `container.logs()` reads.
    */
-  async attachLogBuffer(containerId: string): Promise<LogBufferHandle> {
+  async attachLogBuffer(containerId: string, attachTimeoutMs = 15000): Promise<LogBufferHandle> {
     const container = this.docker.getContainer(containerId);
-    const stream: NodeJS.ReadableStream = await container.logs({
-      follow: true,
-      stdout: true,
-      stderr: true,
-      tail: 200,
-    });
+    const stream: NodeJS.ReadableStream = await this.withDockerRequestTimeout(
+      container.logs({ follow: true, stdout: true, stderr: true, tail: 200 }),
+      attachTimeoutMs,
+      "Docker log attach"
+    );
 
     // Demux into a single sink so stdout/stderr keep their chronological interleaving.
     const sink = new PassThrough();
@@ -475,6 +516,7 @@ export class DockerApiClient {
 
     let buffered = "";
     let exited = false;
+    let degraded = false;
     const exitCallbacks: Array<() => void> = [];
     sink.on("data", (data: Buffer) => {
       buffered += data.toString("utf8");
@@ -483,13 +525,18 @@ export class DockerApiClient {
       }
     });
     const markExited = () => {
-      if (exited) return;
+      // A stream error (e.g. a TCP reset on a tcp:// DOCKER_HOST) is indistinguishable
+      // from a real exit, so once degraded we stop trusting the stream as an exit
+      // signal — readiness polling + the launch deadline still catch a genuine exit.
+      if (exited || degraded) return;
       exited = true;
       for (const callback of exitCallbacks) callback();
     };
     stream.on("end", markExited);
     stream.on("close", markExited);
-    stream.on("error", markExited);
+    stream.on("error", () => {
+      degraded = true;
+    });
 
     return {
       getBuffered: () => buffered,

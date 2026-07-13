@@ -443,6 +443,27 @@ describe("decodeDockerLogBuffer", () => {
     const { decodeDockerLogBuffer } = jest.requireActual("./docker.client");
     expect(decodeDockerLogBuffer(Buffer.alloc(0))).toBe("");
   });
+
+  test("does not mis-frame raw output that merely starts with a low control byte", () => {
+    // "\x01…" with non-zero following bytes is NOT a Docker header (bytes 1-3 must be 0),
+    // so it must pass through raw rather than have its first 8 bytes eaten.
+    const { decodeDockerLogBuffer } = jest.requireActual("./docker.client");
+    const raw = Buffer.from("\x01 starting service on port 4566\n", "utf8");
+    expect(decodeDockerLogBuffer(raw)).toBe("\x01 starting service on port 4566\n");
+  });
+
+  test("does not throw or hang on a truncated final frame or an oversized size field", () => {
+    const { decodeDockerLogBuffer } = jest.requireActual("./docker.client");
+    const truncated = Buffer.concat([
+      frame(1, "complete\n"),
+      frame(1, "truncated").subarray(0, 12),
+    ]);
+    expect(decodeDockerLogBuffer(truncated)).toContain("complete\n");
+    const oversized = Buffer.alloc(8);
+    oversized[0] = 1;
+    oversized.writeUInt32BE(0xffffffff, 4); // claims 4GB payload, buffer has none
+    expect(() => decodeDockerLogBuffer(oversized)).not.toThrow();
+  });
 });
 
 describe("describeDockerConnectivityError", () => {
@@ -466,5 +487,36 @@ describe("describeDockerConnectivityError", () => {
     const message =
       "error while creating mount source path '/bad/docker.sock': mkdir /bad: read-only file system";
     expect(describeDockerConnectivityError(new Error(message))).toBe(message);
+  });
+});
+
+describe("pullImage", () => {
+  const { PassThrough } = require("stream");
+
+  function clientWithPullStream() {
+    const stream = new PassThrough();
+    const client = new DockerApiClient();
+    (client as any).docker = {
+      pull: (_img: string, cb: (err: unknown, s: unknown) => void) => cb(null, stream),
+    };
+    return { client, stream };
+  }
+
+  test("rejects on an error event that arrives without a trailing newline", async () => {
+    const { client, stream } = clientWithPullStream();
+    const pending = client.pullImage("localstack/localstack-pro:latest");
+    // no "\n" after the JSON — it stays in the pending buffer until 'end'
+    stream.write('{"error":"unauthorized: authentication required"}');
+    stream.end();
+    await expect(pending).rejects.toThrow(/unauthorized/);
+  });
+
+  test("resolves on a clean progress stream", async () => {
+    const { client, stream } = clientWithPullStream();
+    const pending = client.pullImage("localstack/localstack-pro:latest");
+    stream.write('{"status":"Pulling from localstack/localstack-pro"}\n');
+    stream.write('{"status":"Download complete"}\n');
+    stream.end();
+    await expect(pending).resolves.toBeUndefined();
   });
 });
