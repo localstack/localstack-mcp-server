@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import {
+  deriveRecreateOverrides,
   getLocalStackStatus,
   getSnowflakeEmulatorStatus,
   launchRuntime,
@@ -276,36 +277,11 @@ async function handleRestart({
     );
   }
 
-  return await handleStart({ envVars, service, overrides: recreateOverrides(metadata, service) });
-}
-
-/**
- * Derive start overrides from the container we just stopped. Reuse only applies when
- * the previous image matches the requested stack — restarting with service=snowflake
- * while the AWS stack was running deliberately switches stacks (previous behavior).
- */
-function recreateOverrides(
-  metadata: ContainerMetadata | undefined,
-  service: "aws" | "snowflake"
-): StartOverrides | undefined {
-  if (!metadata?.image) return undefined;
-  if (stackFromImage(metadata.image) !== service) return undefined;
-
-  const overrides: StartOverrides = {
-    imageOverride: metadata.image,
-    containerNameOverride: metadata.name,
-  };
-
-  const volumeMount = (metadata.mounts || []).find(
-    (mount) => mount.destination === "/var/lib/localstack"
-  );
-  if (volumeMount?.type === "bind" && volumeMount.source) {
-    overrides.volumeOverride = { type: "bind", source: volumeMount.source };
-  } else if (volumeMount?.type === "volume" && volumeMount.name) {
-    overrides.volumeOverride = { type: "volume", name: volumeMount.name };
-  }
-
-  return overrides;
+  return await handleStart({
+    envVars,
+    service,
+    overrides: deriveRecreateOverrides(metadata, service),
+  });
 }
 
 // Handle status action

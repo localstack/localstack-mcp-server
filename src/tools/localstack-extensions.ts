@@ -11,7 +11,10 @@ import { ResponseBuilder } from "../core/response-builder";
 import { ProFeature } from "../lib/localstack/license-checker";
 import { withToolAnalytics } from "../core/analytics";
 import { DockerApiClient } from "../lib/docker/docker.client";
-import { restartRuntimeInPlace } from "../lib/localstack/localstack.utils";
+import {
+  recreateRunningContainer,
+  restartRuntimeInPlace,
+} from "../lib/localstack/localstack.utils";
 import {
   EXTENSIONS_MANAGER_COMMAND,
   EXTENSIONS_VENV_REPAIR_SCRIPT,
@@ -135,13 +138,27 @@ function outcomeSummaryBlock(outcome: ExtensionOutcome): string {
     : "";
 }
 
-/** Activate an install/uninstall by restarting the runtime in place. */
+/**
+ * Activate an install/uninstall by restarting the runtime. Prefer the fast in-place
+ * restart; if it doesn't confirm (the in-place path can leave the runtime down under
+ * heavy Lambda load), fall back to a full container recreate — which is reliable — so
+ * the caller never ends up with a silently-dead stack.
+ */
 async function activationSuffix(): Promise<string> {
   const restart = await restartRuntimeInPlace();
   if (restart.ok) {
     return "\n\nLocalStack was restarted to activate the change. ✅";
   }
-  return `\n\n⚠️ LocalStack restart did not confirm readiness: ${restart.detail} Please verify LocalStack status.`;
+
+  const recreate = await recreateRunningContainer();
+  const recreatedOk = !recreate.content[0]?.text?.trimStart().startsWith("❌");
+  if (recreatedOk) {
+    return "\n\nThe in-place restart did not confirm, so LocalStack was recreated to activate the change. ✅";
+  }
+  return (
+    `\n\n⚠️ Could not confirm LocalStack restarted to activate the change (${restart.detail}) ` +
+    "and the recreate fallback also did not confirm. Check LocalStack status and restart it with the management tool."
+  );
 }
 
 async function handleList() {

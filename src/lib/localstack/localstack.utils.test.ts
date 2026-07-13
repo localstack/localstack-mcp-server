@@ -1,8 +1,10 @@
 import {
+  deriveRecreateOverrides,
   getGatewayHealth,
   getLocalStackStatus,
   getSnowflakeEmulatorStatus,
   launchRuntime,
+  recreateRunningContainer,
   restartRuntimeInPlace,
 } from "./localstack.utils";
 import { httpClient } from "../../core/http-client";
@@ -65,6 +67,11 @@ function mockDockerClient(overrides: Record<string, jest.Mock> = {}) {
   const client = {
     ping: jest.fn().mockResolvedValue(undefined),
     findContainerByNameAnyState: jest.fn().mockResolvedValue(null),
+    findLocalStackContainer: jest.fn().mockResolvedValue("container-123"),
+    inspectContainer: jest
+      .fn()
+      .mockResolvedValue({ id: "container-123", image: "localstack/localstack-pro:latest" }),
+    stopContainer: jest.fn().mockResolvedValue(undefined),
     removeContainer: jest.fn().mockResolvedValue(undefined),
     waitForRemoval: jest.fn().mockResolvedValue(undefined),
     ensureNetwork: jest.fn().mockResolvedValue(undefined),
@@ -227,6 +234,30 @@ describe("localstack.utils", () => {
       expect(result.isRunning).toBe(false);
       expect(result.errorMessage).toContain("ECONNREFUSED");
     });
+
+    test("settles (does not hang) when the socket is aborted mid-response", async () => {
+      // The peer resets the connection after the response starts: 'end' never fires,
+      // so without the 'aborted'/'close' handlers the probe promise would hang forever.
+      mockedHttpRequest.mockImplementationOnce(((_options: any, callback: any) => {
+        const req = new EventEmitter() as any;
+        req.write = jest.fn();
+        req.destroy = jest.fn();
+        req.end = jest.fn(() => {
+          const res = new EventEmitter() as any;
+          res.statusCode = 200;
+          callback(res);
+          setImmediate(() => {
+            res.emit("data", Buffer.from('{"succ'));
+            res.emit("aborted");
+          });
+        });
+        return req;
+      }) as any);
+
+      const result = await getSnowflakeEmulatorStatus();
+      expect(result.isRunning).toBe(false);
+      expect(result.errorMessage).toMatch(/aborted/i);
+    });
   });
 
   describe("launchRuntime", () => {
@@ -354,6 +385,53 @@ describe("localstack.utils", () => {
       expect(result.content[0].text).toContain("timed out");
     });
 
+    test("still settles at the deadline even when getStatus hangs forever", async () => {
+      // The independent deadline must fire regardless of an in-flight status probe —
+      // otherwise a hung getStatus (e.g. a wedged snowflake HTTP probe) leaks the start.
+      const { client } = mockDockerClient();
+      const getStatus = jest
+        .fn()
+        .mockResolvedValueOnce({ isRunning: false }) // initial pre-start check
+        .mockImplementation(() => new Promise(() => {})); // subsequent polls hang
+
+      const result = await launchRuntime({
+        ...launchDefaults,
+        getStatus,
+        dockerClient: client,
+        pollIntervalMs: 5,
+        maxWaitMs: 40,
+      });
+      expect(result.content[0].text).toContain("timed out");
+    });
+
+    test("does not re-run onReady after resolving (no overlapping/post-exit re-fire)", async () => {
+      const { client, logHandle } = mockDockerClient();
+      // onExit is registered; capture it so we can fire it AFTER success to prove the guard.
+      let exitCb: (() => void) | undefined;
+      logHandle.onExit.mockImplementation((cb: () => void) => {
+        exitCb = cb;
+      });
+      const getStatus = jest
+        .fn()
+        .mockResolvedValueOnce({ isRunning: false })
+        .mockResolvedValue({ isRunning: true, isReady: true });
+      const onReady = jest.fn().mockResolvedValue(null);
+
+      await launchRuntime({
+        ...launchDefaults,
+        getStatus,
+        onReady,
+        dockerClient: client,
+        pollIntervalMs: 5,
+        maxWaitMs: 500,
+      });
+      const callsAtResolve = onReady.mock.calls.length;
+      exitCb?.(); // simulate the destroy()-triggered stream close after resolution
+      await new Promise((r) => setTimeout(r, 20));
+      expect(onReady.mock.calls.length).toBe(callsAtResolve);
+      expect(callsAtResolve).toBe(1);
+    });
+
     test("runs the onReady gate before reporting success", async () => {
       const { client } = mockDockerClient();
       const getStatus = jest
@@ -422,19 +500,37 @@ describe("localstack.utils", () => {
       expect(infoCalls).toBeGreaterThanOrEqual(3);
     });
 
-    test("treats a gateway-down window as the restart transition", async () => {
+    test("treats sustained gateway downtime as the restart transition", async () => {
       let healthGets = 0;
       mockedRequest.mockImplementation(async (endpoint: any, options: any) => {
         const url = String(endpoint);
         if (url.includes("/_localstack/info")) return { session_id: "old", uptime: 500 } as any;
         if (url.includes("/_localstack/health") && options?.method === "POST") return {} as any;
         healthGets += 1;
-        if (healthGets <= 2) throw new Error("ECONNREFUSED");
+        if (healthGets <= 2) throw new Error("ECONNREFUSED"); // two consecutive = sustained
         return { services: { s3: "available" } } as any;
       });
 
       const result = await restartRuntimeInPlace({ pollIntervalMs: 5, maxWaitMs: 500 });
       expect(result.ok).toBe(true);
+    });
+
+    test("does NOT confirm on a single health flap (session unchanged)", async () => {
+      // One transient probe failure (GC pause / 3s timeout on the OLD process) must not
+      // be mistaken for a restart when the session never actually changes.
+      let healthGets = 0;
+      mockedRequest.mockImplementation(async (endpoint: any, options: any) => {
+        const url = String(endpoint);
+        if (url.includes("/_localstack/info")) return { session_id: "old", uptime: 500 } as any;
+        if (url.includes("/_localstack/health") && options?.method === "POST") return {} as any;
+        healthGets += 1;
+        if (healthGets === 1) throw new Error("ECONNREFUSED"); // a single blip, then healthy again
+        return { services: { s3: "available" } } as any;
+      });
+
+      const result = await restartRuntimeInPlace({ pollIntervalMs: 5, maxWaitMs: 60 });
+      expect(result.ok).toBe(false);
+      expect(result.detail).toMatch(/Could not confirm/i);
     });
 
     test("reports failure when the restart request itself fails", async () => {
@@ -483,6 +579,79 @@ describe("localstack.utils", () => {
 
       const result = await restartRuntimeInPlace({ pollIntervalMs: 5, maxWaitMs: 500 });
       expect(result.ok).toBe(true);
+    });
+  });
+
+  describe("deriveRecreateOverrides", () => {
+    test("reuses image/name/volume of a matching-stack container", () => {
+      expect(
+        deriveRecreateOverrides(
+          {
+            id: "x",
+            name: "localstack-aws",
+            image: "localstack/localstack-pro:3.9",
+            mounts: [{ type: "bind", source: "/host/vol", destination: "/var/lib/localstack" }],
+          },
+          "aws"
+        )
+      ).toEqual({
+        imageOverride: "localstack/localstack-pro:3.9",
+        containerNameOverride: "localstack-aws",
+        volumeOverride: { type: "bind", source: "/host/vol" },
+      });
+    });
+
+    test("returns undefined when the previous image is a different stack (deliberate switch)", () => {
+      expect(
+        deriveRecreateOverrides({ id: "x", image: "localstack/snowflake:latest" }, "aws")
+      ).toBeUndefined();
+    });
+
+    test("returns undefined without image metadata", () => {
+      expect(deriveRecreateOverrides(undefined, "aws")).toBeUndefined();
+      expect(deriveRecreateOverrides({ id: "x" }, "aws")).toBeUndefined();
+    });
+  });
+
+  describe("recreateRunningContainer", () => {
+    test("stops the running container and relaunches preserving its identity", async () => {
+      let started = false;
+      const { client } = mockDockerClient({
+        findLocalStackContainer: jest.fn().mockResolvedValue("old-id"),
+        inspectContainer: jest.fn().mockResolvedValue({
+          id: "old-id",
+          name: "localstack-aws",
+          image: "localstack/localstack-pro:latest",
+          // named volume avoids a real host mkdir side effect in this integration test;
+          // the bind-source preservation is covered by the deriveRecreateOverrides tests.
+          mounts: [{ type: "volume", name: "localstack-mcp", destination: "/var/lib/localstack" }],
+        }),
+        createAndStartContainer: jest.fn().mockImplementation(async () => {
+          started = true;
+          return "new-id";
+        }),
+      });
+      // Gateway is down until the fresh container starts, then reachable+ready — so the
+      // launch's "already running?" pre-check correctly sees "not running".
+      mockedRequest.mockImplementation(async (endpoint: any) => {
+        if (String(endpoint).includes("/_localstack/health")) {
+          if (!started) throw new Error("ECONNREFUSED");
+          return { services: { s3: "available" } } as any;
+        }
+        return {} as any;
+      });
+
+      const result = await recreateRunningContainer({
+        dockerClient: client,
+        pollIntervalMs: 5,
+        maxWaitMs: 500,
+      });
+      expect(client.stopContainer).toHaveBeenCalledWith("old-id");
+      expect(client.waitForRemoval).toHaveBeenCalledWith("old-id");
+      const spec = client.createAndStartContainer.mock.calls[0][0];
+      expect(spec.name).toBe("localstack-aws");
+      expect(spec.Image).toBe("localstack/localstack-pro:latest");
+      expect(result.content[0].text).toContain("recreated successfully");
     });
   });
 });

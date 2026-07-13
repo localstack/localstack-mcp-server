@@ -9,12 +9,15 @@ import { ResponseBuilder } from "../../core/response-builder";
 import {
   DockerApiClient,
   LocalStackContainerConflictError,
+  isLocalStackContainerNotFoundError,
+  type ContainerMetadata,
   type LogBufferHandle,
 } from "../docker/docker.client";
 import {
   buildLocalStackContainerSpec,
   resolveContainerName,
   resolveVolume,
+  stackFromImage,
   type LocalStackStack,
   type VolumeResolution,
 } from "./container-spec.logic";
@@ -248,6 +251,19 @@ export async function getSnowflakeEmulatorStatus(): Promise<SnowflakeStatusResul
 
   try {
     const response = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
+      let settled = false;
+      const succeed = (value: { statusCode: number; body: string }) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(deadline);
+        resolve(value);
+      };
+      const fail = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(deadline);
+        reject(error);
+      };
       const req = httpRequest(
         {
           host,
@@ -266,11 +282,24 @@ export async function getSnowflakeEmulatorStatus(): Promise<SnowflakeStatusResul
           res.on("data", (chunk) => {
             data += chunk.toString();
           });
-          res.on("end", () => resolve({ statusCode: res.statusCode || 0, body: data }));
+          res.on("end", () => succeed({ statusCode: res.statusCode || 0, body: data }));
+          // If the peer resets the socket mid-response, `res` emits 'aborted'/'error'
+          // and 'end' never fires — without these the promise would hang forever.
+          res.on("aborted", () => fail(new Error("Snowflake health probe connection aborted")));
+          res.on("error", fail);
         }
       );
+      // Hard wall-clock deadline: the socket `timeout` event can't fire on an
+      // already-destroyed socket, so it is not sufficient on its own.
+      const deadline = setTimeout(() => {
+        req.destroy(new Error("Snowflake health probe timed out"));
+        fail(new Error("Snowflake health probe timed out"));
+      }, SNOWFLAKE_PROBE_TIMEOUT);
       req.on("timeout", () => req.destroy(new Error("Snowflake health probe timed out")));
-      req.on("error", reject);
+      req.on("error", fail);
+      req.on("close", () =>
+        fail(new Error("Snowflake health probe connection closed before a response"))
+      );
       req.write(body);
       req.end();
     });
@@ -341,6 +370,22 @@ function conflictResponse(processLabel: string, containerName: string, image?: s
  * localstack/lstk CLI involved) and poll until it becomes available.
  */
 export async function launchRuntime(
+  options: LaunchRuntimeOptions
+): Promise<ReturnType<typeof ResponseBuilder.markdown>> {
+  try {
+    return await launchRuntimeInner(options);
+  } catch (error) {
+    // buildLocalStackContainerSpec (invalid GATEWAY_LISTEN/ports) or the initial
+    // getStatus() can throw; surface it through ResponseBuilder so the tool returns a
+    // ❌ result instead of a raw protocol error.
+    return ResponseBuilder.error(
+      `Failed to start ${options.processLabel}`,
+      error instanceof Error ? error.message : String(error)
+    );
+  }
+}
+
+async function launchRuntimeInner(
   options: LaunchRuntimeOptions
 ): Promise<ReturnType<typeof ResponseBuilder.markdown>> {
   const {
@@ -481,13 +526,18 @@ export async function launchRuntime(
     // Diagnostics-only: readiness polling still works without the log stream.
   }
 
+  const pollIntervalMs = options.pollIntervalMs ?? POLL_INTERVAL_MS;
+  const maxWaitMs = options.maxWaitMs ?? MAX_WAIT_MS;
+
   return new Promise((resolve) => {
-    let poll: NodeJS.Timeout;
     let resolved = false;
+    let pollTimer: NodeJS.Timeout | undefined;
+    let deadlineTimer: NodeJS.Timeout | undefined;
     const finish = (response: ReturnType<typeof ResponseBuilder.markdown>) => {
       if (resolved) return;
       resolved = true;
-      if (poll) clearInterval(poll);
+      if (pollTimer) clearTimeout(pollTimer);
+      if (deadlineTimer) clearTimeout(deadlineTimer);
       logBuffer?.destroy();
       resolve(response);
     };
@@ -508,11 +558,14 @@ export async function launchRuntime(
     };
 
     const finishIfReady = async (): Promise<boolean> => {
+      if (resolved) return true;
       const status = await getStatus();
+      if (resolved) return true;
       if (!(status.isReady || status.isRunning)) return false;
 
       if (onReady) {
         const preflight = await onReady();
+        if (resolved) return true;
         if (preflight) {
           finish(preflight);
           return true;
@@ -523,9 +576,17 @@ export async function launchRuntime(
       return true;
     };
 
+    // Independent wall-clock deadline: it must fire even if a `getStatus()` call hangs
+    // (a slow status probe must never be able to prevent the start from settling).
+    deadlineTimer = setTimeout(() => {
+      const details = failureDetails();
+      finish(ResponseBuilder.markdown(details ? `${timeoutMessage}${details}` : timeoutMessage));
+    }, maxWaitMs);
+
     // The follow-stream ending means the container exited (AutoRemove removes it
     // immediately, so this buffered tail is the only surviving diagnostic).
     logBuffer?.onExit(async () => {
+      if (resolved) return;
       // The runtime may have become ready in the same instant (unlikely but cheap to check).
       try {
         if (await finishIfReady()) return;
@@ -539,29 +600,127 @@ export async function launchRuntime(
       );
     });
 
-    const pollIntervalMs = options.pollIntervalMs ?? POLL_INTERVAL_MS;
-    const maxWaitMs = options.maxWaitMs ?? MAX_WAIT_MS;
-    let timeWaited = 0;
-    poll = setInterval(async () => {
-      timeWaited += pollIntervalMs;
-      try {
-        if (await finishIfReady()) return;
-      } catch (error) {
-        finish(
-          ResponseBuilder.markdown(
-            `❌ Failed to check ${processLabel} status: ${
-              error instanceof Error ? error.message : String(error)
-            }${failureDetails()}`
-          )
-        );
-        return;
-      }
+    // Self-scheduling poll: the next tick is only armed after the current status check
+    // resolves, so a slow `getStatus()` can't spawn overlapping in-flight probes (which
+    // would multiply `onReady` side effects).
+    const scheduleNextPoll = () => {
+      if (resolved) return;
+      pollTimer = setTimeout(async () => {
+        try {
+          if (await finishIfReady()) return;
+        } catch (error) {
+          finish(
+            ResponseBuilder.markdown(
+              `❌ Failed to check ${processLabel} status: ${
+                error instanceof Error ? error.message : String(error)
+              }${failureDetails()}`
+            )
+          );
+          return;
+        }
+        scheduleNextPoll();
+      }, pollIntervalMs);
+    };
+    scheduleNextPoll();
+  });
+}
 
-      if (timeWaited >= maxWaitMs) {
-        const details = failureDetails();
-        finish(ResponseBuilder.markdown(details ? `${timeoutMessage}${details}` : timeoutMessage));
-      }
-    }, pollIntervalMs);
+export interface RecreateOverrides {
+  imageOverride?: string;
+  containerNameOverride?: string;
+  volumeOverride?: VolumeResolution;
+}
+
+/**
+ * Derive start overrides from a container we are about to recreate, so an
+ * externally-provisioned runtime (custom name/image/volume) is not silently replaced
+ * by the defaults — that would strand its state. Reuse only applies when the previous
+ * image matches the requested stack (restarting with a different `service` deliberately
+ * switches stacks).
+ */
+export function deriveRecreateOverrides(
+  metadata: ContainerMetadata | undefined,
+  stack: LocalStackStack
+): RecreateOverrides | undefined {
+  if (!metadata?.image) return undefined;
+  if ((stackFromImage(metadata.image) ?? "aws") !== stack) return undefined;
+
+  const overrides: RecreateOverrides = {
+    imageOverride: metadata.image,
+    containerNameOverride: metadata.name,
+  };
+
+  const volumeMount = (metadata.mounts || []).find(
+    (mount) => mount.destination === "/var/lib/localstack"
+  );
+  if (volumeMount?.type === "bind" && volumeMount.source) {
+    overrides.volumeOverride = { type: "bind", source: volumeMount.source };
+  } else if (volumeMount?.type === "volume" && volumeMount.name) {
+    overrides.volumeOverride = { type: "volume", name: volumeMount.name };
+  }
+
+  return overrides;
+}
+
+const AWS_ALREADY_RUNNING = "⚠️  LocalStack is already running.";
+const SNOWFLAKE_ALREADY_RUNNING = "⚠️  Snowflake emulator is already running.";
+
+/**
+ * Recreate the running LocalStack container: inspect it, stop + wait for removal, then
+ * launch a fresh one preserving its image/name/volume. Used as the reliable fallback
+ * when an in-place `POST /_localstack/health {action:restart}` does not confirm (that
+ * path can leave the runtime down under heavy Lambda load — see restartRuntimeInPlace).
+ */
+export async function recreateRunningContainer({
+  dockerClient,
+  envVars,
+  pollIntervalMs,
+  maxWaitMs,
+}: {
+  dockerClient?: DockerApiClient;
+  envVars?: Record<string, string>;
+  pollIntervalMs?: number;
+  maxWaitMs?: number;
+} = {}): Promise<ReturnType<typeof ResponseBuilder.markdown>> {
+  const docker = dockerClient ?? new DockerApiClient();
+
+  let metadata: ContainerMetadata | undefined;
+  try {
+    const id = await docker.findLocalStackContainer();
+    metadata = await docker.inspectContainer(id);
+    await docker.stopContainer(id);
+    await docker.waitForRemoval(id);
+  } catch (error) {
+    if (!isLocalStackContainerNotFoundError(error)) {
+      return ResponseBuilder.error(
+        "Recreate failed",
+        `Could not stop the running LocalStack container: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+    // Nothing running — fall through to a fresh AWS start.
+  }
+
+  const stack = stackFromImage(metadata?.image) ?? "aws";
+  const overrides = deriveRecreateOverrides(metadata, stack);
+
+  return launchRuntime({
+    stack,
+    envVars,
+    dockerClient: docker,
+    getStatus: stack === "snowflake" ? getSnowflakeEmulatorStatus : getLocalStackStatus,
+    processLabel: stack === "snowflake" ? "Snowflake emulator" : "LocalStack",
+    alreadyRunningMessage: stack === "snowflake" ? SNOWFLAKE_ALREADY_RUNNING : AWS_ALREADY_RUNNING,
+    successTitle:
+      stack === "snowflake"
+        ? "🚀 Snowflake emulator recreated successfully!"
+        : "🚀 LocalStack recreated successfully!",
+    statusHeading: stack === "snowflake" ? "Health check" : "Status",
+    timeoutMessage: `❌ ${stack === "snowflake" ? "Snowflake emulator" : "LocalStack"} recreate timed out after 120 seconds. It may still be starting in the background.`,
+    ...(overrides ?? {}),
+    ...(pollIntervalMs !== undefined ? { pollIntervalMs } : {}),
+    ...(maxWaitMs !== undefined ? { maxWaitMs } : {}),
   });
 }
 
@@ -600,16 +759,20 @@ export async function restartRuntimeInPlace({
   }
 
   let sawTransition = false;
+  let unreachableStreak = 0;
   const deadline = Date.now() + maxWaitMs;
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
 
     const health = await getGatewayHealth();
     if (!health.reachable) {
-      // Gateway went down — the restart is in progress.
-      sawTransition = true;
+      // A single failed probe can be a GC pause or a 3s-timeout blip on the OLD
+      // process, not a restart — require sustained downtime before trusting it.
+      unreachableStreak += 1;
+      if (unreachableStreak >= 2) sawTransition = true;
       continue;
     }
+    unreachableStreak = 0;
 
     if (!sawTransition) {
       const info = await getSessionInfo();
@@ -630,8 +793,8 @@ export async function restartRuntimeInPlace({
       }
     }
 
-    // Success requires an explicit restart signal — never assume it from
-    // missing session info.
+    // Success requires an explicit restart signal (a session change or sustained
+    // downtime) — never assume it from a single flap or from missing session info.
     if (sawTransition && health.ready) {
       return { ok: true, detail: "LocalStack runtime restarted and is ready." };
     }
