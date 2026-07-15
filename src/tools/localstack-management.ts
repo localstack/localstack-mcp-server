@@ -61,8 +61,6 @@ export default async function localstackManagement({
   envVars,
 }: InferSchema<typeof schema>) {
   return withToolAnalytics("localstack-management", { action, service, envVars }, async () => {
-    // Lifecycle runs entirely through the Docker Engine API + the LocalStack gateway;
-    // no localstack/lstk CLI is required (or used).
     const checks: Array<
       ReturnType<typeof requireAuthToken> | Promise<ReturnType<typeof requireAuthToken>>
     > = [requireAuthToken()];
@@ -296,9 +294,6 @@ async function handleStatus({ service }: { service: "aws" | "snowflake" }) {
   }
 
   if (service === "snowflake") {
-    // A reachable gateway may belong to the AWS stack — probing its Snowflake
-    // endpoint would misreport that as a Snowflake health failure. Say what is
-    // actually running instead.
     const metadata = await inspectRunningContainer();
     if (metadata && stackFromImage(metadata.image) === "aws") {
       result +=

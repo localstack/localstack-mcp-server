@@ -99,9 +99,7 @@ export default async function localstackExtensions({
 
 /**
  * Run the extension manager module inside the running LocalStack container. The
- * manager pip-installs into the extensions venv on /var/lib/localstack — the exact
- * mechanism the `localstack extensions` CLI used, minus the throwaway container.
- * DEBUG=0 keeps the JSON-lines event stream free of runtime debug logging.
+ * manager pip-installs into the extensions venv on /var/lib/localstack.
  */
 async function runExtensionManager(args: string[], { repairVenv = false } = {}) {
   const docker = new DockerApiClient();

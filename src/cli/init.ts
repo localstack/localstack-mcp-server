@@ -164,8 +164,6 @@ async function resolveDockerOptions(
 
   const prompts = interactive && !yes;
 
-  // The server now creates the LocalStack container itself (named volume by
-  // default), so no cache/state dir needs to be mounted into the MCP container.
   if (flags.cacheDir?.trim()) {
     p.log.warn(
       "--cache-dir is deprecated and ignored: LocalStack state lives in a named Docker volume (set LOCALSTACK_VOLUME_DIR to use a host directory instead)."

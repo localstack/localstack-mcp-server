@@ -8,10 +8,6 @@ RUN yarn install --frozen-lockfile
 COPY . .
 RUN yarn build
 
-# The server drives LocalStack through the Docker Engine API (dockerode) and REST —
-# no localstack CLI, docker CLI, or awscli needed in the image. Python remains only
-# for the IaC/Snowflake CLIs (tflocal, samlocal, snow) used by the deployer and
-# snowflake-client tools.
 FROM node:22-bookworm-slim AS runtime
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -32,8 +28,6 @@ RUN set -eux; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
-# Debian's python carries the PEP 668 externally-managed marker — install the IaC
-# CLIs into a dedicated venv (its bin dir is on PATH for runCommand spawns).
 RUN python3 -m venv /opt/venv \
  && pip install --no-cache-dir --upgrade pip \
  && pip install --no-cache-dir --no-compile \
@@ -86,7 +80,7 @@ RUN set -eux; \
     node -e "require('dockerode'); console.log('dockerode ok')"
 
 LABEL org.opencontainers.image.title="LocalStack MCP Server" \
-      org.opencontainers.image.description="Self-contained MCP server for managing LocalStack via the Docker API (CDK, Terraform, SAM, Snowflake CLIs baked in)" \
+      org.opencontainers.image.description="Self-contained MCP server for managing LocalStack" \
       org.opencontainers.image.source="https://github.com/localstack/localstack-mcp-server" \
       org.opencontainers.image.licenses="Apache-2.0"
 

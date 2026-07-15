@@ -3,10 +3,6 @@
  * (`python -m localstack.pro.core.bootstrap.extensions <verb>`), which streams
  * JSON-lines events: {event: "status"|"log"|"pip"|"error"|"extension"|"exception",
  * message, extra?}. `list` emits one plux metadata JSON object per line instead.
- *
- * Verified against the 2026.x pro image: the module exits 0 even on failure (errors
- * are reported as `error`/`exception` events), so outcomes MUST be derived from the
- * event stream, not the exit code.
  */
 
 export const EXTENSIONS_MANAGER_COMMAND = [

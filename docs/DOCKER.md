@@ -4,7 +4,7 @@ The published image bundles everything the server shells out to — Terraform +
 `tflocal`, AWS CDK + `cdklocal`, AWS SAM + `samlocal`, and the Snowflake `snow`
 CLI — so the **only dependency on your machine is Docker itself**. LocalStack
 lifecycle, logs, and `awslocal` run through the Docker Engine API and LocalStack's
-REST APIs; no LocalStack CLI is involved anywhere.
+REST APIs.
 
 The image is multi-arch (`linux/amd64` and `linux/arm64`).
 
@@ -37,7 +37,7 @@ directory instead, set `-e LOCALSTACK_VOLUME_DIR=/absolute/host/path` (the path 
 interpreted by the **host** daemon).
 
 > **Upgrading from an older image?** Previous versions required a one-to-one cache
-> mount plus `XDG_CACHE_HOME`. Old configs keep working — when `XDG_CACHE_HOME` is
+> mount plus `XDG_CACHE_HOME`. Old configs keep working: when `XDG_CACHE_HOME` is
 > set, the server keeps using `$XDG_CACHE_HOME/localstack/volume` for state, so
 > your persisted resources survive the upgrade. New configs need neither flag.
 

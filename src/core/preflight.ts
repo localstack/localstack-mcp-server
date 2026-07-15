@@ -53,9 +53,11 @@ export const runPreflights = async (
 };
 
 export const requireLocalStackRunning = async (): Promise<ToolResponse | null> => {
-  // Provenance-agnostic gate: probe the gateway directly instead of looking for a
-  // specific container, so an externally managed runtime that is healthy and
-  // reachable is not falsely reported as "not running".
+  /**
+   * Probe the gateway directly instead of looking for a
+   * specific container, so an externally managed runtime that is healthy and
+   * reachable is not falsely reported as "not running".
+   */
   const health = await getGatewayHealth();
   if (!health.reachable) {
     return ResponseBuilder.error(
