@@ -19,10 +19,9 @@
     "test:mcp": "yarn test:mcp:direct && yarn test:mcp:evals"
   },
   "dependencies": {
-    "dockerode": "^4.0.7",
-    "posthog-node": "5.0.0",
-    "xmcp": "^0.6.11",
-    "zod": "4.3.6"
+    "ajv": "^8.18.0",
+    "ajv-formats": "^3.0.1",
+    "dockerode": "^5.0.1"
   },
   "devDependencies": {
     "@clack/prompts": "^1.5.1",
@@ -30,14 +29,22 @@
     "@playwright/test": "^1.58.2",
     "@types/dockerode": "^3.3.43",
     "@types/jest": "^30.0.0",
+    "audit-ci": "^7.1.0",
     "esbuild": "^0.28.0",
     "eslint-config-prettier": "^10.1.8",
     "jest": "^30.1.3",
     "jsonc-parser": "^3.3.1",
+    "posthog-node": "5.0.0",
     "prettier": "^3.6.2",
     "swc-loader": "^0.2.6",
     "ts-jest": "^29.4.1",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "xmcp": "^0.6.13",
+    "zod": "4.3.6"
+  },
+  "resolutions": {
+    "@hono/node-server": "^2.0.5",
+    "ip-address": "^10.1.1"
   },
   "main": "./dist/stdio.js",
   "files": [
