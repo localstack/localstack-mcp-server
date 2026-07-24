@@ -4,7 +4,7 @@ import { runPreflights, requireLocalStackRunning, requireAuthToken } from "../co
 import { ResponseBuilder } from "../core/response-builder";
 import { withToolAnalytics } from "../core/analytics";
 import { DockerApiClient } from "../lib/docker/docker.client";
-import { sanitizeAwsCliCommand } from "../lib/aws/aws-cli-sanitizer";
+import { sanitizeAwsCliCommand, splitAwsCliArgs } from "../lib/aws/aws-cli-sanitizer";
 
 // Define the schema for tool parameters
 export const schema = {
@@ -38,7 +38,7 @@ export default async function localstackAwsClient({ command }: InferSchema<typeo
 
       const sanitized = sanitizeAwsCliCommand(command);
 
-      const args = splitArgsRespectingQuotes(sanitized);
+      const args = splitAwsCliArgs(sanitized);
       const cmd = ["awslocal", ...args];
 
       const result = await dockerClient.executeInContainer(containerId, cmd);
@@ -77,32 +77,4 @@ export default async function localstackAwsClient({ command }: InferSchema<typeo
       return ResponseBuilder.error("Execution Error", message);
     }
   });
-}
-
-function splitArgsRespectingQuotes(input: string): string[] {
-  const args: string[] = [];
-  let current = "";
-  let inSingle = false;
-  let inDouble = false;
-  for (let i = 0; i < input.length; i++) {
-    const ch = input[i];
-    if (ch === "'" && !inDouble) {
-      inSingle = !inSingle;
-      continue;
-    }
-    if (ch === '"' && !inSingle) {
-      inDouble = !inDouble;
-      continue;
-    }
-    if (!inSingle && !inDouble && /\s/.test(ch)) {
-      if (current.length > 0) {
-        args.push(current);
-        current = "";
-      }
-      continue;
-    }
-    current += ch;
-  }
-  if (current.length > 0) args.push(current);
-  return args;
 }

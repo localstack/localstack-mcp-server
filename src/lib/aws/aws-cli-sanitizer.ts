@@ -4,14 +4,6 @@ export function sanitizeAwsCliCommand(rawCommand: string): string {
     throw new Error("Command cannot be empty.");
   }
 
-  // The command is ultimately passed as an argv array, but reject shell syntax
-  // defensively so future execution changes cannot turn this input into a shell
-  // injection primitive.
-  const forbiddenShellSyntax = /[;&|`<>$\\\r\n\t]/;
-  if (forbiddenShellSyntax.test(command)) {
-    throw new Error("Command contains forbidden shell syntax.");
-  }
-
   if (/(^|[\\/\s])\.\.(?:[\\/\s]|$)/.test(command)) {
     throw new Error("Command contains forbidden path traversal.");
   }
@@ -24,15 +16,64 @@ export function sanitizeAwsCliCommand(rawCommand: string): string {
     throw new Error("Command must start with an AWS service or built-in command.");
   }
 
+  splitAwsCliArgs(command);
+
+  return command;
+}
+
+export function splitAwsCliArgs(command: string): string[] {
+  const args: string[] = [];
+  let current = "";
   let quote: "'" | '"' | undefined;
-  for (const character of command) {
+
+  for (let index = 0; index < command.length; index++) {
+    const character = command[index];
+
+    if (character === "\n" || character === "\r" || character === "`") {
+      throw new Error("Command contains forbidden shell syntax.");
+    }
+
+    if (character === "\\" && quote === '"') {
+      const escaped = command[index + 1];
+      if (escaped === '"' || escaped === "\\") {
+        current += escaped;
+        index++;
+      } else {
+        current += character;
+      }
+      continue;
+    }
+
     if ((character === "'" || character === '"') && (!quote || quote === character)) {
       quote = quote ? undefined : character;
+      continue;
     }
+
+    if (!quote) {
+      if (
+        ";&|<>".includes(character) ||
+        command.startsWith("$(", index) ||
+        command.startsWith("${", index)
+      ) {
+        throw new Error("Command contains forbidden shell syntax.");
+      }
+      if (/\s/.test(character)) {
+        if (current) {
+          args.push(current);
+          current = "";
+        }
+        continue;
+      }
+    }
+
+    current += character;
   }
+
   if (quote) {
     throw new Error("Command contains an unterminated quote.");
   }
-
-  return command;
+  if (current) {
+    args.push(current);
+  }
+  return args;
 }

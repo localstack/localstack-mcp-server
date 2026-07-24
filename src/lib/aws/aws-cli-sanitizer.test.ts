@@ -1,10 +1,13 @@
-import { sanitizeAwsCliCommand } from "./aws-cli-sanitizer";
+import { sanitizeAwsCliCommand, splitAwsCliArgs } from "./aws-cli-sanitizer";
 
 describe("sanitizeAwsCliCommand", () => {
   test.each([
     "s3 ls",
     "dynamodb list-tables",
     "ec2 describe-instances --filters 'Name=tag:Name,Values=test instance'",
+    "s3api head-object --bucket test --key 'price$2026.txt'",
+    String.raw`s3api head-object --bucket test --key 'folder\file$2026.txt'`,
+    "s3\tls",
     "help",
     "version",
     "configure list",
@@ -27,10 +30,8 @@ describe("sanitizeAwsCliCommand", () => {
     "s3 ls ${HOME}",
     "s3 ls > output",
     "s3 ls < input",
-    "s3 ls\\necho injected",
     "s3 ls\necho injected",
     "s3 ls\recho injected",
-    "s3 ls\techo injected",
   ])("rejects shell syntax: %s", (command) => {
     expect(() => sanitizeAwsCliCommand(command)).toThrow("forbidden shell syntax");
   });
@@ -62,4 +63,27 @@ describe("sanitizeAwsCliCommand", () => {
       expect(() => sanitizeAwsCliCommand(command)).toThrow("unterminated quote");
     }
   );
+
+  test("parses escaped JSON, dollar signs, backslashes, and tabs as argv", () => {
+    const command = String.raw`s3api put-object	--cli-input-json "{\"Bucket\":\"test\",\"Key\":\"folder\\price$2026.txt\"}"`;
+
+    expect(sanitizeAwsCliCommand(command)).toBe(command);
+    expect(splitAwsCliArgs(command)).toEqual([
+      "s3api",
+      "put-object",
+      "--cli-input-json",
+      '{"Bucket":"test","Key":"folder\\price$2026.txt"}',
+    ]);
+  });
+
+  test("allows shell metacharacters inside quoted argument values", () => {
+    const command = `dynamodb put-item --item '{":value":{"S":"a|b;$c"}}'`;
+
+    expect(splitAwsCliArgs(sanitizeAwsCliCommand(command))).toEqual([
+      "dynamodb",
+      "put-item",
+      "--item",
+      '{":value":{"S":"a|b;$c"}}',
+    ]);
+  });
 });
