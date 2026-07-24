@@ -11,7 +11,7 @@ export type ExistsFn = (candidate: string) => boolean;
  * darwin/linux/win32). That keeps each client's path contract deterministic on any
  * host OS, so the suite behaves the same whether CI runs on Linux, macOS, or Windows.
  */
-function pathFor(ctx: ClientContext): path.PlatformPath {
+function pathFor(ctx: ClientContext): typeof path.posix {
   return ctx.platform === "win32" ? path.win32 : path.posix;
 }
 

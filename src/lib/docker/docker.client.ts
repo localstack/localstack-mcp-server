@@ -1,4 +1,5 @@
 import { PassThrough } from "stream";
+import { createRequire } from "node:module";
 import { LOCALSTACK_PORT } from "../../core/config";
 import type { LocalStackContainerSpec } from "../localstack/container-spec.logic";
 
@@ -125,7 +126,9 @@ export class DockerApiClient {
   private docker: any;
 
   constructor() {
-    const DockerCtor = (eval("require") as any)("dockerode");
+    // Keep dockerode external to the rspack bundle while using Node's supported
+    // module loader instead of hiding require from static analysis with eval.
+    const DockerCtor = createRequire(__filename)("dockerode");
     this.docker = new DockerCtor();
   }
 

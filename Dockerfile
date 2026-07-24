@@ -39,7 +39,7 @@ RUN python3 -m venv /opt/venv \
       \( -type d \( -name __pycache__ -o -name tests -o -name test \) -o -type f \( -name '*.pyc' -o -name '*.pyo' \) \) \
       -prune -exec rm -rf '{}' +
 
-RUN npm install -g aws-cdk@2.1114.0 aws-cdk-local \
+RUN npm install -g aws-cdk@2.1133.0 aws-cdk-local \
  && npm cache clean --force
 
 RUN node <<'NODE'
@@ -62,7 +62,7 @@ NODE
 
 WORKDIR /app
 RUN mkdir -p /tmp/dockerode-deps \
- && npm install --prefix /tmp/dockerode-deps --omit=dev --ignore-scripts --no-audit --no-fund dockerode@4.0.7 \
+ && npm install --prefix /tmp/dockerode-deps --omit=dev --ignore-scripts --no-audit --no-fund dockerode@5.0.1 \
  && mkdir -p /app/node_modules \
  && cp -R /tmp/dockerode-deps/node_modules/. /app/node_modules/ \
  && rm -rf /tmp/dockerode-deps \
