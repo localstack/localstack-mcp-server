@@ -85,7 +85,7 @@ async function resolveMethod(
           {
             value: "npx",
             label: "npx (Node on this machine)",
-            hint: "uses your local Node 20+, localstack or lstk, and Docker",
+            hint: "uses your local Node 20+ and Docker",
           },
           {
             value: "docker",
@@ -158,25 +158,16 @@ async function resolveDockerOptions(
   ctx: ClientContext
 ): Promise<DockerOptions> {
   const defaults = {
-    cacheDir: path.join(ctx.homeDir, ".localstack-mcp"),
     workspace: process.cwd(),
     imageTag: "latest",
   };
 
   const prompts = interactive && !yes;
 
-  let cacheDir = defaults.cacheDir;
   if (flags.cacheDir?.trim()) {
-    cacheDir = expandPath(flags.cacheDir, ctx.homeDir);
-  } else if (prompts) {
-    const answer = preWriteAnswer(
-      await p.text({
-        message: "State/cache directory for Docker runs",
-        initialValue: defaults.cacheDir,
-        validate: (value) => (value?.trim() ? undefined : "A directory is required"),
-      })
+    p.log.warn(
+      "--cache-dir is deprecated and ignored: LocalStack state lives in a named Docker volume (set LOCALSTACK_VOLUME_DIR to use a host directory instead)."
     );
-    cacheDir = expandPath(answer, ctx.homeDir);
   }
 
   // flags.workspace === "" is meaningful: skip the workspace mount.
@@ -204,7 +195,7 @@ async function resolveDockerOptions(
     ).trim();
   }
 
-  return { cacheDir, workspaceDir: workspace || undefined, imageTag };
+  return { workspaceDir: workspace || undefined, imageTag };
 }
 
 async function resolveExtraEnv(

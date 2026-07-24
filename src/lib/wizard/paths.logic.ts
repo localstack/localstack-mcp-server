@@ -24,14 +24,20 @@ export function cursorConfigPath(ctx: ClientContext): string {
  * the Antigravity CLI at ~/.gemini/config/mcp_config.json (macOS/Linux/Windows).
  */
 export function antigravityConfigPath(ctx: ClientContext): string {
-  return path.join(ctx.homeDir, ".gemini", "config", "mcp_config.json");
+  return pathFor(ctx).join(ctx.homeDir, ".gemini", "config", "mcp_config.json");
 }
 
 /** Claude Desktop ships for macOS and Windows only — null elsewhere. */
 export function claudeDesktopConfigPath(ctx: ClientContext): string | null {
   const p = pathFor(ctx);
   if (ctx.platform === "darwin") {
-    return p.join(ctx.homeDir, "Library", "Application Support", "Claude", "claude_desktop_config.json");
+    return p.join(
+      ctx.homeDir,
+      "Library",
+      "Application Support",
+      "Claude",
+      "claude_desktop_config.json"
+    );
   }
   if (ctx.platform === "win32") {
     const appData = ctx.env.APPDATA || p.join(ctx.homeDir, "AppData", "Roaming");

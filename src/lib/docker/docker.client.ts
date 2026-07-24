@@ -1,5 +1,6 @@
 import { PassThrough } from "stream";
 import { LOCALSTACK_PORT } from "../../core/config";
+import type { LocalStackContainerSpec } from "../localstack/container-spec.logic";
 
 export interface ContainerExecResult {
   stdout: string;
@@ -7,11 +8,103 @@ export interface ContainerExecResult {
   exitCode: number;
 }
 
+export interface ContainerStateInfo {
+  id: string;
+  name: string;
+  state: string;
+  image?: string;
+  running: boolean;
+}
+
+/**
+ * Rolling log tail attached to a container from the moment it starts. The buffer
+ * survives AutoRemove (the stream stays readable even after the daemon removes the
+ * container), and the stream ending doubles as the container-exit signal — the only
+ * reliable way to diagnose startup crashes of an AutoRemove container.
+ */
+export interface LogBufferHandle {
+  getBuffered(): string;
+  hasExited(): boolean;
+  onExit(callback: () => void): void;
+  destroy(): void;
+}
+
+const LOG_BUFFER_MAX_CHARS = 64 * 1024;
+
+/**
+ * Decode a Docker multiplexed log payload (returned as a single Buffer by
+ * `container.logs({follow: false})`) into chronologically ordered text. Each frame
+ * carries an 8-byte header: [stream_type, 0, 0, 0, size(u32 BE)]. Walking frames in
+ * order preserves the stdout/stderr interleaving `docker logs` shows; demuxing into
+ * separate sinks would reorder lines and naive toString() leaves binary headers that
+ * break line-anchored parsing.
+ */
+export function decodeDockerLogBuffer(buffer: Buffer): string {
+  if (buffer.length === 0) return "";
+  // A real multiplex header is [stream_type ∈ {0,1,2}, 0, 0, 0, size(u32 BE)]. Requiring
+  // bytes 1-3 to be zero avoids mis-reading raw TTY output that merely starts with a
+  // low control byte (e.g. "\x01…") as a framed stream and dropping its first 8 bytes.
+  const looksFramed = (at: number) =>
+    at + 8 <= buffer.length &&
+    buffer[at] <= 2 &&
+    buffer[at + 1] === 0 &&
+    buffer[at + 2] === 0 &&
+    buffer[at + 3] === 0;
+
+  if (!looksFramed(0)) return buffer.toString("utf8");
+
+  const chunks: Buffer[] = [];
+  let offset = 0;
+  while (looksFramed(offset)) {
+    const size = buffer.readUInt32BE(offset + 4);
+    const end = Math.min(offset + 8 + size, buffer.length);
+    chunks.push(buffer.subarray(offset + 8, end));
+    offset += 8 + size;
+  }
+  if (chunks.length === 0) return buffer.toString("utf8");
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+/**
+ * Translate raw Docker connectivity failures into an actionable message. Socket-level
+ * errors otherwise surface as bare "connect ENOENT /var/run/docker.sock" strings.
+ * Only transport-level failures qualify (error codes, or connect-style messages) —
+ * daemon API errors that merely MENTION a socket path (e.g. a bad DOCKER_SOCK mount
+ * source at container creation) must pass through untouched, since the daemon is fine.
+ */
+export function describeDockerConnectivityError(error: unknown): string {
+  const err = error as { code?: string; message?: string } | undefined;
+  const code = err?.code || "";
+  const message = err?.message || String(error);
+  if (
+    code === "ENOENT" ||
+    code === "ECONNREFUSED" ||
+    code === "EACCES" ||
+    code === "EPERM" ||
+    /connect (ENOENT|ECONNREFUSED)|docker_engine/i.test(message)
+  ) {
+    return (
+      "Docker daemon is not reachable. Start Docker (Desktop) and try again. " +
+      "If your daemon uses a non-default socket, set DOCKER_HOST. " +
+      `(${message})`
+    );
+  }
+  return message;
+}
+
+export interface ContainerMountInfo {
+  type?: string;
+  name?: string;
+  source?: string;
+  destination?: string;
+}
+
 export interface ContainerMetadata {
   id: string;
   name?: string;
   image?: string;
   env?: string[];
+  mounts?: ContainerMountInfo[];
 }
 
 export class LocalStackContainerNotFoundError extends Error {
@@ -166,6 +259,14 @@ export class DockerApiClient {
       name: this.normalizeContainerName(inspect?.Name),
       image: inspect?.Config?.Image,
       env: inspect?.Config?.Env,
+      mounts: (inspect?.Mounts || []).map(
+        (mount: { Type?: string; Name?: string; Source?: string; Destination?: string }) => ({
+          type: mount.Type,
+          name: mount.Name,
+          source: mount.Source,
+          destination: mount.Destination,
+        })
+      ),
     };
   }
 
@@ -181,11 +282,16 @@ export class DockerApiClient {
     requestTimeoutMs = 60000
   ): Promise<void> {
     const container = this.docker.getContainer(containerId);
-    await this.withDockerRequestTimeout(
-      container.stop({ t: timeoutSeconds }),
-      requestTimeoutMs,
-      "Docker container stop"
-    );
+    try {
+      await this.withDockerRequestTimeout(
+        container.stop({ t: timeoutSeconds }),
+        requestTimeoutMs,
+        "Docker container stop"
+      );
+    } catch (error) {
+      // 304 = already stopped; continue so the remove below still runs.
+      if ((error as { statusCode?: number })?.statusCode !== 304) throw error;
+    }
 
     try {
       await this.withDockerRequestTimeout(
@@ -201,7 +307,8 @@ export class DockerApiClient {
   async executeInContainer(
     containerId: string,
     command: string[],
-    stdin?: string
+    stdin?: string,
+    options?: { env?: string[]; timeoutMs?: number }
   ): Promise<ContainerExecResult> {
     const container = this.docker.getContainer(containerId);
 
@@ -209,6 +316,7 @@ export class DockerApiClient {
       Cmd: command,
       AttachStdout: true,
       AttachStderr: true,
+      ...(options?.env?.length ? { Env: options.env } : {}),
       ...(stdin ? { AttachStdin: true } : {}),
     });
 
@@ -235,8 +343,21 @@ export class DockerApiClient {
     await new Promise<void>((resolve, reject) => {
       // demux combined docker stream into stdout/stderr
       (this.docker as any).modem.demuxStream(stream as any, stdoutStream, stderrStream);
-      stream.on("end", () => resolve());
-      stream.on("error", (e) => reject(e));
+      let timer: NodeJS.Timeout | undefined;
+      if (options?.timeoutMs) {
+        timer = setTimeout(() => {
+          (stream as unknown as { destroy?: () => void }).destroy?.();
+          reject(new Error(`Container exec timed out after ${options.timeoutMs}ms`));
+        }, options.timeoutMs);
+      }
+      stream.on("end", () => {
+        if (timer) clearTimeout(timer);
+        resolve();
+      });
+      stream.on("error", (e) => {
+        if (timer) clearTimeout(timer);
+        reject(e);
+      });
     });
 
     const inspect = (await exec.inspect()) as { ExitCode: number | null };
@@ -246,5 +367,265 @@ export class DockerApiClient {
     const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
 
     return { stdout, stderr, exitCode };
+  }
+
+  /** Docker daemon reachability probe with a friendly error for the common failures. */
+  async ping(timeoutMs = 5000): Promise<void> {
+    try {
+      await this.withDockerRequestTimeout(this.docker.ping(), timeoutMs, "Docker daemon ping");
+    } catch (error) {
+      throw new Error(describeDockerConnectivityError(error));
+    }
+  }
+
+  async imageExists(imageName: string, timeoutMs = 15000): Promise<boolean> {
+    try {
+      await this.inspectImage(imageName, timeoutMs);
+      return true;
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number })?.statusCode;
+      if (statusCode === 404) return false;
+      throw new Error(describeDockerConnectivityError(error));
+    }
+  }
+
+  private async inspectImage(imageName: string, timeoutMs: number): Promise<void> {
+    await this.withDockerRequestTimeout(
+      this.docker.getImage(imageName).inspect(),
+      timeoutMs,
+      "Docker image inspect"
+    );
+  }
+
+  /**
+   * Pull an image, consuming the progress stream manually. docker-modem's
+   * followProgress reports success even when the stream carries an `error` event and
+   * throws uncaught on malformed progress lines — both fatal for a stdio MCP process.
+   */
+  async pullImage(imageName: string, timeoutMs = 600000): Promise<void> {
+    const stream: NodeJS.ReadableStream = await new Promise((resolve, reject) => {
+      this.docker.pull(imageName, (err: unknown, pullStream: NodeJS.ReadableStream) => {
+        if (err) return reject(new Error(describeDockerConnectivityError(err)));
+        resolve(pullStream);
+      });
+    });
+
+    try {
+      await this.withDockerRequestTimeout(
+        new Promise<void>((resolve, reject) => {
+          let pending = "";
+          let pullError: string | undefined;
+          const scan = (line: string) => {
+            if (!line.trim()) return;
+            try {
+              const event = JSON.parse(line) as {
+                error?: string;
+                errorDetail?: { message?: string };
+              };
+              if (event.error || event.errorDetail) {
+                pullError = event.error || event.errorDetail?.message || "unknown pull error";
+              }
+            } catch {
+              // Malformed progress lines are ignored; only well-formed error events fail the pull.
+            }
+          };
+          stream.on("data", (chunk: Buffer) => {
+            pending += chunk.toString("utf8");
+            const lines = pending.split("\n");
+            pending = lines.pop() || "";
+            for (const line of lines) scan(line);
+          });
+          stream.on("error", (err: Error) => reject(err));
+          stream.on("end", () => {
+            // A final event without a trailing newline stays in `pending`; scan it so a
+            // late {"error":…} isn't silently dropped (which would surface later as a
+            // confusing "no such image" at container creation).
+            scan(pending);
+            if (pullError) reject(new Error(`Failed to pull image ${imageName}: ${pullError}`));
+            else resolve();
+          });
+        }),
+        timeoutMs,
+        `Docker image pull (${imageName})`
+      );
+    } catch (error) {
+      // Stop the background pull + its data handler when we give up (e.g. on timeout).
+      (stream as unknown as { destroy?: () => void }).destroy?.();
+      throw error;
+    }
+  }
+
+  /** Create a user-defined network when missing (Lambda containers must reach the gateway on it). */
+  async ensureNetwork(name: string, requestTimeoutMs = 15000): Promise<void> {
+    if (!name || name === "host" || name === "bridge" || name === "none") return;
+    const networks = (await this.withDockerRequestTimeout(
+      this.docker.listNetworks({ filters: { name: [name] } }),
+      requestTimeoutMs,
+      "Docker network list"
+    )) as Array<{ Name?: string }>;
+    if ((networks || []).some((network) => network.Name === name)) return;
+    await this.withDockerRequestTimeout(
+      this.docker.createNetwork({ Name: name }),
+      requestTimeoutMs,
+      "Docker network create"
+    );
+  }
+
+  async createAndStartContainer(
+    spec: LocalStackContainerSpec,
+    requestTimeoutMs = 30000
+  ): Promise<string> {
+    const { name, ...createOptions } = spec;
+    let container: any;
+    try {
+      container = await this.withDockerRequestTimeout(
+        this.docker.createContainer({ ...createOptions, name }),
+        requestTimeoutMs,
+        "Docker container create"
+      );
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number })?.statusCode;
+      if (statusCode === 409) {
+        throw new LocalStackContainerConflictError(`A container named "${name}" already exists.`);
+      }
+      throw new Error(describeDockerConnectivityError(error));
+    }
+    await this.withDockerRequestTimeout(
+      container.start(),
+      requestTimeoutMs,
+      "Docker container start"
+    );
+    return container.id as string;
+  }
+
+  /**
+   * Attach a follow-mode log stream right after start and keep a rolling tail.
+   * See LogBufferHandle for why this replaces post-exit `container.logs()` reads.
+   */
+  async attachLogBuffer(containerId: string, attachTimeoutMs = 15000): Promise<LogBufferHandle> {
+    const container = this.docker.getContainer(containerId);
+    const stream: NodeJS.ReadableStream = await this.withDockerRequestTimeout(
+      container.logs({ follow: true, stdout: true, stderr: true, tail: 200 }),
+      attachTimeoutMs,
+      "Docker log attach"
+    );
+
+    // Demux into a single sink so stdout/stderr keep their chronological interleaving.
+    const sink = new PassThrough();
+    (this.docker as any).modem.demuxStream(stream, sink, sink);
+
+    let buffered = "";
+    let exited = false;
+    let degraded = false;
+    const exitCallbacks: Array<() => void> = [];
+    sink.on("data", (data: Buffer) => {
+      buffered += data.toString("utf8");
+      if (buffered.length > LOG_BUFFER_MAX_CHARS) {
+        buffered = buffered.slice(-LOG_BUFFER_MAX_CHARS);
+      }
+    });
+    const markExited = () => {
+      // A stream error (e.g. a TCP reset on a tcp:// DOCKER_HOST) is indistinguishable
+      // from a real exit, so once degraded we stop trusting the stream as an exit
+      // signal — readiness polling + the launch deadline still catch a genuine exit.
+      if (exited || degraded) return;
+      exited = true;
+      for (const callback of exitCallbacks) callback();
+    };
+    stream.on("end", markExited);
+    stream.on("close", markExited);
+    stream.on("error", () => {
+      degraded = true;
+    });
+
+    return {
+      getBuffered: () => buffered,
+      hasExited: () => exited,
+      onExit: (callback) => {
+        if (exited) callback();
+        else exitCallbacks.push(callback);
+      },
+      destroy: () => {
+        (stream as unknown as { destroy?: () => void }).destroy?.();
+      },
+    };
+  }
+
+  /** One-shot chronologically ordered log fetch (docker logs equivalent). */
+  async getContainerLogs(
+    containerId: string,
+    { tail, timeoutMs = 30000 }: { tail: number; timeoutMs?: number }
+  ): Promise<string> {
+    const container = this.docker.getContainer(containerId);
+    const result: Buffer | string = await this.withDockerRequestTimeout(
+      container.logs({ follow: false, stdout: true, stderr: true, tail }),
+      timeoutMs,
+      "Docker container logs"
+    );
+    if (typeof result === "string") return result;
+    return decodeDockerLogBuffer(result);
+  }
+
+  /**
+   * Find a container by exact name in ANY state — the pre-start conflict check.
+   * `findLocalStackContainer` deliberately sees only running containers.
+   */
+  async findContainerByNameAnyState(name: string): Promise<ContainerStateInfo | null> {
+    const containers = (await this.withDockerRequestTimeout(
+      (this.docker.listContainers as any)({ all: true, filters: { name: [name] } }),
+      10000,
+      "Docker container list"
+    )) as Array<{ Id: string; Names?: string[]; State?: string; Image?: string }>;
+
+    const match = (containers || []).find((container) =>
+      this.matchesConfiguredContainerName(container, name)
+    );
+    if (!match) return null;
+    return {
+      id: match.Id,
+      name,
+      state: match.State || "unknown",
+      image: match.Image,
+      running: match.State === "running",
+    };
+  }
+
+  /** Remove a container, tolerating it already being gone. */
+  async removeContainer(containerId: string, requestTimeoutMs = 60000): Promise<void> {
+    const container = this.docker.getContainer(containerId);
+    try {
+      await this.withDockerRequestTimeout(
+        container.remove({ force: true }),
+        requestTimeoutMs,
+        "Docker container remove"
+      );
+    } catch (error) {
+      if (!this.isContainerAlreadyGone(error)) throw error;
+    }
+  }
+
+  /**
+   * Wait until a container is fully removed (AutoRemove removal is asynchronous —
+   * recreating the same name too early races a 409).
+   */
+  async waitForRemoval(containerId: string, timeoutMs = 60000): Promise<void> {
+    const container = this.docker.getContainer(containerId);
+    try {
+      await this.withDockerRequestTimeout(
+        container.wait({ condition: "removed" }),
+        timeoutMs,
+        "Docker container removal wait"
+      );
+    } catch (error) {
+      if (this.isContainerAlreadyGone(error)) return;
+      throw error;
+    }
+  }
+}
+
+export class LocalStackContainerConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LocalStackContainerConflictError";
   }
 }

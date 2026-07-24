@@ -1,12 +1,7 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { LocalStackLogRetriever, type LogEntry } from "../lib/logs/log-retriever";
-import {
-  runPreflights,
-  requireAuthToken,
-  requireLocalStackCli,
-  requireLocalStackRunning,
-} from "../core/preflight";
+import { runPreflights, requireAuthToken, requireLocalStackRunning } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { withToolAnalytics } from "../core/analytics";
 
@@ -61,11 +56,7 @@ export default async function localstackLogsAnalysis({
     "localstack-logs-analysis",
     { analysisType, lines, service, operation, filter },
     async () => {
-      const preflightError = await runPreflights([
-        requireAuthToken(),
-        requireLocalStackCli(),
-        requireLocalStackRunning(),
-      ]);
+      const preflightError = await runPreflights([requireAuthToken(), requireLocalStackRunning()]);
       if (preflightError) return preflightError;
 
       const retriever = new LocalStackLogRetriever();
@@ -73,7 +64,10 @@ export default async function localstackLogsAnalysis({
       const logResult = await retriever.retrieveLogs(lines, retrievalFilter);
 
       if (!logResult.success) {
-        return ResponseBuilder.error("Log Retrieval Failed", logResult.errorMessage || "Unknown error");
+        return ResponseBuilder.error(
+          "Log Retrieval Failed",
+          logResult.errorMessage || "Unknown error"
+        );
       }
 
       switch (analysisType) {

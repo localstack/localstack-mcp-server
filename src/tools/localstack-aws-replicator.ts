@@ -50,7 +50,11 @@ export const schema = {
     .describe(
       "Full ARN of the resource to replicate. Only supported for SINGLE_RESOURCE jobs and mutually exclusive with resource_type/resource_identifier."
     ),
-  job_id: z.string().trim().optional().describe("Replication job id. Required for the status action."),
+  job_id: z
+    .string()
+    .trim()
+    .optional()
+    .describe("Replication job id. Required for the status action."),
   target_account_id: z
     .string()
     .trim()
@@ -178,7 +182,9 @@ function validateStartArgs(args: AwsReplicatorArgs, sourceAwsConfig: SourceAwsCo
   }
 
   const hasArn = Boolean(args.resource_arn?.trim());
-  const hasTypeAndIdentifier = Boolean(args.resource_type?.trim() && args.resource_identifier?.trim());
+  const hasTypeAndIdentifier = Boolean(
+    args.resource_type?.trim() && args.resource_identifier?.trim()
+  );
 
   if (args.replication_type === "BATCH" && hasArn) {
     return ResponseBuilder.error(
@@ -201,13 +207,12 @@ export function buildStartReplicationJobRequest(
   args: AwsReplicatorArgs,
   sourceAwsConfig: AwsConfig = getSourceAwsConfigFromEnv().config
 ): StartReplicationJobRequest {
-  const replicationJobConfig =
-    args.resource_arn?.trim()
-      ? { resource_arn: args.resource_arn.trim() }
-      : {
-          resource_type: args.resource_type!.trim(),
-          resource_identifier: args.resource_identifier!.trim(),
-        };
+  const replicationJobConfig = args.resource_arn?.trim()
+    ? { resource_arn: args.resource_arn.trim() }
+    : {
+        resource_type: args.resource_type!.trim(),
+        resource_identifier: args.resource_identifier!.trim(),
+      };
 
   const targetAwsConfig = getTargetAwsConfig(args, sourceAwsConfig.region_name);
 
@@ -263,9 +268,7 @@ function getSourceAwsConfigFromEnv(): SourceAwsConfigResult {
   const missing: string[] = [];
   if (!config.aws_access_key_id) {
     missing.push(
-      hasReplicatorSourceConfig
-        ? "AWS_REPLICATOR_SOURCE_AWS_ACCESS_KEY_ID"
-        : "AWS_ACCESS_KEY_ID"
+      hasReplicatorSourceConfig ? "AWS_REPLICATOR_SOURCE_AWS_ACCESS_KEY_ID" : "AWS_ACCESS_KEY_ID"
     );
   }
   if (!config.aws_secret_access_key) {
@@ -304,9 +307,8 @@ function getTargetAwsConfig(
 
   const config: AwsConfig = {
     aws_access_key_id: targetAccountId || "test",
-    aws_secret_access_key: firstNonEmpty(
-      process.env.AWS_REPLICATOR_TARGET_AWS_SECRET_ACCESS_KEY
-    ) || "test",
+    aws_secret_access_key:
+      firstNonEmpty(process.env.AWS_REPLICATOR_TARGET_AWS_SECRET_ACCESS_KEY) || "test",
     region_name: targetRegionName || sourceRegionName,
   };
 

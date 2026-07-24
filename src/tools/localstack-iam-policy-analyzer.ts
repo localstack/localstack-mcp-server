@@ -13,7 +13,6 @@ import {
 import {
   runPreflights,
   requireAuthToken,
-  requireLocalStackCli,
   requireLocalStackRunning,
   requireProFeature,
 } from "../core/preflight";
@@ -58,7 +57,6 @@ export default async function localstackIamPolicyAnalyzer({
   return withToolAnalytics("localstack-iam-policy-analyzer", { action, mode }, async () => {
     const preflightError = await runPreflights([
       requireAuthToken(),
-      requireLocalStackCli(),
       requireLocalStackRunning(),
       requireProFeature(ProFeature.IAM_ENFORCEMENT),
     ]);

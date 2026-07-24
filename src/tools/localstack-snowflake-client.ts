@@ -2,7 +2,12 @@ import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { runCommand } from "../core/command-runner";
 import { LOCALSTACK_PORT } from "../core/config";
-import { runPreflights, requireSnowflakeCli, requireProFeature } from "../core/preflight";
+import {
+  runPreflights,
+  requireAuthToken,
+  requireSnowflakeCli,
+  requireProFeature,
+} from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { ProFeature } from "../lib/localstack/license-checker";
 import { withToolAnalytics } from "../core/analytics";
@@ -51,10 +56,7 @@ async function requireSnowflakeConnectionProfile() {
   const listResult = await runCommand("snow", ["connection", "list"], { env: { ...process.env } });
   const listCombined = `${listResult.stdout || ""}\n${listResult.stderr || ""}`.toLowerCase();
 
-  if (
-    listResult.exitCode === 0 &&
-    listCombined.includes(SNOWFLAKE_CONNECTION_NAME.toLowerCase())
-  ) {
+  if (listResult.exitCode === 0 && listCombined.includes(SNOWFLAKE_CONNECTION_NAME.toLowerCase())) {
     return null;
   }
 
@@ -118,6 +120,7 @@ export default async function localstackSnowflakeClient({
 }: InferSchema<typeof schema>) {
   return withToolAnalytics("localstack-snowflake-client", { action }, async () => {
     const preflightError = await runPreflights([
+      requireAuthToken(),
       requireSnowflakeCli(),
       requireProFeature(ProFeature.SNOWFLAKE),
       requireSnowflakeConnectionProfile(),
@@ -135,7 +138,10 @@ export default async function localstackSnowflakeClient({
         return ResponseBuilder.markdown(result.stdout || "");
       }
 
-      return ResponseBuilder.error("Connection Check Failed", (result.stderr || result.stdout || "").trim());
+      return ResponseBuilder.error(
+        "Connection Check Failed",
+        (result.stderr || result.stdout || "").trim()
+      );
     }
 
     const hasQuery = !!query;
@@ -160,7 +166,12 @@ export default async function localstackSnowflakeClient({
       return ResponseBuilder.markdown(result.stdout || "");
     }
 
-    const rawError = (result.stderr || result.stdout || result.error?.message || "Unknown error").trim();
+    const rawError = (
+      result.stderr ||
+      result.stdout ||
+      result.error?.message ||
+      "Unknown error"
+    ).trim();
     return ResponseBuilder.error(
       "Command Failed",
       `${rawError}\n\nCheck Snowflake feature coverage: https://docs.localstack.cloud/snowflake/feature-coverage/`

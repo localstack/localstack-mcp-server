@@ -22,7 +22,6 @@ export interface ServerSpec {
 }
 
 export interface DockerOptions {
-  cacheDir: string;
   workspaceDir?: string;
   imageTag: string;
 }

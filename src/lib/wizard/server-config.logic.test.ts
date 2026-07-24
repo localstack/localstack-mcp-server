@@ -24,7 +24,6 @@ describe("buildNpxServerSpec", () => {
 
 describe("buildDockerServerSpec", () => {
   const options = {
-    cacheDir: "/Users/you/.localstack-mcp",
     workspaceDir: "/Users/you/projects",
     imageTag: "latest",
   };
@@ -38,10 +37,6 @@ describe("buildDockerServerSpec", () => {
       "--rm",
       "-v",
       "/var/run/docker.sock:/var/run/docker.sock",
-      "-v",
-      "/Users/you/.localstack-mcp:/Users/you/.localstack-mcp",
-      "-e",
-      "XDG_CACHE_HOME=/Users/you/.localstack-mcp",
       "--add-host",
       "host.docker.internal:host-gateway",
       "--add-host",
@@ -89,7 +84,7 @@ describe("windowsSpawnSafeSpec", () => {
   });
 
   it("leaves non-npx commands untouched", () => {
-    const docker = buildDockerServerSpec("tok", {}, { cacheDir: "/c", imageTag: "latest" });
+    const docker = buildDockerServerSpec("tok", {}, { imageTag: "latest" });
     expect(windowsSpawnSafeSpec(docker)).toBe(docker);
   });
 });

@@ -1,22 +1,31 @@
-import {
-  ensureLocalStackCli,
-  ensureSnowflakeCli,
-  getGatewayHealth,
-} from "../lib/localstack/localstack.utils";
+import { ensureSnowflakeCli, getGatewayHealth } from "../lib/localstack/localstack.utils";
+import { DockerApiClient } from "../lib/docker/docker.client";
 import { checkProFeature, ProFeature } from "../lib/localstack/license-checker";
 import { LOCALSTACK_BASE_URL } from "./config";
 import { ResponseBuilder } from "./response-builder";
 
 type ToolResponse = ReturnType<typeof ResponseBuilder.error>;
 
-export const requireLocalStackCli = async (): Promise<ToolResponse | null> => {
-  const cliCheck = await ensureLocalStackCli();
-  return cliCheck ? (cliCheck as ToolResponse) : null;
-};
-
 export const requireSnowflakeCli = async (): Promise<ToolResponse | null> => {
   const cliCheck = await ensureSnowflakeCli();
   return cliCheck ? (cliCheck as ToolResponse) : null;
+};
+
+/**
+ * Gate for actions that talk to the Docker daemon (container lifecycle, log reads,
+ * in-container exec). Surfaces socket/daemon failures as an actionable message
+ * instead of a raw ENOENT.
+ */
+export const requireDockerDaemon = async (): Promise<ToolResponse | null> => {
+  try {
+    await new DockerApiClient().ping();
+    return null;
+  } catch (error) {
+    return ResponseBuilder.error(
+      "Docker Not Available",
+      error instanceof Error ? error.message : String(error)
+    );
+  }
 };
 
 export const requireProFeature = async (feature: ProFeature): Promise<ToolResponse | null> => {
@@ -44,14 +53,16 @@ export const runPreflights = async (
 };
 
 export const requireLocalStackRunning = async (): Promise<ToolResponse | null> => {
-  // Provenance-agnostic gate: probe the gateway directly instead of looking for a
-  // CLI-named container, so an `lstk`-started (or otherwise externally managed)
-  // runtime that is healthy and reachable is not falsely reported as "not running".
+  /**
+   * Probe the gateway directly instead of looking for a
+   * specific container, so an externally managed runtime that is healthy and
+   * reachable is not falsely reported as "not running".
+   */
   const health = await getGatewayHealth();
   if (!health.reachable) {
     return ResponseBuilder.error(
       "LocalStack Not Running",
-      `LocalStack is not reachable at ${LOCALSTACK_BASE_URL}. Start it with \`localstack start\` (or \`lstk start\`) and try again. ` +
+      `LocalStack is not reachable at ${LOCALSTACK_BASE_URL}. Start it with the localstack-management tool (action: start) and try again. ` +
         `If it is running on a non-default host or port, set LOCALSTACK_HOSTNAME / LOCALSTACK_PORT for the MCP server.`
     );
   }

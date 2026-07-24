@@ -1,23 +1,28 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import {
-  detectLifecycleCli,
-  type LifecycleCli,
+  deriveRecreateOverrides,
   getLocalStackStatus,
   getSnowflakeEmulatorStatus,
-  startRuntime,
+  launchRuntime,
+  resolveContainerName,
 } from "../lib/localstack/localstack.utils";
 import {
   DockerApiClient,
   isLocalStackContainerNotFoundError,
   type ContainerMetadata,
 } from "../lib/docker/docker.client";
-import { runPreflights, requireProFeature, requireAuthToken } from "../core/preflight";
+import { stackFromImage, type VolumeResolution } from "../lib/localstack/container-spec.logic";
+import {
+  runPreflights,
+  requireProFeature,
+  requireAuthToken,
+  requireDockerDaemon,
+} from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { ProFeature } from "../lib/localstack/license-checker";
 import { withToolAnalytics } from "../core/analytics";
 
-type ToolResponse = ReturnType<typeof ResponseBuilder.error>;
 const AWS_ALREADY_RUNNING_MESSAGE =
   "⚠️  LocalStack is already running. Use 'restart' if you want to apply new configuration.";
 const SNOWFLAKE_ALREADY_RUNNING_MESSAGE =
@@ -56,14 +61,22 @@ export default async function localstackManagement({
   envVars,
 }: InferSchema<typeof schema>) {
   return withToolAnalytics("localstack-management", { action, service, envVars }, async () => {
-    // No CLI preflight: stop/restart/status drive LocalStack via the Docker API +
-    // gateway, and start detects whichever lifecycle CLI is present (localstack or
-    // lstk) itself — so an lstk-only host is no longer blocked here.
-    const checks: Array<ToolResponse | null | Promise<ToolResponse | null>> = [requireAuthToken()];
+    const checks: Array<
+      ReturnType<typeof requireAuthToken> | Promise<ReturnType<typeof requireAuthToken>>
+    > = [requireAuthToken()];
 
-    if (service === "snowflake") {
-      // `start` can run when no LocalStack runtime is currently up; validate feature after startup.
-      if (action !== "start") checks.push(requireProFeature(ProFeature.SNOWFLAKE));
+    if (action === "start" || action === "restart" || action === "stop") {
+      checks.push(requireDockerDaemon());
+    }
+
+    if (service === "snowflake" && action !== "start") {
+      // The SNOWFLAKE pro-feature check reads /_localstack/licenseinfo from the
+      // RUNNING container, so it is only meaningful when that container actually is
+      // the Snowflake stack. Checking against the AWS stack produces a misleading
+      // "license does not include snowflake" error, and `start` cannot be gated at
+      // all: nothing is running yet to ask (an unlicensed boot fails fast through
+      // the attached crash-log path instead).
+      checks.push(requireSnowflakeProIfSnowflakeRunning());
     }
 
     const preflightError = await runPreflights(checks);
@@ -87,74 +100,76 @@ export default async function localstackManagement({
   });
 }
 
+interface StartOverrides {
+  imageOverride?: string;
+  containerNameOverride?: string;
+  volumeOverride?: VolumeResolution;
+}
+
+/** Best-effort look at the running LocalStack container (null when none/undetectable). */
+async function inspectRunningContainer(): Promise<ContainerMetadata | null> {
+  try {
+    const dockerClient = new DockerApiClient();
+    const containerId = await dockerClient.findLocalStackContainer();
+    return await dockerClient.inspectContainer(containerId);
+  } catch {
+    return null;
+  }
+}
+
+/** Gate on the SNOWFLAKE pro feature only when the running container is the Snowflake stack. */
+async function requireSnowflakeProIfSnowflakeRunning() {
+  const metadata = await inspectRunningContainer();
+  if (!metadata || stackFromImage(metadata.image) !== "snowflake") {
+    // Not running / different stack — the handlers report those states accurately.
+    return null;
+  }
+  return await requireProFeature(ProFeature.SNOWFLAKE);
+}
+
 // Handle start action
 async function handleStart({
   envVars,
   service,
-  cli,
+  overrides,
 }: {
   envVars?: Record<string, string>;
   service: "aws" | "snowflake";
-  cli?: LifecycleCli;
+  overrides?: StartOverrides;
 }) {
   if (service === "snowflake") {
-    return await handleSnowflakeStart({ envVars });
+    return await launchRuntime({
+      stack: "snowflake",
+      envVars,
+      getStatus: getSnowflakeEmulatorStatus,
+      processLabel: "Snowflake emulator",
+      alreadyRunningMessage: SNOWFLAKE_ALREADY_RUNNING_MESSAGE,
+      successTitle: "🚀 Snowflake emulator started successfully!",
+      statusHeading: "Health check",
+      timeoutMessage:
+        '❌ Snowflake emulator start timed out after 120 seconds. Health check endpoint did not return {"success": true}. If this was the first start, the image pull may still be in progress — retry in a bit.',
+      onReady: async () => await requireProFeature(ProFeature.SNOWFLAKE),
+      ...overrides,
+    });
   }
 
-  const status = await getLocalStackStatus({ includeCliStatus: false });
-  if (status.isReady || status.isRunning) {
-    return ResponseBuilder.markdown(AWS_ALREADY_RUNNING_MESSAGE);
-  }
-
-  const lifecycleCli = cli || (await detectLifecycleCli());
-  if (!lifecycleCli) return noLifecycleCliFoundResponse("Starting");
-
-  return await startRuntime({
-    cli: lifecycleCli,
-    // lstk would otherwise prompt; force non-interactive when spawned headless.
-    startArgs: lifecycleCli === "lstk" ? ["start", "--non-interactive"] : ["start"],
-    getStatus: () => getLocalStackStatus({ includeCliStatus: false }),
+  return await launchRuntime({
+    stack: "aws",
+    envVars,
+    getStatus: getLocalStackStatus,
     processLabel: "LocalStack",
     alreadyRunningMessage: AWS_ALREADY_RUNNING_MESSAGE,
     successTitle: "🚀 LocalStack started successfully!",
     statusHeading: "Status",
     timeoutMessage:
-      "❌ LocalStack start timed out after 120 seconds. It may still be starting in the background.",
-    envVars,
+      "❌ LocalStack start timed out after 120 seconds. It may still be starting in the background. If this was the first start, the image pull may still be in progress — retry in a bit.",
+    ...overrides,
   });
 }
 
-async function handleSnowflakeStart({ envVars }: { envVars?: Record<string, string> }) {
-  const status = await getSnowflakeEmulatorStatus();
-  if (status.isReady || status.isRunning) {
-    return ResponseBuilder.markdown(SNOWFLAKE_ALREADY_RUNNING_MESSAGE);
-  }
-
-  // The Snowflake stack is localstack-only (`--stack snowflake` has no lstk equivalent).
-  if ((await detectLifecycleCli(["localstack"])) !== "localstack") {
-    return ResponseBuilder.error(
-      "localstack CLI required",
-      "Starting the Snowflake stack requires the Python `localstack` CLI (the `--stack snowflake` flag is localstack-only). Install it with `pip install localstack`."
-    );
-  }
-
-  return await startRuntime({
-    cli: "localstack",
-    startArgs: ["start", "--stack", "snowflake"],
-    getStatus: getSnowflakeEmulatorStatus,
-    processLabel: "Snowflake emulator",
-    alreadyRunningMessage: SNOWFLAKE_ALREADY_RUNNING_MESSAGE,
-    successTitle: "🚀 Snowflake emulator started successfully!",
-    statusHeading: "Health check",
-    timeoutMessage:
-      '❌ Snowflake emulator start timed out after 120 seconds. Health check endpoint did not return {"success": true}.',
-    envVars,
-    onReady: async () => await requireProFeature(ProFeature.SNOWFLAKE),
-  });
-}
-
-// Handle stop action — stop the detected container via the Docker API (no CLI needed,
-// works regardless of which CLI started it).
+// Handle stop action — stop the detected container via the Docker API. Also cleans up
+// stopped/stale containers occupying a LocalStack name, so start's conflict advice
+// ("stop it first") always has a working recovery path.
 async function handleStop() {
   const dockerClient = new DockerApiClient();
   let containerId: string;
@@ -167,7 +182,22 @@ async function handleStop() {
         `Could not inspect Docker containers: ${error instanceof Error ? error.message : String(error)}`
       );
     }
-    const status = await getLocalStackStatus({ includeCliStatus: false });
+
+    // No RUNNING container found — check for a stale stopped one holding the name.
+    try {
+      const stale = await dockerClient.findContainerByNameAnyState(
+        resolveContainerName(process.env)
+      );
+      if (stale && !stale.running) {
+        await dockerClient.removeContainer(stale.id);
+        await dockerClient.waitForRemoval(stale.id);
+        return ResponseBuilder.markdown(`🛑 Removed stopped LocalStack container "${stale.name}".`);
+      }
+    } catch {
+      // fall through to the gateway-based reporting below
+    }
+
+    const status = await getLocalStackStatus();
     if (status.isRunning) {
       return ResponseBuilder.error(
         "LocalStack container not found",
@@ -191,8 +221,10 @@ async function handleStop() {
   }
 }
 
-// Handle restart action — stop the running container (Docker API), then start fresh
-// (applies any new envVars). Falls through to start if nothing is running.
+// Handle restart action — stop the running container, then start fresh (applies any
+// new envVars). The recreate reuses the original container's image, name, and volume
+// so an externally-provisioned runtime (lstk's localstack-aws, custom names/images)
+// is not silently replaced by our defaults — that would strand its state.
 async function handleRestart({
   envVars,
   service,
@@ -213,7 +245,7 @@ async function handleRestart({
         }`
       );
     }
-    const status = await getLocalStackStatus({ includeCliStatus: false });
+    const status = await getLocalStackStatus();
     if (status.isRunning) {
       return ResponseBuilder.error(
         "LocalStack container not found",
@@ -224,18 +256,16 @@ async function handleRestart({
     return await handleStart({ envVars, service });
   }
 
-  const cli = await detectCliForRestart(dockerClient, containerId, service);
-  if (!cli) {
-    return service === "snowflake"
-      ? ResponseBuilder.error(
-          "localstack CLI required",
-          "Restarting the Snowflake stack requires the Python `localstack` CLI on PATH."
-        )
-      : noLifecycleCliFoundResponse("Restarting");
+  let metadata: ContainerMetadata | undefined;
+  try {
+    metadata = await dockerClient.inspectContainer(containerId);
+  } catch {
+    metadata = undefined;
   }
 
   try {
     await dockerClient.stopContainer(containerId);
+    await dockerClient.waitForRemoval(containerId);
   } catch (error) {
     return ResponseBuilder.error(
       "Failed to stop LocalStack",
@@ -245,47 +275,11 @@ async function handleRestart({
     );
   }
 
-  await new Promise((resolve) => setTimeout(resolve, 2000));
-  return await handleStart({ envVars, service, cli });
-}
-
-function noLifecycleCliFoundResponse(action: "Starting" | "Restarting") {
-  return ResponseBuilder.error(
-    "No LocalStack CLI found",
-    `${action} LocalStack needs the \`localstack\` or \`lstk\` CLI on PATH, but neither was found. ` +
-      "Install one (`pip install localstack`, or the `lstk` CLI), or start LocalStack yourself (e.g. `lstk start`) — " +
-      "the other tools drive it via the Docker API and gateway."
-  );
-}
-
-async function detectCliForRestart(
-  dockerClient: DockerApiClient,
-  containerId: string,
-  service: "aws" | "snowflake"
-): Promise<LifecycleCli | null> {
-  if (service === "snowflake") return await detectLifecycleCli(["localstack"]);
-
-  let metadata: ContainerMetadata | undefined;
-  try {
-    metadata = await dockerClient.inspectContainer(containerId);
-  } catch {
-    metadata = undefined;
-  }
-
-  return await detectLifecycleCli(preferredCliOrder(metadata));
-}
-
-function preferredCliOrder(metadata?: ContainerMetadata): LifecycleCli[] {
-  const name = metadata?.name || "";
-  const mainContainerName = (metadata?.env || [])
-    .find((entry) => entry.startsWith("MAIN_CONTAINER_NAME="))
-    ?.slice("MAIN_CONTAINER_NAME=".length);
-
-  if (name === "localstack-aws" || mainContainerName === "localstack-aws") {
-    return ["lstk", "localstack"];
-  }
-
-  return ["localstack", "lstk"];
+  return await handleStart({
+    envVars,
+    service,
+    overrides: deriveRecreateOverrides(metadata, service),
+  });
 }
 
 // Handle status action
@@ -300,6 +294,14 @@ async function handleStatus({ service }: { service: "aws" | "snowflake" }) {
   }
 
   if (service === "snowflake") {
+    const metadata = await inspectRunningContainer();
+    if (metadata && stackFromImage(metadata.image) === "aws") {
+      result +=
+        `\n\n⚠️  The running LocalStack container ("${metadata.name}", image: ${metadata.image}) is the AWS stack — ` +
+        "the Snowflake emulator is not running. Stop it first, then start with service: snowflake.";
+      return ResponseBuilder.markdown(result);
+    }
+
     const snowflakeStatus = await getSnowflakeEmulatorStatus();
 
     if (snowflakeStatus.isReady || snowflakeStatus.isRunning) {

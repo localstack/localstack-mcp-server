@@ -60,12 +60,9 @@ jobs:
           HARNESS_SKIP: cloudpods,ephemeral,replicator,chaos
         run: |
           npm ci --prefix data/sample-cdk
-          mkdir -p "$HOME/.localstack-mcp"
           node tests/docker/validate-image.mjs -- \
             docker run -i --rm \
               -v /var/run/docker.sock:/var/run/docker.sock \
-              -v "$HOME/.localstack-mcp:$HOME/.localstack-mcp" \
-              -e XDG_CACHE_HOME="$HOME/.localstack-mcp" \
               --add-host host.docker.internal:host-gateway \
               --add-host s3.host.docker.internal:host-gateway \
               --add-host snowflake.localhost.localstack.cloud:host-gateway \

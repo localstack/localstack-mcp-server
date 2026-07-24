@@ -324,6 +324,13 @@ describe("DockerApiClient", () => {
         Image: "localstack/localstack-pro:latest",
         Env: ["MAIN_CONTAINER_NAME=localstack-aws"],
       },
+      Mounts: [
+        {
+          Type: "bind",
+          Source: "/home/user/.cache/localstack/volume",
+          Destination: "/var/lib/localstack",
+        },
+      ],
     });
 
     const client = new DockerApiClient();
@@ -332,6 +339,14 @@ describe("DockerApiClient", () => {
       name: "localstack-aws",
       image: "localstack/localstack-pro:latest",
       env: ["MAIN_CONTAINER_NAME=localstack-aws"],
+      mounts: [
+        {
+          type: "bind",
+          name: undefined,
+          source: "/home/user/.cache/localstack/volume",
+          destination: "/var/lib/localstack",
+        },
+      ],
     });
   });
 
@@ -395,5 +410,113 @@ describe("DockerApiClient", () => {
     const res = await execPromise;
     expect(res.exitCode).toBe(2);
     expect(res.stderr).toContain("something went wrong");
+  });
+});
+
+describe("decodeDockerLogBuffer", () => {
+  const frame = (streamType: number, text: string) => {
+    const payload = Buffer.from(text, "utf8");
+    const header = Buffer.alloc(8);
+    header[0] = streamType;
+    header.writeUInt32BE(payload.length, 4);
+    return Buffer.concat([header, payload]);
+  };
+
+  test("preserves chronological interleaving of stdout and stderr frames", () => {
+    const { decodeDockerLogBuffer } = jest.requireActual("./docker.client");
+    const multiplexed = Buffer.concat([
+      frame(1, "line one (stdout)\n"),
+      frame(2, "line two (stderr)\n"),
+      frame(1, "line three (stdout)\n"),
+    ]);
+    expect(decodeDockerLogBuffer(multiplexed)).toBe(
+      "line one (stdout)\nline two (stderr)\nline three (stdout)\n"
+    );
+  });
+
+  test("passes through raw (TTY) output without multiplex headers", () => {
+    const { decodeDockerLogBuffer } = jest.requireActual("./docker.client");
+    expect(decodeDockerLogBuffer(Buffer.from("plain text log\n", "utf8"))).toBe("plain text log\n");
+  });
+
+  test("handles empty buffers", () => {
+    const { decodeDockerLogBuffer } = jest.requireActual("./docker.client");
+    expect(decodeDockerLogBuffer(Buffer.alloc(0))).toBe("");
+  });
+
+  test("does not mis-frame raw output that merely starts with a low control byte", () => {
+    // "\x01…" with non-zero following bytes is NOT a Docker header (bytes 1-3 must be 0),
+    // so it must pass through raw rather than have its first 8 bytes eaten.
+    const { decodeDockerLogBuffer } = jest.requireActual("./docker.client");
+    const raw = Buffer.from("\x01 starting service on port 4566\n", "utf8");
+    expect(decodeDockerLogBuffer(raw)).toBe("\x01 starting service on port 4566\n");
+  });
+
+  test("does not throw or hang on a truncated final frame or an oversized size field", () => {
+    const { decodeDockerLogBuffer } = jest.requireActual("./docker.client");
+    const truncated = Buffer.concat([
+      frame(1, "complete\n"),
+      frame(1, "truncated").subarray(0, 12),
+    ]);
+    expect(decodeDockerLogBuffer(truncated)).toContain("complete\n");
+    const oversized = Buffer.alloc(8);
+    oversized[0] = 1;
+    oversized.writeUInt32BE(0xffffffff, 4); // claims 4GB payload, buffer has none
+    expect(() => decodeDockerLogBuffer(oversized)).not.toThrow();
+  });
+});
+
+describe("describeDockerConnectivityError", () => {
+  test("maps socket errors to an actionable daemon-unreachable message", () => {
+    const { describeDockerConnectivityError } = jest.requireActual("./docker.client");
+    const err = Object.assign(new Error("connect ENOENT /var/run/docker.sock"), {
+      code: "ENOENT",
+    });
+    expect(describeDockerConnectivityError(err)).toMatch(/Docker daemon is not reachable/);
+    expect(describeDockerConnectivityError(err)).toMatch(/DOCKER_HOST/);
+  });
+
+  test("passes through unrelated errors", () => {
+    const { describeDockerConnectivityError } = jest.requireActual("./docker.client");
+    expect(describeDockerConnectivityError(new Error("kaboom"))).toBe("kaboom");
+  });
+
+  test("does not mislabel daemon API errors that merely mention a socket path", () => {
+    // e.g. a bad DOCKER_SOCK mount source at container creation — the daemon is fine.
+    const { describeDockerConnectivityError } = jest.requireActual("./docker.client");
+    const message =
+      "error while creating mount source path '/bad/docker.sock': mkdir /bad: read-only file system";
+    expect(describeDockerConnectivityError(new Error(message))).toBe(message);
+  });
+});
+
+describe("pullImage", () => {
+  const { PassThrough } = require("stream");
+
+  function clientWithPullStream() {
+    const stream = new PassThrough();
+    const client = new DockerApiClient();
+    (client as any).docker = {
+      pull: (_img: string, cb: (err: unknown, s: unknown) => void) => cb(null, stream),
+    };
+    return { client, stream };
+  }
+
+  test("rejects on an error event that arrives without a trailing newline", async () => {
+    const { client, stream } = clientWithPullStream();
+    const pending = client.pullImage("localstack/localstack-pro:latest");
+    // no "\n" after the JSON — it stays in the pending buffer until 'end'
+    stream.write('{"error":"unauthorized: authentication required"}');
+    stream.end();
+    await expect(pending).rejects.toThrow(/unauthorized/);
+  });
+
+  test("resolves on a clean progress stream", async () => {
+    const { client, stream } = clientWithPullStream();
+    const pending = client.pullImage("localstack/localstack-pro:latest");
+    stream.write('{"status":"Pulling from localstack/localstack-pro"}\n');
+    stream.write('{"status":"Download complete"}\n');
+    stream.end();
+    await expect(pending).resolves.toBeUndefined();
   });
 });

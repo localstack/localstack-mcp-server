@@ -8,40 +8,34 @@ RUN yarn install --frozen-lockfile
 COPY . .
 RUN yarn build
 
-FROM python:3.12-slim-bookworm AS runtime
+FROM node:22-bookworm-slim AS runtime
 ENV DEBIAN_FRONTEND=noninteractive \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/venv/bin:${PATH}"
 
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates curl gnupg unzip git; \
+    apt-get install -y --no-install-recommends ca-certificates curl gnupg unzip git \
+      python3 python3-pip python3-venv; \
     install -m 0755 -d /usr/share/keyrings; \
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -; \
     curl -fsSL https://apt.releases.hashicorp.com/gpg \
       | gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg; \
     chmod a+r /usr/share/keyrings/hashicorp-archive-keyring.gpg; \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com bookworm main" \
       > /etc/apt/sources.list.d/hashicorp.list; \
-    curl -fsSL https://download.docker.com/linux/debian/gpg \
-      | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg; \
-    chmod a+r /usr/share/keyrings/docker-archive-keyring.gpg; \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian bookworm stable" \
-      > /etc/apt/sources.list.d/docker.list; \
     apt-get update; \
-    apt-get install -y --no-install-recommends nodejs terraform docker-ce-cli; \
+    apt-get install -y --no-install-recommends terraform; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir --upgrade pip \
+RUN python3 -m venv /opt/venv \
+ && pip install --no-cache-dir --upgrade pip \
  && pip install --no-cache-dir --no-compile \
-      localstack \
-      awscli \
-      awscli-local \
       terraform-local \
       aws-sam-cli \
       aws-sam-cli-local \
       snowflake-cli \
- && find /usr/local/lib/python3.12/site-packages \
+ && find /opt/venv/lib \
       \( -type d \( -name __pycache__ -o -name tests -o -name test \) -o -type f \( -name '*.pyc' -o -name '*.pyo' \) \) \
       -prune -exec rm -rf '{}' +
 
@@ -50,7 +44,10 @@ RUN npm install -g aws-cdk@2.1114.0 aws-cdk-local \
 
 RUN node <<'NODE'
 const fs = require("fs");
-const file = "/usr/lib/node_modules/aws-cdk/lib/index.js";
+const path = require("path");
+const { execSync } = require("child_process");
+const globalRoot = execSync("npm root -g").toString().trim();
+const file = path.join(globalRoot, "aws-cdk/lib/index.js");
 const source = fs.readFileSync(file, "utf8");
 const target = `      s3() {\n        const client = new import_client_s33.S3Client(this.config);`;
 const replacement = `      s3() {\n        if (/^(1|true|yes)$/i.test(process.env.AWS_S3_FORCE_PATH_STYLE || "")) {\n          this.config.forcePathStyle = true;\n        }\n        const client = new import_client_s33.S3Client(this.config);`;
@@ -64,7 +61,7 @@ if (!source.includes(replacement)) {
 NODE
 
 WORKDIR /app
-RUN mkdir -p /usr/lib/localstack /tmp/dockerode-deps \
+RUN mkdir -p /tmp/dockerode-deps \
  && npm install --prefix /tmp/dockerode-deps --omit=dev --ignore-scripts --no-audit --no-fund dockerode@4.0.7 \
  && mkdir -p /app/node_modules \
  && cp -R /tmp/dockerode-deps/node_modules/. /app/node_modules/ \
@@ -74,20 +71,16 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./package.json
 
 RUN set -eux; \
-    localstack --version; \
-    aws --version; \
-    awslocal --version; \
     terraform version; \
     tflocal --version; \
     sam --version; \
     command -v samlocal; \
     cdklocal --version; \
     snow --version; \
-    docker --version; \
     node -e "require('dockerode'); console.log('dockerode ok')"
 
 LABEL org.opencontainers.image.title="LocalStack MCP Server" \
-      org.opencontainers.image.description="Self-contained MCP server for managing LocalStack (CLI, CDK, Terraform, SAM, awslocal baked in)" \
+      org.opencontainers.image.description="Self-contained MCP server for managing LocalStack" \
       org.opencontainers.image.source="https://github.com/localstack/localstack-mcp-server" \
       org.opencontainers.image.licenses="Apache-2.0"
 

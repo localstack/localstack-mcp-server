@@ -13,7 +13,7 @@ init options:
                           Valid: ${ALL_CLIENT_IDS.join(", ")}
   --token <token>         LocalStack Auth Token (default: $LOCALSTACK_AUTH_TOKEN)
   --config <pairs>        Extra LocalStack config vars, e.g. "DEBUG=1,PERSISTENCE=1"
-  --cache-dir <path>      [docker] State/cache dir mounted into the container
+  --cache-dir <path>      [docker] Deprecated and ignored (state lives in a named Docker volume)
                           (default: ~/.localstack-mcp)
   --workspace <path>      [docker] Workspace dir to mount for IaC deployments
                           (default: current directory; pass "" to skip)
