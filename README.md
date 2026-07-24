@@ -224,7 +224,7 @@ See **[docs/DOCKER.md](./docs/DOCKER.md)** for the run command, MCP client confi
 
 ### Migration notes (CLI-free lifecycle)
 
-Since v0.6.0 the MCP server no longer uses (or requires) the `localstack` CLI. he LocalStack container is created directly through the Docker Engine API. Behavioral differences from CLI-driven starts:
+Since v0.6.0 the MCP server no longer uses (or requires) the `localstack` CLI. The LocalStack container is created directly through the Docker Engine API. Behavioral differences from CLI-driven starts:
 
 - `~/.localstack/*.env` config profiles and `DOCKER_FLAGS` are **not** read at start. Pass configuration through the `envVars` argument of the `localstack-management` start action, or set `LOCALSTACK_`-prefixed variables in the MCP server's environment (LocalStack aliases `LOCALSTACK_<NAME>` to `<NAME>` natively).
 - Besides `LOCALSTACK_*`/`PROVIDER_OVERRIDE_*`, only a curated set of common unprefixed config variables is forwarded from the host environment (`DEBUG`, `LS_LOG`, `SERVICES`, `PERSISTENCE`, `EAGER_SERVICE_LOADING`, `ENFORCE_IAM`, `IAM_SOFT_MODE`, `EXTENSION_AUTO_INSTALL`, `APP_INSPECTOR`, `DNS_ADDRESS`, `MAIN_DOCKER_NETWORK`, and the `LAMBDA_*`/`CFN_*`/`SNOWFLAKE_*`/`SF_*` families).
