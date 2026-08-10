@@ -77,6 +77,7 @@ RUN set -eux; \
     command -v samlocal; \
     cdklocal --version; \
     snow --version; \
+    node dist/cli.js version; \
     node -e "require('dockerode'); console.log('dockerode ok')"
 
 LABEL org.opencontainers.image.title="LocalStack MCP Server" \
@@ -84,4 +85,4 @@ LABEL org.opencontainers.image.title="LocalStack MCP Server" \
       org.opencontainers.image.source="https://github.com/localstack/localstack-mcp-server" \
       org.opencontainers.image.licenses="Apache-2.0"
 
-ENTRYPOINT ["node", "dist/stdio.js"]
+ENTRYPOINT ["node", "dist/cli.js"]

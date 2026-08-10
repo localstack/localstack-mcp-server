@@ -6,6 +6,8 @@
 import * as fs from "fs";
 import * as path from "path";
 
+import { exitWhenClientDisconnects } from "./lifecycle";
+
 function getVersion(): string {
   try {
     const packageJson = JSON.parse(
@@ -55,6 +57,7 @@ async function main(): Promise<void> {
           `Unknown command "${command}" — starting the MCP server. Did you mean "init"? See --help for setup commands.`
         );
       }
+      exitWhenClientDisconnects();
       require("./stdio.js");
   }
 }
