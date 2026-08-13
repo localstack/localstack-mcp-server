@@ -1,5 +1,6 @@
 import { expect, test } from "@gleanwork/mcp-server-tester/fixtures/mcp";
 import { execFileSync, spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -139,5 +140,30 @@ test("wizard: no-arg dist/cli.js still serves MCP over stdio", async () => {
     expect(response.result.capabilities).toBeDefined();
   } finally {
     child.kill();
+  }
+});
+
+test("dist/cli.js exits when the client closes stdin", async () => {
+  const child = spawn("node", ["-e", 'setInterval(() => {}, 1000); require("./dist/cli.js")'], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  try {
+    const exited = once(child, "exit");
+    child.stdin.end();
+
+    const [code, signal] = await Promise.race([
+      exited,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("server did not exit after stdin closed")), 5000)
+      ),
+    ]);
+
+    expect(code).toBe(0);
+    expect(signal).toBeNull();
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+    }
   }
 });

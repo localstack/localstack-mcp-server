@@ -3,7 +3,7 @@ import { defineConfig } from "@playwright/test";
 const mcpCommand = process.env.MCP_TEST_COMMAND || "node";
 const mcpArgs = process.env.MCP_TEST_ARGS
   ? process.env.MCP_TEST_ARGS.split(" ").filter(Boolean)
-  : ["dist/stdio.js"];
+  : ["dist/cli.js"];
 
 export default defineConfig({
   testDir: "./tests/mcp",

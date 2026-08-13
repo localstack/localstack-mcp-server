@@ -128,13 +128,14 @@ alias covers bootstrap asset uploads.
 
 ## Troubleshooting
 
-| Symptom                                                                                                     | Cause / fix                                                                                                                                    |
-| ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Tools report `LocalStack Not Running` after `start`                                                         | Check `LOCALSTACK_HOSTNAME=host.docker.internal` is set and `--add-host` is present (Linux).                                                   |
-| `Auth Token Required`                                                                                       | `LOCALSTACK_AUTH_TOKEN` must be passed through (every tool requires it).                                                                       |
-| `Docker Not Available` / daemon unreachable                                                                 | Ensure `/var/run/docker.sock` is mounted (or pass `DOCKER_HOST` for a non-default daemon).                                                     |
-| `LocalStack container not found` or `Could not find a running LocalStack container named "localstack-main"` | Set `MAIN_CONTAINER_NAME` if you use a custom LocalStack container name.                                                                       |
-| State disappeared after upgrading the image                                                                 | Old configs stored state under `$XDG_CACHE_HOME/localstack/volume` — keep that env var, or point `LOCALSTACK_VOLUME_DIR` at the old directory. |
+| Symptom                                                                                                     | Cause / fix                                                                                                                                                                                      |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Tools report `LocalStack Not Running` after `start`                                                         | Check `LOCALSTACK_HOSTNAME=host.docker.internal` is set and `--add-host` is present (Linux).                                                                                                     |
+| `Auth Token Required`                                                                                       | `LOCALSTACK_AUTH_TOKEN` must be passed through (every tool requires it).                                                                                                                         |
+| `Docker Not Available` / daemon unreachable                                                                 | Ensure `/var/run/docker.sock` is mounted (or pass `DOCKER_HOST` for a non-default daemon).                                                                                                       |
+| `LocalStack container not found` or `Could not find a running LocalStack container named "localstack-main"` | Set `MAIN_CONTAINER_NAME` if you use a custom LocalStack container name.                                                                                                                         |
+| State disappeared after upgrading the image                                                                 | Old configs stored state under `$XDG_CACHE_HOME/localstack/volume` — keep that env var, or point `LOCALSTACK_VOLUME_DIR` at the old directory.                                                   |
+| MCP server containers pile up over time                                                                     | Older images did not exit when the client disconnected. Pull the latest image, then remove strays with `docker ps -aq --filter ancestor=localstack/localstack-mcp-server \| xargs docker rm -f`. |
 
 ## Validating an image yourself
 

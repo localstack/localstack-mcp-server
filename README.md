@@ -156,7 +156,7 @@ If you installed from source, change `command` and `args` to point to your local
   "mcpServers": {
     "localstack": {
       "command": "node",
-      "args": ["/path/to/your/localstack-mcp-server/dist/stdio.js"],
+      "args": ["/path/to/your/localstack-mcp-server/dist/cli.js"],
       "env": {
         "LOCALSTACK_AUTH_TOKEN": "<YOUR_TOKEN>"
       }
@@ -269,7 +269,7 @@ This repository includes [MCP Server Tester](https://github.com/gleanwork/mcp-se
 
 Notes:
 
-- MCP tests target the local STDIO server command `node dist/stdio.js` by default.
+- MCP tests target the lifecycle-aware local server command `node dist/cli.js` by default.
 - `LOCALSTACK_AUTH_TOKEN` is required for all MCP tool usage and test suites.
 - You can override the target command with:
   - `MCP_TEST_COMMAND`

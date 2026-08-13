@@ -10,7 +10,7 @@
     "build": "xmcp build && yarn build:cli",
     "build:cli": "esbuild src/cli/index.ts --bundle --platform=node --format=cjs --target=node22 --tsconfig=tsconfig.cli.json --alias:jsonc-parser=jsonc-parser/lib/esm/main.js --outfile=dist/cli.js --external:./stdio.js \"--banner:js=#!/usr/bin/env node\" --log-level=warning",
     "dev": "xmcp dev",
-    "start": "node dist/stdio.js",
+    "start": "node dist/cli.js",
     "prepack": "yarn build",
     "format": "prettier --write .",
     "test": "jest",
@@ -46,7 +46,7 @@
     "@hono/node-server": "^2.0.5",
     "ip-address": "^10.1.1"
   },
-  "main": "./dist/stdio.js",
+  "main": "./dist/cli.js",
   "files": [
     "dist"
   ],
