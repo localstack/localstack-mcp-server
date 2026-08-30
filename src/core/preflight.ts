@@ -52,18 +52,24 @@ export const runPreflights = async (
   return results.find((r) => r !== null) || null;
 };
 
-export const requireLocalStackRunning = async (): Promise<ToolResponse | null> => {
+export const requireLocalStackRunning = async (
+  targetEndpoint = LOCALSTACK_BASE_URL
+): Promise<ToolResponse | null> => {
   /**
    * Probe the gateway directly instead of looking for a
    * specific container, so an externally managed runtime that is healthy and
    * reachable is not falsely reported as "not running".
    */
-  const health = await getGatewayHealth();
+  const health = await getGatewayHealth(targetEndpoint);
   if (!health.reachable) {
+    const guidance =
+      targetEndpoint === LOCALSTACK_BASE_URL
+        ? "Start it with the localstack-management tool (action: start) and try again. " +
+          "If it is running on a non-default host or port, set LOCALSTACK_HOSTNAME / LOCALSTACK_PORT for the MCP server."
+        : "Verify that the configured deployment endpoint is running and reachable.";
     return ResponseBuilder.error(
       "LocalStack Not Running",
-      `LocalStack is not reachable at ${LOCALSTACK_BASE_URL}. Start it with the localstack-management tool (action: start) and try again. ` +
-        `If it is running on a non-default host or port, set LOCALSTACK_HOSTNAME / LOCALSTACK_PORT for the MCP server.`
+      `LocalStack is not reachable at ${targetEndpoint}. ${guidance}`
     );
   }
   return null;
