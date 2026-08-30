@@ -140,20 +140,24 @@ const READY_SERVICE_STATES = new Set(["available", "running"]);
 /**
  * Provenance-agnostic LocalStack detection.
  *
- * Probes the LocalStack gateway health endpoint (`/_localstack/health`) directly over
- * HTTP. Any container exposing the gateway on :4566 answers this — regardless of who
- * started it (this server, `lstk`, docker-compose, raw `docker run`) or what the
- * container is named.
+ * Probes the LocalStack gateway health endpoint (`/_localstack/health`) directly.
+ * The local gateway is used by default; callers can provide a remote HTTPS base URL.
+ * Any container exposing the gateway on :4566 answers this — regardless of who started
+ * it (this server, `lstk`, docker-compose, raw `docker run`) or what the container is named.
  *
  * This is the source of truth for "is LocalStack running?".
  */
-export async function getGatewayHealth(): Promise<GatewayHealth> {
+export async function getGatewayHealth(baseUrl = LOCALSTACK_BASE_URL): Promise<GatewayHealth> {
   try {
     const data = await httpClient.request<{
       services?: Record<string, string>;
       edition?: string;
       version?: string;
-    }>("/_localstack/health", { method: "GET", timeout: GATEWAY_HEALTH_TIMEOUT });
+    }>("/_localstack/health", {
+      method: "GET",
+      timeout: GATEWAY_HEALTH_TIMEOUT,
+      baseUrl,
+    });
 
     if (!data || typeof data !== "object" || Array.isArray(data)) {
       return { reachable: false, ready: false };
