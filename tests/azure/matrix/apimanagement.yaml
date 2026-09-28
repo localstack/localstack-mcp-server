@@ -1,0 +1,728 @@
+# Microsoft.ApiManagement: services (created in about a second, no backing container), APIs,
+# operations, policies, releases, version sets, schemas, products, groups, users, subscriptions,
+# named values, loggers, diagnostics, backends, caches, certificates, gateways, workspaces, tenant
+# access, identity and OpenID providers, GraphQL resolvers, tags. The CLI covers the main groups;
+# the rest go through rest, as the benchmark's T-APIM oracles do (tapim.py, api-version
+# 2024-05-01). A deleted service is soft-deleted, so every case deletes and purges its service.
+provider: Microsoft.ApiManagement
+cases:
+  - id: apim-service
+    operations:
+      [
+        Microsoft.ApiManagement ApiManagementService CreateOrUpdate,
+        Microsoft.ApiManagement ApiManagementService Get,
+        Microsoft.ApiManagement ApiManagementService ListByResourceGroup,
+        Microsoft.ApiManagement ApiManagementService List,
+        Microsoft.ApiManagement ApiManagementService Update,
+        Microsoft.ApiManagement ApiManagementService CheckNameAvailability,
+      ]
+    pr: true
+    note: Samples apim create/show.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        apim create --name {name:apim} --resource-group {rg} --location {location}
+        --publisher-email l2@example.com --publisher-name L2 --sku-name Developer
+      - run: apim show --name {name:apim} --resource-group {rg} --query provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+      - apim list --resource-group {rg}
+      - apim list --query "[?name=='{name:apim}'].name"
+      - apim update --name {name:apim} --resource-group {rg} --tags matrix=l2
+    command: apim check-name --name {name:apim}
+    expect:
+      json: { path: nameAvailable, equals: false }
+    cleanup:
+      - apim delete --name {name:apim} --resource-group {rg} --yes
+      - apim deletedservice purge --service-name {name:apim} --location {location}
+      - group delete --name {rg} --yes --no-wait
+
+  - id: apim-deleted-service
+    operations:
+      [
+        Microsoft.ApiManagement ApiManagementService Delete,
+        Microsoft.ApiManagement DeletedServices ListBySubscription,
+        Microsoft.ApiManagement DeletedServices GetByName,
+        Microsoft.ApiManagement DeletedServices Purge,
+      ]
+    note: Samples apim deletedservice show/purge.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        apim create --name {name:apim} --resource-group {rg} --location {location}
+        --publisher-email l2@example.com --publisher-name L2 --sku-name Developer
+      - apim delete --name {name:apim} --resource-group {rg} --yes
+      - run: apim deletedservice list --query "[?name=='{name:apim}'].name"
+        until: { json: { path: "", equals: ["{name:apim}"] } }
+      - apim deletedservice show --service-name {name:apim} --location {location}
+    command: apim deletedservice purge --service-name {name:apim} --location {location}
+    expect:
+      exitCode: 0
+    cleanup:
+      - apim deletedservice purge --service-name {name:apim} --location {location}
+      - group delete --name {rg} --yes --no-wait
+
+  - id: apim-api
+    operations:
+      [
+        Microsoft.ApiManagement Api CreateOrUpdate,
+        Microsoft.ApiManagement Api Get,
+        Microsoft.ApiManagement Api ListByService,
+        Microsoft.ApiManagement Api Update,
+        Microsoft.ApiManagement Api GetEntityTag,
+        Microsoft.ApiManagement Api ListByTags,
+        Microsoft.ApiManagement Api Delete,
+      ]
+    pr: true
+    note: The benchmark's oracle (tapim.py apim-api-create); samples apim api show.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        apim create --name {name:apim} --resource-group {rg} --location {location}
+        --publisher-email l2@example.com --publisher-name L2 --sku-name Developer
+      - >-
+        apim api create --service-name {name:apim} --resource-group {rg} --api-id orders --path orders
+        --display-name "Orders API" --protocols https
+      - run: apim api show --service-name {name:apim} --resource-group {rg} --api-id orders --query path -o tsv
+        until: { stdout: { equals: orders } }
+      - apim api list --service-name {name:apim} --resource-group {rg}
+      - apim api update --service-name {name:apim} --resource-group {rg} --api-id orders --description "l2 matrix"
+      - >-
+        rest --method head
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/apis/orders?api-version=2024-05-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/apisByTags?api-version=2024-05-01
+    command: apim api delete --service-name {name:apim} --resource-group {rg} --api-id orders --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - apim delete --name {name:apim} --resource-group {rg} --yes
+      - apim deletedservice purge --service-name {name:apim} --location {location}
+      - group delete --name {rg} --yes --no-wait
+
+  - id: apim-api-operations-policies
+    operations:
+      [
+        Microsoft.ApiManagement ApiOperation CreateOrUpdate,
+        Microsoft.ApiManagement ApiOperation Get,
+        Microsoft.ApiManagement ApiOperation ListByApi,
+        Microsoft.ApiManagement ApiOperation Update,
+        Microsoft.ApiManagement ApiOperationPolicy CreateOrUpdate,
+        Microsoft.ApiManagement ApiOperationPolicy Get,
+        Microsoft.ApiManagement ApiOperationPolicy ListByOperation,
+        Microsoft.ApiManagement ApiPolicy CreateOrUpdate,
+        Microsoft.ApiManagement ApiPolicy Get,
+        Microsoft.ApiManagement ApiPolicy ListByApi,
+        Microsoft.ApiManagement ApiOperation Delete,
+      ]
+    note: >-
+      The benchmark's oracles (tapim.py apim-operation-delete, apim-operation-policy); samples apim api
+      operation. The XML policy travels JSON-escaped (<, >), as tapim.py sends it.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        apim create --name {name:apim} --resource-group {rg} --location {location}
+        --publisher-email l2@example.com --publisher-name L2 --sku-name Developer
+      - apim api create --service-name {name:apim} --resource-group {rg} --api-id orders --path orders --display-name Orders
+      - >-
+        apim api operation create --service-name {name:apim} --resource-group {rg} --api-id orders
+        --operation-id list-orders --display-name "List orders" --method GET --url-template /orders
+      - apim api operation show --service-name {name:apim} --resource-group {rg} --api-id orders --operation-id list-orders
+      - apim api operation list --service-name {name:apim} --resource-group {rg} --api-id orders
+      - >-
+        apim api operation update --service-name {name:apim} --resource-group {rg} --api-id orders
+        --operation-id list-orders --description "l2 matrix"
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/apis/orders/operations/list-orders/policies/policy?api-version=2024-05-01
+        --body '{"properties": {"format": "rawxml", "value": "<policies><inbound><base /></inbound><backend><base /></backend><outbound><base /></outbound><on-error><base /></on-error></policies>"}}'
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/apis/orders/operations/list-orders/policies/policy?api-version=2024-05-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/apis/orders/operations/list-orders/policies?api-version=2024-05-01
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/apis/orders/policies/policy?api-version=2024-05-01
+        --body '{"properties": {"format": "rawxml", "value": "<policies><inbound><base /></inbound><backend><base /></backend><outbound><base /></outbound><on-error><base /></on-error></policies>"}}'
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/apis/orders/policies/policy?api-version=2024-05-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/apis/orders/policies?api-version=2024-05-01
+    command: >-
+      apim api operation delete --service-name {name:apim} --resource-group {rg} --api-id orders
+      --operation-id list-orders
+    expect:
+      exitCode: 0
+    cleanup:
+      - apim delete --name {name:apim} --resource-group {rg} --yes
+      - apim deletedservice purge --service-name {name:apim} --location {location}
+      - group delete --name {rg} --yes --no-wait
+
+  - id: apim-api-releases-versions-schemas
+    operations:
+      [
+        Microsoft.ApiManagement ApiRelease CreateOrUpdate,
+        Microsoft.ApiManagement ApiRelease Get,
+        Microsoft.ApiManagement ApiRelease ListByService,
+        Microsoft.ApiManagement ApiRelease Update,
+        Microsoft.ApiManagement ApiRelease Delete,
+        Microsoft.ApiManagement ApiRevision ListByService,
+        Microsoft.ApiManagement ApiVersionSet CreateOrUpdate,
+        Microsoft.ApiManagement ApiVersionSet Get,
+        Microsoft.ApiManagement ApiVersionSet ListByService,
+        Microsoft.ApiManagement ApiVersionSet Update,
+        Microsoft.ApiManagement ApiVersionSet Delete,
+        Microsoft.ApiManagement ApiSchema CreateOrUpdate,
+        Microsoft.ApiManagement ApiSchema Get,
+        Microsoft.ApiManagement ApiSchema ListByApi,
+        Microsoft.ApiManagement ApiSchema Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        apim create --name {name:apim} --resource-group {rg} --location {location}
+        --publisher-email l2@example.com --publisher-name L2 --sku-name Developer
+      - apim api create --service-name {name:apim} --resource-group {rg} --api-id orders --path orders --display-name Orders
+      - >-
+        apim api release create --service-name {name:apim} --resource-group {rg} --api-id orders
+        --api-revision 1 --release-id r1 --notes l2
+      - apim api release show --service-name {name:apim} --resource-group {rg} --api-id orders --release-id r1
+      - apim api release list --service-name {name:apim} --resource-group {rg} --api-id orders
+      - apim api release update --service-name {name:apim} --resource-group {rg} --api-id orders --release-id r1 --notes l2b
+      - apim api release delete --service-name {name:apim} --resource-group {rg} --api-id orders --release-id r1
+      - apim api revision list --service-name {name:apim} --resource-group {rg} --api-id orders
+      - >-
+        apim api versionset create --service-name {name:apim} --resource-group {rg} --version-set-id orders-vs
+        --display-name "Orders versions" --versioning-scheme Segment
+      - apim api versionset show --service-name {name:apim} --resource-group {rg} --version-set-id orders-vs
+      - apim api versionset list --service-name {name:apim} --resource-group {rg}
+      - apim api versionset update --service-name {name:apim} --resource-group {rg} --version-set-id orders-vs --description l2
+      - apim api versionset delete --service-name {name:apim} --resource-group {rg} --version-set-id orders-vs
+      - >-
+        apim api schema create --service-name {name:apim} --resource-group {rg} --api-id orders --schema-id s1
+        --schema-type application/json --schema-content '{"type": "object"}'
+      - apim api schema show --service-name {name:apim} --resource-group {rg} --api-id orders --schema-id s1
+      - apim api schema list --service-name {name:apim} --resource-group {rg} --api-id orders
+    command: apim api schema delete --service-name {name:apim} --resource-group {rg} --api-id orders --schema-id s1 --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - apim delete --name {name:apim} --resource-group {rg} --yes
+      - apim deletedservice purge --service-name {name:apim} --location {location}
+      - group delete --name {rg} --yes --no-wait
+
+  - id: apim-products
+    operations:
+      [
+        Microsoft.ApiManagement Product CreateOrUpdate,
+        Microsoft.ApiManagement Product Get,
+        Microsoft.ApiManagement Product ListByService,
+        Microsoft.ApiManagement Product Update,
+        Microsoft.ApiManagement ProductApi CreateOrUpdate,
+        Microsoft.ApiManagement ProductApi ListByProduct,
+        Microsoft.ApiManagement ProductApi CheckEntityExists,
+        Microsoft.ApiManagement ProductApi Delete,
+        Microsoft.ApiManagement ApiProduct ListByApis,
+        Microsoft.ApiManagement Product Delete,
+      ]
+    note: Samples apim product create/show, apim product api add.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        apim create --name {name:apim} --resource-group {rg} --location {location}
+        --publisher-email l2@example.com --publisher-name L2 --sku-name Developer
+      - apim api create --service-name {name:apim} --resource-group {rg} --api-id orders --path orders --display-name Orders
+      - >-
+        apim product create --service-name {name:apim} --resource-group {rg} --product-id starter
+        --product-name Starter --description l2 --subscription-required true --state published
+      - apim product show --service-name {name:apim} --resource-group {rg} --product-id starter
+      - apim product list --service-name {name:apim} --resource-group {rg}
+      - apim product update --service-name {name:apim} --resource-group {rg} --product-id starter --description l2b
+      - apim product api add --service-name {name:apim} --resource-group {rg} --product-id starter --api-id orders
+      - apim product api list --service-name {name:apim} --resource-group {rg} --product-id starter
+      - apim product api check --service-name {name:apim} --resource-group {rg} --product-id starter --api-id orders
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/apis/orders/products?api-version=2024-05-01
+      - apim product api delete --service-name {name:apim} --resource-group {rg} --product-id starter --api-id orders
+    command: apim product delete --service-name {name:apim} --resource-group {rg} --product-id starter --delete-subscriptions true --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - apim delete --name {name:apim} --resource-group {rg} --yes
+      - apim deletedservice purge --service-name {name:apim} --location {location}
+      - group delete --name {rg} --yes --no-wait
+
+  - id: apim-named-values
+    operations:
+      [
+        Microsoft.ApiManagement NamedValue CreateOrUpdate,
+        Microsoft.ApiManagement NamedValue Get,
+        Microsoft.ApiManagement NamedValue ListByService,
+        Microsoft.ApiManagement NamedValue ListValue,
+        Microsoft.ApiManagement NamedValue Update,
+        Microsoft.ApiManagement NamedValue Delete,
+      ]
+    note: Samples apim nv create/show/show-secret.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        apim create --name {name:apim} --resource-group {rg} --location {location}
+        --publisher-email l2@example.com --publisher-name L2 --sku-name Developer
+      - >-
+        apim nv create --service-name {name:apim} --resource-group {rg} --named-value-id backend-key
+        --display-name backend-key --value "l2 secret" --secret true
+      - apim nv show --service-name {name:apim} --resource-group {rg} --named-value-id backend-key
+      - apim nv list --service-name {name:apim} --resource-group {rg}
+      - run: apim nv show-secret --service-name {name:apim} --resource-group {rg} --named-value-id backend-key --query value -o tsv
+        until: { stdout: { equals: "l2 secret" } }
+      - apim nv update --service-name {name:apim} --resource-group {rg} --named-value-id backend-key --value "l2 secret 2"
+    command: apim nv delete --service-name {name:apim} --resource-group {rg} --named-value-id backend-key --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - apim delete --name {name:apim} --resource-group {rg} --yes
+      - apim deletedservice purge --service-name {name:apim} --location {location}
+      - group delete --name {rg} --yes --no-wait
+
+  - id: apim-groups-users-subscriptions
+    operations:
+      [
+        Microsoft.ApiManagement Group CreateOrUpdate,
+        Microsoft.ApiManagement Group Get,
+        Microsoft.ApiManagement Group ListByService,
+        Microsoft.ApiManagement User CreateOrUpdate,
+        Microsoft.ApiManagement User Get,
+        Microsoft.ApiManagement User ListByService,
+        Microsoft.ApiManagement GroupUser Create,
+        Microsoft.ApiManagement GroupUser List,
+        Microsoft.ApiManagement GroupUser CheckEntityExists,
+        Microsoft.ApiManagement Subscription CreateOrUpdate,
+        Microsoft.ApiManagement Subscription Get,
+        Microsoft.ApiManagement Subscription List,
+        Microsoft.ApiManagement Subscription ListSecrets,
+        Microsoft.ApiManagement Subscription RegeneratePrimaryKey,
+        Microsoft.ApiManagement Subscription Delete,
+      ]
+    note: The benchmark's oracle (tapim.py apim-group-user-check).
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        apim create --name {name:apim} --resource-group {rg} --location {location}
+        --publisher-email l2@example.com --publisher-name L2 --sku-name Developer
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/groups/partners?api-version=2024-05-01
+        --body '{"properties": {"displayName": "Partners", "description": "l2"}}'
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/groups/partners?api-version=2024-05-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/groups?api-version=2024-05-01
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/users/alice?api-version=2024-05-01
+        --body '{"properties": {"firstName": "Alice", "lastName": "L2", "email": "alice-{id}@example.com"}}'
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/users/alice?api-version=2024-05-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/users?api-version=2024-05-01
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/groups/partners/users/alice?api-version=2024-05-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/groups/partners/users?api-version=2024-05-01
+      - >-
+        rest --method head
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/groups/partners/users/alice?api-version=2024-05-01
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/subscriptions/alice-sub?api-version=2024-05-01
+        --body '{"properties": {"displayName": "Alice", "scope": "/apis", "ownerId": "/users/alice"}}'
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/subscriptions/alice-sub?api-version=2024-05-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/subscriptions?api-version=2024-05-01
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/subscriptions/alice-sub/listSecrets?api-version=2024-05-01
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/subscriptions/alice-sub/regeneratePrimaryKey?api-version=2024-05-01
+    command: >-
+      rest --method delete
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/subscriptions/alice-sub?api-version=2024-05-01
+      --headers "If-Match=*"
+    expect:
+      exitCode: 0
+    cleanup:
+      - apim delete --name {name:apim} --resource-group {rg} --yes
+      - apim deletedservice purge --service-name {name:apim} --location {location}
+      - group delete --name {rg} --yes --no-wait
+
+  - id: apim-backends-loggers-diagnostics
+    operations:
+      [
+        Microsoft.ApiManagement Backend CreateOrUpdate,
+        Microsoft.ApiManagement Backend Get,
+        Microsoft.ApiManagement Backend ListByService,
+        Microsoft.ApiManagement Logger CreateOrUpdate,
+        Microsoft.ApiManagement Logger Get,
+        Microsoft.ApiManagement Logger ListByService,
+        Microsoft.ApiManagement Diagnostic CreateOrUpdate,
+        Microsoft.ApiManagement Diagnostic Get,
+        Microsoft.ApiManagement Diagnostic ListByService,
+        Microsoft.ApiManagement Cache CreateOrUpdate,
+        Microsoft.ApiManagement Cache Get,
+        Microsoft.ApiManagement Cache ListByService,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        apim create --name {name:apim} --resource-group {rg} --location {location}
+        --publisher-email l2@example.com --publisher-name L2 --sku-name Developer
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/backends/orders-backend?api-version=2024-05-01
+        --body '{"properties": {"url": "https://orders.example.com", "protocol": "http"}}'
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/backends/orders-backend?api-version=2024-05-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/backends?api-version=2024-05-01
+      - run: >-
+          monitor app-insights component create --app {name:ai} --resource-group {rg} --location {location}
+          --kind web --application-type web --query instrumentationKey -o tsv
+        capture: ikey
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/loggers/ai?api-version=2024-05-01
+        --body '{"properties": {"loggerType": "applicationInsights", "credentials": {"instrumentationKey": "{ikey}"}}}'
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/loggers/ai?api-version=2024-05-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/loggers?api-version=2024-05-01
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/diagnostics/applicationinsights?api-version=2024-05-01
+        --body '{"properties": {"loggerId": "/loggers/ai", "alwaysLog": "allErrors"}}'
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/diagnostics/applicationinsights?api-version=2024-05-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/diagnostics?api-version=2024-05-01
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/caches/default?api-version=2024-05-01
+        --body '{"properties": {"connectionString": "redis-{id}.example.com:6380,password=x,ssl=True", "useFromLocation": "default"}}'
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/caches/default?api-version=2024-05-01
+    command: >-
+      rest --method get
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/caches?api-version=2024-05-01
+    expect:
+      exitCode: 0
+    cleanup:
+      - apim delete --name {name:apim} --resource-group {rg} --yes
+      - apim deletedservice purge --service-name {name:apim} --location {location}
+      - group delete --name {rg} --yes --no-wait
+
+  - id: apim-tags
+    operations:
+      [
+        Microsoft.ApiManagement Tag CreateOrUpdate,
+        Microsoft.ApiManagement Tag Get,
+        Microsoft.ApiManagement Tag ListByService,
+        Microsoft.ApiManagement Tag AssignToApi,
+        Microsoft.ApiManagement Tag ListByApi,
+        Microsoft.ApiManagement Tag AssignToProduct,
+        Microsoft.ApiManagement Tag DetachFromProduct,
+        Microsoft.ApiManagement ApiTagDescription ListByService,
+      ]
+    note: The benchmark's oracles (tapim.py apim-tag-assign-api, apim-tag-detach-product, apim-api-tag-descriptions).
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        apim create --name {name:apim} --resource-group {rg} --location {location}
+        --publisher-email l2@example.com --publisher-name L2 --sku-name Developer
+      - apim api create --service-name {name:apim} --resource-group {rg} --api-id orders --path orders --display-name Orders
+      - apim product create --service-name {name:apim} --resource-group {rg} --product-id starter --product-name Starter
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/tags/team-l2?api-version=2024-05-01
+        --body '{"properties": {"displayName": "team-l2"}}'
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/tags/team-l2?api-version=2024-05-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/tags?api-version=2024-05-01
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/apis/orders/tags/team-l2?api-version=2024-05-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/apis/orders/tags?api-version=2024-05-01
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/products/starter/tags/team-l2?api-version=2024-05-01
+      - >-
+        rest --method delete
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/products/starter/tags/team-l2?api-version=2024-05-01
+    command: >-
+      rest --method get
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/apis/orders/tagDescriptions?api-version=2024-05-01
+    expect:
+      exitCode: 0
+    cleanup:
+      - apim delete --name {name:apim} --resource-group {rg} --yes
+      - apim deletedservice purge --service-name {name:apim} --location {location}
+      - group delete --name {rg} --yes --no-wait
+
+  - id: apim-graphql-resolver
+    operations:
+      [
+        Microsoft.ApiManagement GraphqlApiResolver CreateOrUpdate,
+        Microsoft.ApiManagement GraphqlApiResolver Get,
+        Microsoft.ApiManagement GraphqlApiResolver ListByApi,
+        Microsoft.ApiManagement GraphqlApiResolver Delete,
+      ]
+    note: The benchmark's oracle (tapim.py apim-graphql-resolver).
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        apim create --name {name:apim} --resource-group {rg} --location {location}
+        --publisher-email l2@example.com --publisher-name L2 --sku-name Developer
+      - >-
+        apim api create --service-name {name:apim} --resource-group {rg} --api-id catalog --path catalog
+        --display-name Catalog --api-type graphql
+      - >-
+        apim graphql resolver create --service-name {name:apim} --resource-group {rg} --api-id catalog
+        --resolver-id products --display-name products --path Query/products
+      - apim graphql resolver show --service-name {name:apim} --resource-group {rg} --api-id catalog --resolver-id products
+      - apim graphql resolver list --service-name {name:apim} --resource-group {rg} --api-id catalog
+    command: >-
+      apim graphql resolver delete --service-name {name:apim} --resource-group {rg} --api-id catalog
+      --resolver-id products --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - apim delete --name {name:apim} --resource-group {rg} --yes
+      - apim deletedservice purge --service-name {name:apim} --location {location}
+      - group delete --name {rg} --yes --no-wait
+
+  - id: apim-workspaces
+    operations:
+      [
+        Microsoft.ApiManagement Workspace CreateOrUpdate,
+        Microsoft.ApiManagement Workspace Get,
+        Microsoft.ApiManagement Workspace ListByService,
+        Microsoft.ApiManagement WorkspaceProduct CreateOrUpdate,
+        Microsoft.ApiManagement WorkspaceProduct Update,
+        Microsoft.ApiManagement WorkspaceGroup CreateOrUpdate,
+        Microsoft.ApiManagement WorkspaceGroup Update,
+        Microsoft.ApiManagement WorkspaceLogger ListByWorkspace,
+        Microsoft.ApiManagement WorkspaceApi CreateOrUpdate,
+        Microsoft.ApiManagement WorkspaceApi ListByService,
+        Microsoft.ApiManagement Workspace Delete,
+      ]
+    note: >-
+      The benchmark's oracles (tapim.py apim-workspace-product-update, apim-workspace-group-update,
+      apim-workspace-loggers).
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        apim create --name {name:apim} --resource-group {rg} --location {location}
+        --publisher-email l2@example.com --publisher-name L2 --sku-name Premium
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/workspaces/team-a?api-version=2024-05-01
+        --body '{"properties": {"displayName": "Team A"}}'
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/workspaces/team-a?api-version=2024-05-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/workspaces?api-version=2024-05-01
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/workspaces/team-a/products/starter?api-version=2024-05-01
+        --body '{"properties": {"displayName": "Starter"}}'
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/workspaces/team-a/products/starter?api-version=2024-05-01
+        --headers "If-Match=*" --body '{"properties": {"description": "l2 {id}"}}'
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/workspaces/team-a/groups/devs?api-version=2024-05-01
+        --body '{"properties": {"displayName": "Devs"}}'
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/workspaces/team-a/groups/devs?api-version=2024-05-01
+        --headers "If-Match=*" --body '{"properties": {"description": "l2 {id}"}}'
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/workspaces/team-a/loggers?api-version=2024-05-01
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/workspaces/team-a/apis/orders?api-version=2024-05-01
+        --body '{"properties": {"displayName": "Orders", "path": "team-a/orders", "protocols": ["https"]}}'
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/workspaces/team-a/apis?api-version=2024-05-01
+    command: >-
+      rest --method delete
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/workspaces/team-a?api-version=2024-05-01
+      --headers "If-Match=*"
+    expect:
+      exitCode: 0
+    cleanup:
+      - apim delete --name {name:apim} --resource-group {rg} --yes
+      - apim deletedservice purge --service-name {name:apim} --location {location}
+      - group delete --name {rg} --yes --no-wait
+
+  - id: apim-tenant-access-identity
+    operations:
+      [
+        Microsoft.ApiManagement TenantAccess ListByService,
+        Microsoft.ApiManagement TenantAccess Get,
+        Microsoft.ApiManagement TenantAccessGit RegeneratePrimaryKey,
+        Microsoft.ApiManagement OpenIdConnectProvider CreateOrUpdate,
+        Microsoft.ApiManagement OpenIdConnectProvider ListSecrets,
+        Microsoft.ApiManagement OpenIdConnectProvider ListByService,
+        Microsoft.ApiManagement IdentityProvider CreateOrUpdate,
+        Microsoft.ApiManagement IdentityProvider ListByService,
+        Microsoft.ApiManagement ApiManagementService MigrateToStv2,
+      ]
+    note: >-
+      The benchmark's oracles (tapim.py apim-tenant-access, apim-git-regenerate-primary, apim-oidc-secret,
+      apim-migrate-stv2).
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        apim create --name {name:apim} --resource-group {rg} --location {location}
+        --publisher-email l2@example.com --publisher-name L2 --sku-name Developer
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/tenant?api-version=2024-05-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/tenant/access?api-version=2024-05-01
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/tenant/gitAccess/regeneratePrimaryKey?api-version=2024-05-01
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/openidConnectProviders/l2oidc?api-version=2024-05-01
+        --body '{"properties": {"displayName": "L2", "metadataEndpoint": "https://login.example.com/.well-known/openid-configuration",
+        "clientId": "l2-client", "clientSecret": "l2-secret"}}'
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/openidConnectProviders/l2oidc/listSecrets?api-version=2024-05-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/openidConnectProviders?api-version=2024-05-01
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/identityProviders/aad?api-version=2024-05-01
+        --body '{"properties": {"clientId": "l2-client", "clientSecret": "l2-secret", "allowedTenants": ["contoso.onmicrosoft.com"]}}'
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/identityProviders?api-version=2024-05-01
+    command: >-
+      rest --method post
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/migrateToStv2?api-version=2024-05-01
+      --body '{"mode": "PreserveIp"}'
+    expect:
+      exitCode: 0
+    cleanup:
+      - apim delete --name {name:apim} --resource-group {rg} --yes
+      - apim deletedservice purge --service-name {name:apim} --location {location}
+      - group delete --name {rg} --yes --no-wait
+
+  - id: apim-gateways-certificates
+    operations:
+      [
+        Microsoft.ApiManagement Gateway CreateOrUpdate,
+        Microsoft.ApiManagement Gateway Get,
+        Microsoft.ApiManagement Gateway ListByService,
+        Microsoft.ApiManagement Gateway ListKeys,
+        Microsoft.ApiManagement Gateway RegenerateKey,
+        Microsoft.ApiManagement Gateway Delete,
+        Microsoft.ApiManagement Certificate ListByService,
+        Microsoft.ApiManagement PolicyFragment CreateOrUpdate,
+        Microsoft.ApiManagement PolicyFragment Get,
+        Microsoft.ApiManagement PolicyFragment ListByService,
+        Microsoft.ApiManagement PortalSettings ListByService,
+        Microsoft.ApiManagement EmailTemplate ListByService,
+        Microsoft.ApiManagement Notification ListByService,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        apim create --name {name:apim} --resource-group {rg} --location {location}
+        --publisher-email l2@example.com --publisher-name L2 --sku-name Premium
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/gateways/edge1?api-version=2024-05-01
+        --body '{"properties": {"locationData": {"name": "l2-edge"}, "description": "l2"}}'
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/gateways/edge1?api-version=2024-05-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/gateways?api-version=2024-05-01
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/gateways/edge1/listKeys?api-version=2024-05-01
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/gateways/edge1/regenerateKey?api-version=2024-05-01
+        --body '{"keyType": "primary"}'
+      - >-
+        rest --method delete
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/gateways/edge1?api-version=2024-05-01
+        --headers "If-Match=*"
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/certificates?api-version=2024-05-01
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/policyFragments/cors-l2?api-version=2024-05-01
+        --body '{"properties": {"format": "rawxml", "value": "<fragment><set-header name=\"X-L2\" exists-action=\"override\"><value>on</value></set-header></fragment>"}}'
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/policyFragments/cors-l2?api-version=2024-05-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/policyFragments?api-version=2024-05-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/portalsettings?api-version=2024-05-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/templates?api-version=2024-05-01
+    command: >-
+      rest --method get
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name:apim}/notifications?api-version=2024-05-01
+    expect:
+      exitCode: 0
+    cleanup:
+      - apim delete --name {name:apim} --resource-group {rg} --yes
+      - apim deletedservice purge --service-name {name:apim} --location {location}
+      - group delete --name {rg} --yes --no-wait

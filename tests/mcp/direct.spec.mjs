@@ -17,6 +17,7 @@ const EXPECTED_TOOLS = [
   "localstack-snowflake-client",
   "localstack-ephemeral-instances",
   "localstack-aws-client",
+  "localstack-azure-client",
   "localstack-aws-replicator",
   "localstack-docs",
   "localstack-app-inspector",
@@ -39,6 +40,62 @@ test("exposes all expected LocalStack MCP tools", async ({ mcp }) => {
   for (const expectedTool of EXPECTED_TOOLS) {
     expect(toolNames).toContain(expectedTool);
   }
+  expect(toolNames).toHaveLength(EXPECTED_TOOLS.length);
+});
+
+// P2 (plan task 2.10): the Azure tool's entry and the whole catalogue stay in budget.
+// The azure-offline project fills the description with a 200-character workdir.
+test("the tools/list budget: Azure entry <= 3,200 bytes, catalogue < 24,000 bytes", async ({
+  mcp,
+}) => {
+  const tools = await mcp.listTools();
+  const azure = tools.find((tool) => tool.name === "localstack-azure-client");
+  expect(azure).toBeDefined();
+  const entryBytes = Buffer.byteLength(JSON.stringify(azure));
+  const catalogueBytes = Buffer.byteLength(JSON.stringify(tools));
+  console.log(
+    `tools/list: ${tools.length} tools, ${catalogueBytes} bytes; Azure entry ${entryBytes} bytes`
+  );
+  expect(entryBytes).toBeLessThanOrEqual(3200);
+  expect(catalogueBytes).toBeLessThan(24000);
+  // The description reaches the client byte-identical, line breaks included.
+  expect(azure.description.split("\n").length).toBeGreaterThanOrEqual(9);
+  expect(azure.description).toContain("never real Azure");
+  expect(azure.annotations).toMatchObject({
+    title: "LocalStack Azure Client",
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: false,
+  });
+});
+
+test("manifest.json and server.json list the Azure tool and valid variables", () => {
+  const manifest = JSON.parse(readFileSync("manifest.json", "utf8"));
+  const server = JSON.parse(readFileSync("server.json", "utf8"));
+  expect(manifest.tools.map((t) => t.name).sort()).toEqual([...EXPECTED_TOOLS].sort());
+  for (const tool of manifest.tools) expect(tool.description.length).toBeGreaterThan(10);
+  const variables = server.packages[0].environmentVariables;
+  const names = variables.map((v) => v.name);
+  expect(new Set(names).size).toBe(names.length);
+  for (const v of variables) {
+    expect(v).toEqual({
+      description: expect.any(String),
+      isRequired: expect.any(Boolean),
+      format: "string",
+      isSecret: expect.any(Boolean),
+      name: expect.stringMatching(/^[A-Z][A-Z0-9_]*$/),
+    });
+  }
+  for (const name of [
+    "LOCALSTACK_AZURE_PORT",
+    "LOCALSTACK_AZ_CONFIG_DIR",
+    "LOCALSTACK_AZ_WORKDIR",
+    "LOCALSTACK_AZ_BICEP_PATH",
+  ]) {
+    expect(names).toContain(name);
+  }
+  expect(server.description).toContain("Azure");
 });
 
 test("smoke tests the infrastructure tester prompt", async ({ mcp }) => {

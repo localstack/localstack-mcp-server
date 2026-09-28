@@ -1,0 +1,465 @@
+# Microsoft.EventGrid: custom topics, domains and domain topics, system topics, event
+# subscriptions (generic, topic, system topic, namespace topic), namespaces (extension eventgrid),
+# topic types. getFullUrl is only defined for webhook destinations, so the subscription cases use
+# webhooks on the reserved example.com domain (as the benchmark's oracles do); one case keeps the
+# Event Hub destination (tb.py eventgrid-to-eventhub).
+# R.1: of the typed server's three skips, TopicEventSubscriptions List and GetDeliveryAttributes
+# passed live on 2026-09-27 (plain cases); Topics ListEventTypes is still a known gap.
+provider: Microsoft.EventGrid
+cases:
+  - id: eventgrid-topic
+    operations: [Microsoft.EventGrid Topics CreateOrUpdate, Microsoft.EventGrid Topics Get]
+    pr: true
+    note: The benchmark's T-B eventgrid-to-eventhub workflow (tb.py).
+    setup:
+      - group create --name {rg} --location {location}
+      - eventgrid topic create --name {name:egt} --resource-group {rg} --location {location}
+    command: eventgrid topic show --name {name:egt} --resource-group {rg}
+    expect:
+      json:
+        - { path: name, equals: "{name:egt}" }
+        - { path: endpoint, contains: "{name:egt}" }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventgrid-topic-manage
+    operations:
+      [
+        Microsoft.EventGrid Topics ListByResourceGroup,
+        Microsoft.EventGrid Topics ListBySubscription,
+        Microsoft.EventGrid Topics ListSharedAccessKeys,
+        Microsoft.EventGrid Topics RegenerateKey,
+        Microsoft.EventGrid Topics Update,
+        Microsoft.EventGrid Topics Delete,
+      ]
+    note: The benchmark's oracle (ta.py eventgrid-topic-regenerate-key).
+    setup:
+      - group create --name {rg} --location {location}
+      - eventgrid topic create --name {name:egt} --resource-group {rg} --location {location}
+      - run: eventgrid topic list --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: ["{name:egt}"] } }
+      - eventgrid topic list --query "[?name=='{name:egt}'].name"
+      - eventgrid topic key list --name {name:egt} --resource-group {rg}
+      - eventgrid topic key regenerate --name {name:egt} --resource-group {rg} --key-name key1
+      - run: eventgrid topic update --name {name:egt} --resource-group {rg} --tags matrix=l2
+        until: { json: { path: tags.matrix, equals: l2 } }
+    command: eventgrid topic delete --name {name:egt} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventgrid-event-subscription
+    operations:
+      [
+        Microsoft.EventGrid EventSubscriptions CreateOrUpdate,
+        Microsoft.EventGrid EventSubscriptions Get,
+        Microsoft.EventGrid EventSubscriptions ListByResource,
+        Microsoft.EventGrid EventSubscriptions ListGlobalByResourceGroup,
+        Microsoft.EventGrid EventSubscriptions ListGlobalBySubscription,
+        Microsoft.EventGrid EventSubscriptions Update,
+        Microsoft.EventGrid EventSubscriptions GetFullUrl,
+        Microsoft.EventGrid EventSubscriptions Delete,
+      ]
+    note: A generic event subscription on a topic, with a webhook destination.
+    setup:
+      - group create --name {rg} --location {location}
+      - run: eventgrid topic create --name {name:egt} --resource-group {rg} --location {location} --query id -o tsv
+        capture: topic_id
+      - >-
+        eventgrid event-subscription create --name {name:egs} --source-resource-id {topic_id}
+        --endpoint https://example.com/l2/{id}
+      - run: eventgrid event-subscription show --name {name:egs} --source-resource-id {topic_id} --query destination.endpointType -o tsv
+        until: { stdout: { equals: WebHook } }
+      - eventgrid event-subscription list --source-resource-id {topic_id}
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.EventGrid/eventSubscriptions?api-version=2022-06-15
+      - rest --method get --url /subscriptions/{sub}/providers/Microsoft.EventGrid/eventSubscriptions?api-version=2022-06-15
+      - >-
+        eventgrid event-subscription update --name {name:egs} --source-resource-id {topic_id}
+        --labels matrix l2
+      - >-
+        rest --method post
+        --url {topic_id}/providers/Microsoft.EventGrid/eventSubscriptions/{name:egs}/getFullUrl?api-version=2022-06-15
+    command: eventgrid event-subscription delete --name {name:egs} --source-resource-id {topic_id}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventgrid-eventhub-destination
+    operations:
+      [
+        Microsoft.EventGrid EventSubscriptions CreateOrUpdate,
+        Microsoft.EventGrid EventSubscriptions Get,
+      ]
+    note: The benchmark's T-B eventgrid-to-eventhub workflow (tb.py).
+    setup:
+      - group create --name {rg} --location {location}
+      - run: eventgrid topic create --name {name:egt} --resource-group {rg} --location {location} --query id -o tsv
+        capture: topic_id
+      - eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Standard
+      - run: eventhubs eventhub create --name events --namespace-name {name:eh} --resource-group {rg} --query id -o tsv
+        capture: hub_id
+      - >-
+        eventgrid event-subscription create --name {name:egs} --source-resource-id {topic_id}
+        --endpoint-type eventhub --endpoint {hub_id}
+    command: eventgrid event-subscription show --name {name:egs} --source-resource-id {topic_id} --query destination
+    expect:
+      json:
+        - { path: endpointType, equals: EventHub }
+        - { path: resourceId, equals: "{hub_id}" }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventgrid-topic-event-subscription
+    operations:
+      [
+        Microsoft.EventGrid TopicEventSubscriptions CreateOrUpdate,
+        Microsoft.EventGrid TopicEventSubscriptions Get,
+        Microsoft.EventGrid TopicEventSubscriptions Update,
+        Microsoft.EventGrid TopicEventSubscriptions GetFullUrl,
+        Microsoft.EventGrid TopicEventSubscriptions Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - eventgrid topic create --name {name:egt} --resource-group {rg} --location {location}
+      - >-
+        eventgrid topic event-subscription create --topic-name {name:egt} --resource-group {rg}
+        --name {name:egs} --endpoint https://example.com/l2/{id}
+      - run: >-
+          eventgrid topic event-subscription show --topic-name {name:egt} --resource-group {rg}
+          --name {name:egs} --query destination.endpointType -o tsv
+        until: { stdout: { equals: WebHook } }
+      - >-
+        eventgrid topic event-subscription update --topic-name {name:egt} --resource-group {rg}
+        --name {name:egs} --labels matrix l2
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.EventGrid/topics/{name:egt}/eventSubscriptions/{name:egs}/getFullUrl?api-version=2022-06-15
+    command: >-
+      eventgrid topic event-subscription delete --topic-name {name:egt} --resource-group {rg}
+      --name {name:egs} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  # R.1: the typed server skipped List (404 on the collection); it passed live on 2026-09-27, so
+  # the gap is fixed upstream and this is a plain case.
+  - id: eventgrid-topic-event-subscription-list
+    operations: [Microsoft.EventGrid TopicEventSubscriptions List]
+    setup:
+      - group create --name {rg} --location {location}
+      - eventgrid topic create --name {name:egt} --resource-group {rg} --location {location}
+      - >-
+        eventgrid topic event-subscription create --topic-name {name:egt} --resource-group {rg}
+        --name {name:egs} --endpoint https://example.com/l2/{id}
+    command: eventgrid topic event-subscription list --topic-name {name:egt} --resource-group {rg} --query "[].name"
+    expect:
+      json: { path: "", equals: ["{name:egs}"] }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  # R.1: the typed server skipped GetDeliveryAttributes (HTTP 501). On 2026-09-27 it answers 200
+  # with `{}` (Azure answers {"value": []} for a subscription without attributes): reachable, so a
+  # plain case that checks the call succeeds.
+  - id: eventgrid-topic-event-subscription-delivery-attributes
+    operations: [Microsoft.EventGrid TopicEventSubscriptions GetDeliveryAttributes]
+    note: >-
+      The emulator answers `{}` for a subscription without delivery attributes (Azure's list
+      result carries `value`), so the case checks the answer only.
+    setup:
+      - group create --name {rg} --location {location}
+      - eventgrid topic create --name {name:egt} --resource-group {rg} --location {location}
+      - >-
+        eventgrid topic event-subscription create --topic-name {name:egt} --resource-group {rg}
+        --name {name:egs} --endpoint https://example.com/l2/{id}
+    command: >-
+      rest --method post
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.EventGrid/topics/{name:egt}/eventSubscriptions/{name:egs}/getDeliveryAttributes?api-version=2022-06-15
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventgrid-topic-event-types
+    operations: [Microsoft.EventGrid Topics ListEventTypes]
+    setup:
+      - group create --name {rg} --location {location}
+      - run: eventgrid topic create --name {name:egt} --resource-group {rg} --location {location} --query id -o tsv
+        capture: topic_id
+    command: rest --method get --url {topic_id}/providers/Microsoft.EventGrid/eventTypes?api-version=2022-06-15
+    expect:
+      json: { path: value, exists: true }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        Typed server COVERAGE_SKIPS: the route .../providers/{ns}/{type}/{name}/providers/Microsoft.EventGrid/eventTypes
+        is registered, but the dispatcher never reaches its handler (a routing bug). On 2026-09-27 it
+        answers 404 ResourceNotFound, treating eventTypes as a child of the topic.
+      date: 2026-09-27
+
+  - id: eventgrid-topic-types
+    operations:
+      [
+        Microsoft.EventGrid TopicTypes List,
+        Microsoft.EventGrid TopicTypes Get,
+        Microsoft.EventGrid TopicTypes ListEventTypes,
+      ]
+    setup:
+      - eventgrid topic-type show --name Microsoft.Storage.StorageAccounts
+      - eventgrid topic-type list-event-types --name Microsoft.Storage.StorageAccounts
+    command: eventgrid topic-type list --query "[?name=='Microsoft.Storage.StorageAccounts'].name"
+    expect:
+      json: { path: "", equals: [Microsoft.Storage.StorageAccounts] }
+
+  - id: eventgrid-topic-type-event-types
+    operations: [Microsoft.EventGrid TopicTypes ListEventTypes]
+    command: eventgrid topic-type list-event-types --name Microsoft.Storage.StorageAccounts --query "[].name"
+    expect:
+      json: { path: "", contains: Microsoft.Storage.BlobCreated }
+    known_gap:
+      reason: >-
+        Found by L2: the event types of the Microsoft.Storage.StorageAccounts topic type come back as
+        an empty list (Azure lists BlobCreated, BlobDeleted and the others).
+      date: 2026-09-27
+
+  - id: eventgrid-domain
+    operations:
+      [
+        Microsoft.EventGrid Domains CreateOrUpdate,
+        Microsoft.EventGrid Domains Get,
+        Microsoft.EventGrid Domains ListByResourceGroup,
+        Microsoft.EventGrid Domains ListBySubscription,
+        Microsoft.EventGrid Domains ListSharedAccessKeys,
+        Microsoft.EventGrid Domains RegenerateKey,
+        Microsoft.EventGrid Domains Update,
+        Microsoft.EventGrid Domains Delete,
+      ]
+    note: The benchmark's oracle (ta.py eventgrid-domain-disable-local-auth) uses resource update.
+    setup:
+      - group create --name {rg} --location {location}
+      - eventgrid domain create --name {name:egd} --resource-group {rg} --location {location}
+      - run: eventgrid domain show --name {name:egd} --resource-group {rg} --query name -o tsv
+        until: { stdout: { equals: "{name:egd}" } }
+      - eventgrid domain list --resource-group {rg}
+      - eventgrid domain list --query "[?name=='{name:egd}'].name"
+      - eventgrid domain key list --name {name:egd} --resource-group {rg}
+      - eventgrid domain key regenerate --name {name:egd} --resource-group {rg} --key-name key2
+      - >-
+        resource update --resource-group {rg} --name {name:egd} --resource-type Microsoft.EventGrid/domains
+        --set properties.disableLocalAuth=true
+      - run: eventgrid domain update --name {name:egd} --resource-group {rg} --tags matrix=l2
+        until: { json: { path: tags.matrix, equals: l2 } }
+    command: eventgrid domain delete --name {name:egd} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventgrid-domain-topics
+    operations:
+      [
+        Microsoft.EventGrid DomainTopics CreateOrUpdate,
+        Microsoft.EventGrid DomainTopics Get,
+        Microsoft.EventGrid DomainTopics ListByDomain,
+        Microsoft.EventGrid DomainTopics Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - eventgrid domain create --name {name:egd} --resource-group {rg} --location {location}
+      - eventgrid domain topic create --domain-name {name:egd} --resource-group {rg} --name orders
+      - eventgrid domain topic show --domain-name {name:egd} --resource-group {rg} --name orders
+      - run: eventgrid domain topic list --domain-name {name:egd} --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: [orders] } }
+    command: eventgrid domain topic delete --domain-name {name:egd} --resource-group {rg} --name orders
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventgrid-system-topic
+    operations:
+      [
+        Microsoft.EventGrid SystemTopics CreateOrUpdate,
+        Microsoft.EventGrid SystemTopics Get,
+        Microsoft.EventGrid SystemTopics ListByResourceGroup,
+        Microsoft.EventGrid SystemTopics ListBySubscription,
+        Microsoft.EventGrid SystemTopics Update,
+        Microsoft.EventGrid SystemTopics Delete,
+      ]
+    note: Samples eventgrid system-topic create/show; the source is a key vault (no side-car).
+    setup:
+      - group create --name {rg} --location {location}
+      - run: keyvault create --name {vault} --resource-group {rg} --location {location} --query id -o tsv
+        capture: vault_id
+      - >-
+        eventgrid system-topic create --name {name:egst} --resource-group {rg} --location {location}
+        --topic-type Microsoft.KeyVault.vaults --source {vault_id}
+      - run: eventgrid system-topic show --name {name:egst} --resource-group {rg} --query topicType -o tsv
+        until: { stdout: { equals: Microsoft.KeyVault.vaults } }
+      - eventgrid system-topic list --resource-group {rg}
+      - eventgrid system-topic list --query "[?name=='{name:egst}'].name"
+      - run: eventgrid system-topic update --name {name:egst} --resource-group {rg} --tags matrix=l2
+        until: { json: { path: tags.matrix, equals: l2 } }
+    command: eventgrid system-topic delete --name {name:egst} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - keyvault delete --name {vault}
+      - keyvault purge --name {vault}
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventgrid-system-topic-subscription
+    operations:
+      [
+        Microsoft.EventGrid SystemTopicEventSubscriptions CreateOrUpdate,
+        Microsoft.EventGrid SystemTopicEventSubscriptions Get,
+        Microsoft.EventGrid SystemTopicEventSubscriptions ListBySystemTopic,
+        Microsoft.EventGrid SystemTopicEventSubscriptions GetFullUrl,
+        Microsoft.EventGrid SystemTopicEventSubscriptions GetDeliveryAttributes,
+        Microsoft.EventGrid SystemTopicEventSubscriptions Update,
+        Microsoft.EventGrid SystemTopicEventSubscriptions Delete,
+      ]
+    note: The benchmark's oracles (ta.py eventgrid-system-topic-sub-delete, -get).
+    setup:
+      - group create --name {rg} --location {location}
+      - run: keyvault create --name {vault} --resource-group {rg} --location {location} --query id -o tsv
+        capture: vault_id
+      - >-
+        eventgrid system-topic create --name {name:egst} --resource-group {rg} --location {location}
+        --topic-type Microsoft.KeyVault.vaults --source {vault_id}
+      - >-
+        eventgrid system-topic event-subscription create --name {name:egs} --system-topic-name {name:egst}
+        --resource-group {rg} --endpoint https://example.com/l2/{id}
+      - run: >-
+          eventgrid system-topic event-subscription show --name {name:egs} --system-topic-name {name:egst}
+          --resource-group {rg} --query destination.endpointType -o tsv
+        until: { stdout: { equals: WebHook } }
+      - eventgrid system-topic event-subscription list --system-topic-name {name:egst} --resource-group {rg}
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.EventGrid/systemTopics/{name:egst}/eventSubscriptions/{name:egs}/getFullUrl?api-version=2022-06-15
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.EventGrid/systemTopics/{name:egst}/eventSubscriptions/{name:egs}/getDeliveryAttributes?api-version=2022-06-15
+      - >-
+        eventgrid system-topic event-subscription update --name {name:egs} --system-topic-name {name:egst}
+        --resource-group {rg} --labels matrix l2
+    command: >-
+      eventgrid system-topic event-subscription delete --name {name:egs} --system-topic-name {name:egst}
+      --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - keyvault delete --name {vault}
+      - keyvault purge --name {vault}
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventgrid-namespace
+    operations:
+      [
+        Microsoft.EventGrid Namespaces CreateOrUpdate,
+        Microsoft.EventGrid Namespaces Get,
+        Microsoft.EventGrid Namespaces ListByResourceGroup,
+        Microsoft.EventGrid Namespaces ListBySubscription,
+        Microsoft.EventGrid Namespaces ListSharedAccessKeys,
+        Microsoft.EventGrid Namespaces RegenerateKey,
+        Microsoft.EventGrid Namespaces Update,
+        Microsoft.EventGrid Namespaces Delete,
+      ]
+    note: Extension eventgrid (namespace commands).
+    setup:
+      - group create --name {rg} --location {location}
+      - eventgrid namespace create --name {name:egn} --resource-group {rg} --location {location}
+      - run: eventgrid namespace show --name {name:egn} --resource-group {rg} --query name -o tsv
+        until: { stdout: { equals: "{name:egn}" } }
+      - eventgrid namespace list --resource-group {rg}
+      - eventgrid namespace list --query "[?name=='{name:egn}'].name"
+      - eventgrid namespace list-key --namespace-name {name:egn} --resource-group {rg}
+      - eventgrid namespace regenerate-key --namespace-name {name:egn} --resource-group {rg} --key-name key1
+      - run: eventgrid namespace update --name {name:egn} --resource-group {rg} --tags matrix=l2
+        until: { json: { path: tags.matrix, equals: l2 } }
+    command: eventgrid namespace delete --name {name:egn} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventgrid-namespace-topic
+    operations:
+      [
+        Microsoft.EventGrid NamespaceTopics CreateOrUpdate,
+        Microsoft.EventGrid NamespaceTopics Get,
+        Microsoft.EventGrid NamespaceTopics ListByNamespace,
+        Microsoft.EventGrid NamespaceTopics ListSharedAccessKeys,
+        Microsoft.EventGrid NamespaceTopics RegenerateKey,
+        Microsoft.EventGrid NamespaceTopics Update,
+        Microsoft.EventGrid NamespaceTopics Delete,
+      ]
+    note: The benchmark's oracle (ta.py eventgrid-namespace-topic-retention).
+    setup:
+      - group create --name {rg} --location {location}
+      - eventgrid namespace create --name {name:egn} --resource-group {rg} --location {location}
+      - >-
+        eventgrid namespace topic create --namespace-name {name:egn} --resource-group {rg} --name orders
+        --event-retention-in-days 3
+      - run: >-
+          eventgrid namespace topic show --namespace-name {name:egn} --resource-group {rg} --name orders
+          --query eventRetentionInDays
+        until: { json: { path: "", equals: 3 } }
+      - eventgrid namespace topic list --namespace-name {name:egn} --resource-group {rg}
+      - eventgrid namespace topic list-key --namespace-name {name:egn} --resource-group {rg} --topic-name orders
+      - eventgrid namespace topic regenerate-key --namespace-name {name:egn} --resource-group {rg} --topic-name orders --key-name key2
+      - eventgrid namespace topic update --namespace-name {name:egn} --resource-group {rg} --name orders --event-retention-in-days 5
+    command: eventgrid namespace topic delete --namespace-name {name:egn} --resource-group {rg} --name orders --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventgrid-namespace-topic-subscription
+    operations:
+      [
+        Microsoft.EventGrid NamespaceTopicEventSubscriptions CreateOrUpdate,
+        Microsoft.EventGrid NamespaceTopicEventSubscriptions Get,
+        Microsoft.EventGrid NamespaceTopicEventSubscriptions ListByNamespaceTopic,
+        Microsoft.EventGrid NamespaceTopicEventSubscriptions GetDeliveryAttributes,
+        Microsoft.EventGrid NamespaceTopicEventSubscriptions Update,
+        Microsoft.EventGrid NamespaceTopicEventSubscriptions Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - eventgrid namespace create --name {name:egn} --resource-group {rg} --location {location}
+      - eventgrid namespace topic create --namespace-name {name:egn} --resource-group {rg} --name orders
+      - >-
+        eventgrid namespace topic event-subscription create --namespace-name {name:egn} --resource-group {rg}
+        --topic-name orders --name workers --delivery-configuration "{deliveryMode:Queue,queue:{receiveLockDurationInSeconds:60}}"
+      - run: >-
+          eventgrid namespace topic event-subscription show --namespace-name {name:egn} --resource-group {rg}
+          --topic-name orders --name workers --query deliveryConfiguration.deliveryMode -o tsv
+        until: { stdout: { equals: Queue } }
+      - eventgrid namespace topic event-subscription list --namespace-name {name:egn} --resource-group {rg} --topic-name orders
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.EventGrid/namespaces/{name:egn}/topics/orders/eventSubscriptions/workers/getDeliveryAttributes?api-version=2023-12-15-preview
+      - >-
+        eventgrid namespace topic event-subscription update --namespace-name {name:egn} --resource-group {rg}
+        --topic-name orders --name workers --delivery-configuration "{deliveryMode:Queue,queue:{receiveLockDurationInSeconds:90}}"
+    command: >-
+      eventgrid namespace topic event-subscription delete --namespace-name {name:egn} --resource-group {rg}
+      --topic-name orders --name workers --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventgrid-operations
+    operations: [Microsoft.EventGrid Operations List]
+    note: The benchmark's oracle (td.py td-eventgrid-operations).
+    command: rest --method get --url /providers/Microsoft.EventGrid/operations?api-version=2025-02-15
+    expect:
+      json: { path: value, exists: true }

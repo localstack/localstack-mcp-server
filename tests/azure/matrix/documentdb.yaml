@@ -1,0 +1,232 @@
+# Microsoft.DocumentDB: Cosmos DB accounts, MongoDB and NoSQL (SQL API) databases and
+# containers. Accounts run nested emulators on the Docker engine: every case is `backing: true`
+# and deletes its account before the group (a group delete of a Mongo account was seen to leave
+# its ls-mongodb-* container running).
+# R.1: the typed server's eleven skips were known gaps (most were a nested sub-emulator flake under
+# its -n 8 parallel load, which the matrix does not have). A full run on 2026-09-28 saw all three
+# carrying cases pass twice on az 2.85, once beside other heavy families, and a probe passed every
+# one of the eleven operations: they are plain cases now, and each claimed operation is exercised.
+provider: Microsoft.DocumentDB
+cases:
+  - id: cosmos-account
+    operations:
+      [
+        Microsoft.DocumentDB DatabaseAccounts CreateOrUpdate,
+        Microsoft.DocumentDB DatabaseAccounts Get,
+      ]
+    backing: true
+    note: Samples cosmosdb create/show; tb.py cosmos-container.
+    setup:
+      - group create --name {rg} --location {location}
+      - cosmosdb create --name {name:cosmos} --resource-group {rg} --locations regionName={location}
+    command: cosmosdb show --name {name:cosmos} --resource-group {rg}
+    expect:
+      json:
+        - { path: provisioningState, equals: Succeeded }
+        - { path: documentEndpoint, contains: "{name:cosmos}" }
+    cleanup:
+      - cosmosdb delete --name {name:cosmos} --resource-group {rg} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  - id: cosmos-account-keys-lists
+    operations:
+      [
+        Microsoft.DocumentDB DatabaseAccounts ListByResourceGroup,
+        Microsoft.DocumentDB DatabaseAccounts List,
+        Microsoft.DocumentDB DatabaseAccounts ListKeys,
+        Microsoft.DocumentDB DatabaseAccounts ListReadOnlyKeys,
+        Microsoft.DocumentDB DatabaseAccounts GetReadOnlyKeys,
+        Microsoft.DocumentDB DatabaseAccounts ListConnectionStrings,
+        Microsoft.DocumentDB DatabaseAccounts CheckNameExists,
+      ]
+    backing: true
+    note: The benchmark's oracle (ta.py cosmos-readonly-keys); samples cosmosdb keys list.
+    setup:
+      - group create --name {rg} --location {location}
+      - cosmosdb create --name {name:cosmos} --resource-group {rg} --locations regionName={location}
+      - cosmosdb list --resource-group {rg}
+      - cosmosdb list --query "[?name=='{name:cosmos}'].name"
+      - cosmosdb keys list --name {name:cosmos} --resource-group {rg}
+      - cosmosdb keys list --name {name:cosmos} --resource-group {rg} --type read-only-keys
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.DocumentDB/databaseAccounts/{name:cosmos}/readonlykeys?api-version=2024-11-15
+      - cosmosdb keys list --name {name:cosmos} --resource-group {rg} --type connection-strings
+    command: cosmosdb check-name-exists --name {name:cosmos}
+    expect:
+      stdout: { equals: "true" }
+    cleanup:
+      - cosmosdb delete --name {name:cosmos} --resource-group {rg} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  - id: cosmos-account-delete
+    operations: [Microsoft.DocumentDB DatabaseAccounts Delete]
+    backing: true
+    note: The benchmark's oracle (ta.py cosmos-account-delete).
+    setup:
+      - group create --name {rg} --location {location}
+      - cosmosdb create --name {name:cosmos} --resource-group {rg} --locations regionName={location}
+    command: cosmosdb delete --name {name:cosmos} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - cosmosdb delete --name {name:cosmos} --resource-group {rg} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  - id: cosmos-mongo
+    operations:
+      [
+        Microsoft.DocumentDB MongoDbResources CreateUpdateMongoDbDatabase,
+        Microsoft.DocumentDB MongoDbResources GetMongoDbDatabase,
+        Microsoft.DocumentDB MongoDbResources ListMongoDbDatabases,
+        Microsoft.DocumentDB MongoDbResources CreateUpdateMongoDbCollection,
+        Microsoft.DocumentDB MongoDbResources DeleteMongoDbCollection,
+        Microsoft.DocumentDB MongoDbResources DeleteMongoDbDatabase,
+      ]
+    backing: true
+    note: Samples cosmosdb mongodb database/collection; ta.py cosmos-mongo-databases-list, -collection-delete.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        cosmosdb create --name {name:cosmos} --resource-group {rg} --locations regionName={location}
+        --kind MongoDB --server-version 4.2
+      - cosmosdb mongodb database create --account-name {name:cosmos} --resource-group {rg} --name shop
+      - cosmosdb mongodb database show --account-name {name:cosmos} --resource-group {rg} --name shop
+      - run: cosmosdb mongodb database list --account-name {name:cosmos} --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: [shop] } }
+      - >-
+        cosmosdb mongodb collection create --account-name {name:cosmos} --resource-group {rg}
+        --database-name shop --name orders --shard orderId
+      - >-
+        cosmosdb mongodb collection delete --account-name {name:cosmos} --resource-group {rg}
+        --database-name shop --name orders --yes
+    command: cosmosdb mongodb database delete --account-name {name:cosmos} --resource-group {rg} --name shop --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - cosmosdb delete --name {name:cosmos} --resource-group {rg} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  - id: cosmos-mongo-collection-read
+    operations:
+      [
+        Microsoft.DocumentDB MongoDbResources GetMongoDbCollection,
+        Microsoft.DocumentDB MongoDbResources ListMongoDbCollections,
+      ]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        cosmosdb create --name {name:cosmos} --resource-group {rg} --locations regionName={location}
+        --kind MongoDB --server-version 4.2
+      - cosmosdb mongodb database create --account-name {name:cosmos} --resource-group {rg} --name shop
+      - >-
+        cosmosdb mongodb collection create --account-name {name:cosmos} --resource-group {rg}
+        --database-name shop --name orders --shard orderId
+      - >-
+        cosmosdb mongodb collection list --account-name {name:cosmos} --resource-group {rg}
+        --database-name shop --query "[].name"
+    command: >-
+      cosmosdb mongodb collection show --account-name {name:cosmos} --resource-group {rg}
+      --database-name shop --name orders
+    expect:
+      json: { path: name, equals: orders }
+    cleanup:
+      - cosmosdb delete --name {name:cosmos} --resource-group {rg} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  - id: cosmos-mongo-throughput
+    operations:
+      [
+        Microsoft.DocumentDB MongoDbResources GetMongoDbDatabaseThroughput,
+        Microsoft.DocumentDB MongoDbResources GetMongoDbCollectionThroughput,
+      ]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        cosmosdb create --name {name:cosmos} --resource-group {rg} --locations regionName={location}
+        --kind MongoDB --server-version 4.2
+      - cosmosdb mongodb database create --account-name {name:cosmos} --resource-group {rg} --name shop --throughput 400
+      - cosmosdb mongodb database create --account-name {name:cosmos} --resource-group {rg} --name shop2
+      - >-
+        cosmosdb mongodb collection create --account-name {name:cosmos} --resource-group {rg}
+        --database-name shop2 --name orders --shard orderId --throughput 400
+      - >-
+        cosmosdb mongodb collection throughput show --account-name {name:cosmos} --resource-group {rg}
+        --database-name shop2 --name orders --query resource.throughput
+    command: cosmosdb mongodb database throughput show --account-name {name:cosmos} --resource-group {rg} --name shop
+    expect:
+      json: { path: resource.throughput, equals: 400 }
+    cleanup:
+      - cosmosdb delete --name {name:cosmos} --resource-group {rg} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  - id: cosmos-sql-databases-list
+    operations: [Microsoft.DocumentDB SqlResources ListSqlDatabases]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - cosmosdb create --name {name:cosmos} --resource-group {rg} --locations regionName={location}
+    command: cosmosdb sql database list --account-name {name:cosmos} --resource-group {rg}
+    expect:
+      json: { path: "", length: 0 }
+    cleanup:
+      - cosmosdb delete --name {name:cosmos} --resource-group {rg} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  - id: cosmos-sql-databases
+    operations:
+      [
+        Microsoft.DocumentDB SqlResources CreateUpdateSqlDatabase,
+        Microsoft.DocumentDB SqlResources GetSqlDatabase,
+        Microsoft.DocumentDB SqlResources DeleteSqlDatabase,
+      ]
+    backing: true
+    note: >-
+      Samples cosmosdb sql database create. Was one known-gap case for the family until a full run on 2026-09-28
+      saw the database create pass (typed server: the NoSQL sub-emulator failed to start under load,
+      and GetSqlDatabase answered HTTP 500); split again as its note asked.
+    setup:
+      - group create --name {rg} --location {location}
+      - cosmosdb create --name {name:cosmos} --resource-group {rg} --locations regionName={location}
+      - cosmosdb sql database create --account-name {name:cosmos} --resource-group {rg} --name catalog
+      - cosmosdb sql database show --account-name {name:cosmos} --resource-group {rg} --name catalog
+    command: cosmosdb sql database delete --account-name {name:cosmos} --resource-group {rg} --name catalog --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - cosmosdb delete --name {name:cosmos} --resource-group {rg} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  - id: cosmos-sql-containers
+    operations:
+      [
+        Microsoft.DocumentDB SqlResources CreateUpdateSqlContainer,
+        Microsoft.DocumentDB SqlResources GetSqlContainer,
+        Microsoft.DocumentDB SqlResources ListSqlContainers,
+        Microsoft.DocumentDB SqlResources DeleteSqlContainer,
+      ]
+    backing: true
+    note: tb.py cosmos-container, td.py td-cosmos-container-create; samples cosmosdb sql container create.
+    setup:
+      - group create --name {rg} --location {location}
+      - cosmosdb create --name {name:cosmos} --resource-group {rg} --locations regionName={location}
+      - cosmosdb sql database create --account-name {name:cosmos} --resource-group {rg} --name catalog
+      - >-
+        cosmosdb sql container create --account-name {name:cosmos} --resource-group {rg}
+        --database-name catalog --name items --partition-key-path /id
+      - >-
+        cosmosdb sql container show --account-name {name:cosmos} --resource-group {rg}
+        --database-name catalog --name items
+      - >-
+        cosmosdb sql container delete --account-name {name:cosmos} --resource-group {rg}
+        --database-name catalog --name items --yes
+    command: >-
+      cosmosdb sql container list --account-name {name:cosmos} --resource-group {rg}
+      --database-name catalog --query "[].name"
+    expect:
+      json: { path: "", length: 0 }
+    cleanup:
+      - cosmosdb delete --name {name:cosmos} --resource-group {rg} --yes
+      - group delete --name {rg} --yes --no-wait

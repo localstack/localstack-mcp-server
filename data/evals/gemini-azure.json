@@ -1,0 +1,61 @@
+{
+  "name": "localstack-mcp-gemini-azure",
+  "description": "Scenario-based Gemini evals for the Azure tools (plan E1): a pinned-command case for localstack-azure-client and a management status case for service azure. A separate dataset from gemini-comprehensive.json, because the AWS and Azure emulators cannot share port 4566 in one run.",
+  "cases": [
+    {
+      "id": "scenario-azure-client-group-list",
+      "description": "localstack-azure-client: run a pinned Azure CLI command.",
+      "mode": "mcp_host",
+      "scenario": "Using the LocalStack Azure client tool, run the Azure CLI command \"group list\" against the LocalStack Azure emulator. Pass the command string exactly as group list, with no az prefix and no extra flags. Then tell me which resource groups exist.",
+      "mcpHostConfig": {
+        "provider": "google",
+        "model": "gemini-2.5-flash",
+        "temperature": 0
+      },
+      "iterations": 5,
+      "accuracyThreshold": 0.8,
+      "expect": {
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-azure-client",
+              "arguments": {
+                "command": "group list"
+              },
+              "required": true
+            }
+          ],
+          "order": "any"
+        }
+      }
+    },
+    {
+      "id": "scenario-management-azure-status",
+      "description": "localstack-management: status check of the Azure emulator.",
+      "mode": "mcp_host",
+      "scenario": "Check the current status of the LocalStack Azure emulator using the LocalStack management tool with the azure service. Report whether it is running and ready.",
+      "mcpHostConfig": {
+        "provider": "google",
+        "model": "gemini-2.5-flash",
+        "temperature": 0
+      },
+      "iterations": 5,
+      "accuracyThreshold": 0.8,
+      "expect": {
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-management",
+              "arguments": {
+                "action": "status",
+                "service": "azure"
+              },
+              "required": true
+            }
+          ],
+          "order": "any"
+        }
+      }
+    }
+  ]
+}

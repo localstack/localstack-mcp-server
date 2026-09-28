@@ -1,0 +1,999 @@
+# Microsoft.Network: virtual networks, NSGs, public IPs, NAT, routes, NICs, load balancers,
+# private DNS, private endpoints and link services, bastion, classic Front Door and the network
+# experiment (Traffic Manager analytics) resources.
+# UpdateTags operations are PATCH calls that no az verb maps to one to one (`update` is a GET then
+# a PUT), so they go through `rest` with a relative URL.
+# R.1: the typed server's three PrivateLinkServices private-endpoint-connection skips are one
+# known gap here (network-pls-connection): a private endpoint to a link service never registers a
+# connection on the service.
+provider: Microsoft.Network
+cases:
+  - id: network-vnet-create
+    operations:
+      [Microsoft.Network VirtualNetworks CreateOrUpdate, Microsoft.Network Subnets CreateOrUpdate]
+    pr: true
+    setup:
+      - group create --name {rg} --location {location}
+    command: >-
+      network vnet create --name {name:vnet} --resource-group {rg} --location {location}
+      --address-prefixes 10.10.0.0/16 --subnet-name default --subnet-prefixes 10.10.1.0/24
+    expect:
+      json:
+        - { path: newVNet.provisioningState, equals: Succeeded }
+        - { path: "newVNet.addressSpace.addressPrefixes[0]", equals: 10.10.0.0/16 }
+        - { path: "newVNet.subnets[0].name", equals: default }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-vnet-read
+    operations:
+      [
+        Microsoft.Network VirtualNetworks Get,
+        Microsoft.Network VirtualNetworks List,
+        Microsoft.Network VirtualNetworks ListAll,
+        Microsoft.Network VirtualNetworks UpdateTags,
+      ]
+    note: The benchmark's oracle (ta.py vnet-address-space); samples network vnet show.
+    setup:
+      - group create --name {rg} --location {location}
+      - network vnet create --name {name:vnet} --resource-group {rg} --address-prefixes 10.11.0.0/16
+      - run: network vnet show --name {name:vnet} --resource-group {rg} --query "addressSpace.addressPrefixes"
+        until: { json: { path: "", equals: [10.11.0.0/16] } }
+      - run: network vnet list --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: ["{name:vnet}"] } }
+      - run: network vnet list --query "[?name=='{name:vnet}'].resourceGroup"
+        until: { json: { path: "", equals: ["{rg}"] } }
+    command: >-
+      rest --method patch
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/virtualNetworks/{name:vnet}?api-version=2023-09-01
+      --body '{"tags": {"matrix": "l2"}}'
+    expect:
+      json: { path: tags.matrix, equals: l2 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-subnet
+    operations:
+      [
+        Microsoft.Network Subnets CreateOrUpdate,
+        Microsoft.Network Subnets Get,
+        Microsoft.Network Subnets List,
+        Microsoft.Network Subnets Delete,
+      ]
+    pr: true
+    note: Samples network vnet subnet create/show/update.
+    setup:
+      - group create --name {rg} --location {location}
+      - network vnet create --name {name:vnet} --resource-group {rg} --address-prefixes 10.12.0.0/16
+      - >-
+        network vnet subnet create --vnet-name {name:vnet} --resource-group {rg} --name app
+        --address-prefixes 10.12.2.0/24
+      - >-
+        network vnet subnet create --vnet-name {name:vnet} --resource-group {rg} --name data
+        --address-prefixes 10.12.3.0/24
+      - run: network vnet subnet show --vnet-name {name:vnet} --resource-group {rg} --name app --query addressPrefix -o tsv
+        until: { stdout: { equals: 10.12.2.0/24 } }
+      - network vnet subnet delete --vnet-name {name:vnet} --resource-group {rg} --name data
+    command: network vnet subnet list --vnet-name {name:vnet} --resource-group {rg} --query "[].name"
+    expect:
+      json: { path: "", equals: [app] }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-vnet-delete
+    operations: [Microsoft.Network VirtualNetworks Delete]
+    setup:
+      - group create --name {rg} --location {location}
+      - network vnet create --name {name:vnet} --resource-group {rg} --address-prefixes 10.13.0.0/16
+    command: network vnet delete --name {name:vnet} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-nsg-rules
+    operations:
+      [
+        Microsoft.Network NetworkSecurityGroups CreateOrUpdate,
+        Microsoft.Network SecurityRules CreateOrUpdate,
+        Microsoft.Network SecurityRules List,
+      ]
+    pr: true
+    note: Samples network nsg create/show.
+    setup:
+      - group create --name {rg} --location {location}
+      - network nsg create --name {name:nsg} --resource-group {rg} --location {location}
+      - >-
+        network nsg rule create --nsg-name {name:nsg} --resource-group {rg} --name allow-https
+        --priority 100 --direction Inbound --access Allow --protocol Tcp --destination-port-ranges 443
+    command: network nsg rule list --nsg-name {name:nsg} --resource-group {rg} --query "[].name"
+    expect:
+      json: { path: "", equals: [allow-https] }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-nsg-read-delete
+    operations:
+      [
+        Microsoft.Network NetworkSecurityGroups Get,
+        Microsoft.Network NetworkSecurityGroups List,
+        Microsoft.Network NetworkSecurityGroups ListAll,
+        Microsoft.Network NetworkSecurityGroups UpdateTags,
+        Microsoft.Network NetworkSecurityGroups Delete,
+        Microsoft.Network SecurityRules Get,
+        Microsoft.Network SecurityRules Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - network nsg create --name {name:nsg} --resource-group {rg} --location {location}
+      - >-
+        network nsg rule create --nsg-name {name:nsg} --resource-group {rg} --name deny-ssh
+        --priority 200 --access Deny --protocol Tcp --destination-port-ranges 22
+      - run: network nsg rule show --nsg-name {name:nsg} --resource-group {rg} --name deny-ssh --query access -o tsv
+        until: { stdout: { equals: Deny } }
+      - network nsg rule delete --nsg-name {name:nsg} --resource-group {rg} --name deny-ssh
+      - run: network nsg show --name {name:nsg} --resource-group {rg} --query "securityRules[].name"
+        until: { json: { path: "", length: 0 } }
+      - run: network nsg list --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: ["{name:nsg}"] } }
+      - network nsg list --query "[?name=='{name:nsg}'].name"
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/networkSecurityGroups/{name:nsg}?api-version=2023-09-01
+        --body '{"tags": {"matrix": "l2"}}'
+    command: network nsg delete --name {name:nsg} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-public-ip
+    operations:
+      [Microsoft.Network PublicIpAddresses CreateOrUpdate, Microsoft.Network PublicIpAddresses Get]
+    pr: true
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        network public-ip create --name {name:pip} --resource-group {rg} --location {location}
+        --sku Standard --allocation-method Static
+    command: network public-ip show --name {name:pip} --resource-group {rg}
+    expect:
+      json:
+        - { path: sku.name, equals: Standard }
+        - { path: publicIPAllocationMethod, equals: Static }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-public-ip-list-tags-delete
+    operations:
+      [
+        Microsoft.Network PublicIpAddresses List,
+        Microsoft.Network PublicIpAddresses ListAll,
+        Microsoft.Network PublicIpAddresses UpdateTags,
+        Microsoft.Network PublicIpAddresses Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - network public-ip create --name {name:pip} --resource-group {rg} --sku Standard
+      - run: network public-ip list --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: ["{name:pip}"] } }
+      - network public-ip list --query "[?name=='{name:pip}'].name"
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/publicIPAddresses/{name:pip}?api-version=2023-09-01
+        --body '{"tags": {"matrix": "l2"}}'
+    command: network public-ip delete --name {name:pip} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-public-ip-prefix
+    operations:
+      [
+        Microsoft.Network PublicIpPrefixes CreateOrUpdate,
+        Microsoft.Network PublicIpPrefixes Get,
+        Microsoft.Network PublicIpPrefixes List,
+        Microsoft.Network PublicIpPrefixes ListAll,
+        Microsoft.Network PublicIpPrefixes UpdateTags,
+        Microsoft.Network PublicIpPrefixes Delete,
+      ]
+    note: Samples network public-ip prefix create/show.
+    setup:
+      - group create --name {rg} --location {location}
+      - network public-ip prefix create --name {name:ippre} --resource-group {rg} --length 30
+      - run: network public-ip prefix show --name {name:ippre} --resource-group {rg} --query prefixLength
+        until: { json: { path: "", equals: 30 } }
+      - network public-ip prefix list --resource-group {rg}
+      - network public-ip prefix list --query "[?name=='{name:ippre}'].name"
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/publicIPPrefixes/{name:ippre}?api-version=2023-09-01
+        --body '{"tags": {"matrix": "l2"}}'
+    command: network public-ip prefix delete --name {name:ippre} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-nat-gateway
+    operations:
+      [
+        Microsoft.Network NatGateways CreateOrUpdate,
+        Microsoft.Network NatGateways Get,
+        Microsoft.Network NatGateways List,
+        Microsoft.Network NatGateways ListAll,
+        Microsoft.Network NatGateways UpdateTags,
+        Microsoft.Network NatGateways Delete,
+      ]
+    note: Samples network nat gateway create/show.
+    setup:
+      - group create --name {rg} --location {location}
+      - network public-ip create --name {name:pip} --resource-group {rg} --sku Standard
+      - >-
+        network nat gateway create --name {name:nat} --resource-group {rg} --location {location}
+        --public-ip-addresses {name:pip} --idle-timeout 10
+      - run: network nat gateway show --name {name:nat} --resource-group {rg} --query idleTimeoutInMinutes
+        until: { json: { path: "", equals: 10 } }
+      - network nat gateway list --resource-group {rg}
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/providers/Microsoft.Network/natGateways?api-version=2023-09-01
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/natGateways/{name:nat}?api-version=2023-09-01
+        --body '{"tags": {"matrix": "l2"}}'
+    command: network nat gateway delete --name {name:nat} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-route-table
+    operations:
+      [
+        Microsoft.Network RouteTables CreateOrUpdate,
+        Microsoft.Network Routes CreateOrUpdate,
+        Microsoft.Network Routes Get,
+        Microsoft.Network Routes List,
+      ]
+    note: The benchmark's oracles (ta.py route-get, routes-list).
+    setup:
+      - group create --name {rg} --location {location}
+      - network route-table create --name {name:rt} --resource-group {rg} --location {location}
+      - >-
+        network route-table route create --route-table-name {name:rt} --resource-group {rg} --name to-appliance
+        --address-prefix 10.20.0.0/16 --next-hop-type VirtualAppliance --next-hop-ip-address 10.10.1.4
+      - run: network route-table route show --route-table-name {name:rt} --resource-group {rg} --name to-appliance
+        until: { json: { path: nextHopIpAddress, equals: 10.10.1.4 } }
+    command: network route-table route list --route-table-name {name:rt} --resource-group {rg} --query "[].name"
+    expect:
+      json: { path: "", equals: [to-appliance] }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-route-table-read-delete
+    operations:
+      [
+        Microsoft.Network RouteTables Get,
+        Microsoft.Network RouteTables List,
+        Microsoft.Network RouteTables ListAll,
+        Microsoft.Network RouteTables UpdateTags,
+        Microsoft.Network RouteTables Delete,
+        Microsoft.Network Routes Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - network route-table create --name {name:rt} --resource-group {rg}
+      - >-
+        network route-table route create --route-table-name {name:rt} --resource-group {rg} --name internet
+        --address-prefix 0.0.0.0/0 --next-hop-type Internet
+      - network route-table route delete --route-table-name {name:rt} --resource-group {rg} --name internet
+      - run: network route-table show --name {name:rt} --resource-group {rg} --query "routes[].name"
+        until: { json: { path: "", length: 0 } }
+      - network route-table list --resource-group {rg}
+      # rest: az 2.90 makes --resource-group required for `network route-table list` (2.85 lists the
+      # subscription without it), so ListAll has no az form on both versions.
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/providers/Microsoft.Network/routeTables?api-version=2023-09-01
+        --query "value[?name=='{name:rt}'].name"
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/routeTables/{name:rt}?api-version=2023-09-01
+        --body '{"tags": {"matrix": "l2"}}'
+    command: network route-table delete --name {name:rt} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-nic
+    operations:
+      [
+        Microsoft.Network NetworkInterfaces CreateOrUpdate,
+        Microsoft.Network NetworkInterfaces Get,
+        Microsoft.Network NetworkInterfaces List,
+        Microsoft.Network NetworkInterfaces ListAll,
+        Microsoft.Network NetworkInterfaces UpdateTags,
+        Microsoft.Network NetworkInterfaces Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        network vnet create --name {name:vnet} --resource-group {rg} --address-prefixes 10.14.0.0/16
+        --subnet-name default --subnet-prefixes 10.14.1.0/24
+      - network nic create --name {name:nic} --resource-group {rg} --vnet-name {name:vnet} --subnet default
+      - run: network nic show --name {name:nic} --resource-group {rg} --query "ipConfigurations[0].subnet.id"
+        until: { json: { path: "", matches: "/subnets/default$" } }
+      - network nic list --resource-group {rg}
+      - network nic list --query "[?name=='{name:nic}'].name"
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/networkInterfaces/{name:nic}?api-version=2023-09-01
+        --body '{"tags": {"matrix": "l2"}}'
+    command: network nic delete --name {name:nic} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-lb
+    operations:
+      [
+        Microsoft.Network LoadBalancers CreateOrUpdate,
+        Microsoft.Network LoadBalancerFrontendIpConfigurations List,
+        Microsoft.Network LoadBalancerFrontendIpConfigurations Get,
+        Microsoft.Network LoadBalancerBackendAddressPools List,
+        Microsoft.Network LoadBalancerBackendAddressPools Get,
+      ]
+    pr: true
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        network lb create --name {name:lb} --resource-group {rg} --location {location} --sku Standard
+        --frontend-ip-name fe --backend-pool-name be
+      - run: network lb frontend-ip list --lb-name {name:lb} --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: [fe] } }
+      - network lb frontend-ip show --lb-name {name:lb} --resource-group {rg} --name fe
+      - network lb address-pool show --lb-name {name:lb} --resource-group {rg} --name be
+    command: network lb address-pool list --lb-name {name:lb} --resource-group {rg} --query "[].name"
+    expect:
+      json: { path: "", equals: [be] }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-lb-probe-rule
+    operations:
+      [
+        Microsoft.Network LoadBalancerProbes List,
+        Microsoft.Network LoadBalancerProbes Get,
+        Microsoft.Network LoadBalancerLoadBalancingRules List,
+        Microsoft.Network LoadBalancerLoadBalancingRules Get,
+        Microsoft.Network LoadBalancerOutboundRules List,
+      ]
+    note: The benchmark's oracle (ta.py lb-outbound-rules).
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        network lb create --name {name:lb} --resource-group {rg} --sku Standard --frontend-ip-name fe
+        --backend-pool-name be
+      - network lb probe create --lb-name {name:lb} --resource-group {rg} --name http --protocol Tcp --port 80
+      - >-
+        network lb rule create --lb-name {name:lb} --resource-group {rg} --name web --protocol Tcp
+        --frontend-port 80 --backend-port 80 --frontend-ip-name fe --backend-pool-name be --probe-name http
+      - run: network lb probe list --lb-name {name:lb} --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: [http] } }
+      - network lb probe show --lb-name {name:lb} --resource-group {rg} --name http
+      - run: network lb rule show --lb-name {name:lb} --resource-group {rg} --name web --query frontendPort
+        until: { json: { path: "", equals: 80 } }
+      - network lb outbound-rule list --lb-name {name:lb} --resource-group {rg}
+    command: network lb rule list --lb-name {name:lb} --resource-group {rg} --query "[].name"
+    expect:
+      json: { path: "", equals: [web] }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-lb-children-api
+    operations:
+      [
+        Microsoft.Network InboundNatRules CreateOrUpdate,
+        Microsoft.Network InboundNatRules Get,
+        Microsoft.Network InboundNatRules List,
+        Microsoft.Network InboundNatRules Delete,
+        Microsoft.Network LoadBalancerBackendAddressPools CreateOrUpdate,
+        Microsoft.Network LoadBalancerBackendAddressPools Delete,
+        Microsoft.Network LoadBalancerNetworkInterfaces List,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - network lb create --name {name:lb} --resource-group {rg} --sku Standard --frontend-ip-name fe
+      - >-
+        network lb inbound-nat-rule create --lb-name {name:lb} --resource-group {rg} --name ssh
+        --protocol Tcp --frontend-port 50022 --backend-port 22 --frontend-ip-name fe
+      - run: network lb inbound-nat-rule show --lb-name {name:lb} --resource-group {rg} --name ssh --query frontendPort
+        until: { json: { path: "", equals: 50022 } }
+      - network lb inbound-nat-rule list --lb-name {name:lb} --resource-group {rg}
+      - network lb inbound-nat-rule delete --lb-name {name:lb} --resource-group {rg} --name ssh
+      - network lb address-pool create --lb-name {name:lb} --resource-group {rg} --name extra
+      - network lb address-pool delete --lb-name {name:lb} --resource-group {rg} --name extra
+    command: >-
+      rest --method get
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/loadBalancers/{name:lb}/networkInterfaces?api-version=2023-09-01
+    expect:
+      json: { path: value, length: 0 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-lb-read-delete
+    operations:
+      [
+        Microsoft.Network LoadBalancers Get,
+        Microsoft.Network LoadBalancers List,
+        Microsoft.Network LoadBalancers ListAll,
+        Microsoft.Network LoadBalancers UpdateTags,
+        Microsoft.Network LoadBalancers Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - network lb create --name {name:lb} --resource-group {rg} --sku Standard
+      - run: network lb show --name {name:lb} --resource-group {rg} --query sku.name -o tsv
+        until: { stdout: { equals: Standard } }
+      - network lb list --resource-group {rg}
+      - network lb list --query "[?name=='{name:lb}'].name"
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/loadBalancers/{name:lb}?api-version=2023-09-01
+        --body '{"tags": {"matrix": "l2"}}'
+    command: network lb delete --name {name:lb} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  # --- Private DNS (samples network private-dns zone/link; ta.py private-dns-zones-list) ---
+
+  - id: network-private-dns-zone
+    operations:
+      [
+        Microsoft.Network PrivateZones CreateOrUpdate,
+        Microsoft.Network PrivateZones ListByResourceGroup,
+      ]
+    pr: true
+    setup:
+      - group create --name {rg} --location {location}
+      - network private-dns zone create --resource-group {rg} --name {id}.l2.internal
+    command: network private-dns zone list --resource-group {rg} --query "[].name"
+    expect:
+      json: { path: "", equals: ["{id}.l2.internal"] }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-private-dns-records
+    operations:
+      [
+        Microsoft.Network RecordSets CreateOrUpdate,
+        Microsoft.Network RecordSets Get,
+        Microsoft.Network RecordSets ListByType,
+        Microsoft.Network RecordSets List,
+        Microsoft.Network RecordSets Update,
+        Microsoft.Network RecordSets Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - network private-dns zone create --resource-group {rg} --name {id}.l2.internal
+      - >-
+        network private-dns record-set a add-record --resource-group {rg} --zone-name {id}.l2.internal
+        --record-set-name www --ipv4-address 10.10.1.4
+      - run: network private-dns record-set a show --resource-group {rg} --zone-name {id}.l2.internal --name www
+        until: { json: { path: "aRecords[0].ipv4Address", equals: 10.10.1.4 } }
+      - network private-dns record-set a list --resource-group {rg} --zone-name {id}.l2.internal
+      - >-
+        network private-dns record-set a update --resource-group {rg} --zone-name {id}.l2.internal
+        --name www --metadata matrix=l2
+      - >-
+        network private-dns record-set a add-record --resource-group {rg} --zone-name {id}.l2.internal
+        --record-set-name old --ipv4-address 10.10.1.9
+      - network private-dns record-set a delete --resource-group {rg} --zone-name {id}.l2.internal --name old --yes
+    command: network private-dns record-set list --resource-group {rg} --zone-name {id}.l2.internal --query "[].name"
+    expect:
+      json: { path: "", contains: www }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-private-dns-empty-record-set
+    operations: [Microsoft.Network RecordSets CreateOrUpdate]
+    note: Azure creates an empty A record set (`record-set a create` without records).
+    setup:
+      - group create --name {rg} --location {location}
+      - network private-dns zone create --resource-group {rg} --name {id}.l2.internal
+    command: >-
+      network private-dns record-set a create --resource-group {rg} --zone-name {id}.l2.internal
+      --name empty
+    expect:
+      json: { path: name, equals: empty }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        L2: the emulator refuses an empty record set with 400 BadParameter "A record 'empty' requires
+        at least one IP address"; Azure allows empty record sets (the CLI documents `create` as
+        "Create an empty A record set").
+      date: 2026-09-27
+
+  - id: network-private-dns-link
+    operations:
+      [
+        Microsoft.Network VirtualNetworkLinks CreateOrUpdate,
+        Microsoft.Network VirtualNetworkLinks Get,
+        Microsoft.Network VirtualNetworkLinks List,
+        Microsoft.Network VirtualNetworkLinks Update,
+        Microsoft.Network VirtualNetworkLinks Delete,
+      ]
+    note: The benchmark's oracle (ta.py private-dns-vnet-links); samples network private-dns link vnet create.
+    setup:
+      - group create --name {rg} --location {location}
+      - network vnet create --name {name:vnet} --resource-group {rg} --address-prefixes 10.15.0.0/16
+      - network private-dns zone create --resource-group {rg} --name {id}.l2.internal
+      - >-
+        network private-dns link vnet create --resource-group {rg} --zone-name {id}.l2.internal
+        --name link1 --virtual-network {name:vnet} --registration-enabled false
+      - run: network private-dns link vnet show --resource-group {rg} --zone-name {id}.l2.internal --name link1
+        until: { json: { path: registrationEnabled, equals: false } }
+      - >-
+        network private-dns link vnet update --resource-group {rg} --zone-name {id}.l2.internal
+        --name link1 --tags matrix=l2
+      - >-
+        network private-dns link vnet create --resource-group {rg} --zone-name {id}.l2.internal
+        --name link2 --virtual-network {name:vnet} --registration-enabled false
+      - network private-dns link vnet delete --resource-group {rg} --zone-name {id}.l2.internal --name link2 --yes
+    command: network private-dns link vnet list --resource-group {rg} --zone-name {id}.l2.internal --query "[].name"
+    expect:
+      json: { path: "", equals: [link1] }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-private-dns-zone-read-delete
+    operations:
+      [
+        Microsoft.Network PrivateZones Get,
+        Microsoft.Network PrivateZones List,
+        Microsoft.Network PrivateZones Update,
+        Microsoft.Network PrivateZones Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - network private-dns zone create --resource-group {rg} --name {id}.l2.internal
+      - run: network private-dns zone show --resource-group {rg} --name {id}.l2.internal --query name -o tsv
+        until: { stdout: { equals: "{id}.l2.internal" } }
+      - network private-dns zone list --query "[?name=='{id}.l2.internal'].name"
+      - network private-dns zone update --resource-group {rg} --name {id}.l2.internal --tags matrix=l2
+    command: network private-dns zone delete --resource-group {rg} --name {id}.l2.internal --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  # --- Private endpoints (samples network private-endpoint create/list/show, dns-zone-group) ---
+
+  - id: network-private-endpoint
+    operations:
+      [
+        Microsoft.Network PrivateEndpoints CreateOrUpdate,
+        Microsoft.Network PrivateEndpoints Get,
+        Microsoft.Network PrivateEndpoints List,
+        Microsoft.Network PrivateEndpoints ListBySubscription,
+      ]
+    note: A private endpoint to a key vault (no side-car behind it).
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        network vnet create --name {name:vnet} --resource-group {rg} --address-prefixes 10.16.0.0/16
+        --subnet-name endpoints --subnet-prefixes 10.16.1.0/24
+      - run: keyvault create --name {vault} --resource-group {rg} --location {location} --query id -o tsv
+        capture: vault_id
+      - >-
+        network private-endpoint create --name {name:pe} --resource-group {rg} --vnet-name {name:vnet}
+        --subnet endpoints --private-connection-resource-id {vault_id} --group-id vault --connection-name kv
+      - run: network private-endpoint show --name {name:pe} --resource-group {rg} --query "privateLinkServiceConnections[0].groupIds"
+        until: { json: { path: "", equals: [vault] } }
+      - network private-endpoint list --query "[?name=='{name:pe}'].name"
+    command: network private-endpoint list --resource-group {rg} --query "[].name"
+    expect:
+      json: { path: "", equals: ["{name:pe}"] }
+    cleanup:
+      - keyvault delete --name {vault}
+      - keyvault purge --name {vault}
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-private-endpoint-dns-zone-group
+    operations:
+      [
+        Microsoft.Network PrivateDnsZoneGroups CreateOrUpdate,
+        Microsoft.Network PrivateDnsZoneGroups Get,
+        Microsoft.Network PrivateDnsZoneGroups List,
+        Microsoft.Network PrivateDnsZoneGroups Delete,
+        Microsoft.Network PrivateEndpoints Delete,
+      ]
+    note: The benchmark's oracle (ta.py dns-zone-group); samples network private-endpoint dns-zone-group create.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        network vnet create --name {name:vnet} --resource-group {rg} --address-prefixes 10.17.0.0/16
+        --subnet-name endpoints --subnet-prefixes 10.17.1.0/24
+      - run: keyvault create --name {vault} --resource-group {rg} --location {location} --query id -o tsv
+        capture: vault_id
+      - run: network private-dns zone create --resource-group {rg} --name privatelink.vaultcore.azure.net --query id -o tsv
+        capture: zone_id
+      - >-
+        network private-endpoint create --name {name:pe} --resource-group {rg} --vnet-name {name:vnet}
+        --subnet endpoints --private-connection-resource-id {vault_id} --group-id vault --connection-name kv
+      - >-
+        network private-endpoint dns-zone-group create --endpoint-name {name:pe} --resource-group {rg}
+        --name default --private-dns-zone {zone_id} --zone-name vault
+      - run: network private-endpoint dns-zone-group show --endpoint-name {name:pe} --resource-group {rg} --name default
+        until: { json: { path: name, equals: default } }
+      - run: network private-endpoint dns-zone-group list --endpoint-name {name:pe} --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: [default] } }
+      - network private-endpoint dns-zone-group delete --endpoint-name {name:pe} --resource-group {rg} --name default
+    command: network private-endpoint delete --name {name:pe} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - keyvault delete --name {vault}
+      - keyvault purge --name {vault}
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-private-link-service
+    operations:
+      [
+        Microsoft.Network PrivateLinkServices CreateOrUpdate,
+        Microsoft.Network PrivateLinkServices Get,
+        Microsoft.Network PrivateLinkServices List,
+        Microsoft.Network PrivateLinkServices ListBySubscription,
+        Microsoft.Network PrivateLinkServices ListPrivateEndpointConnections,
+        Microsoft.Network PrivateLinkServices Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        network vnet create --name {name:vnet} --resource-group {rg} --address-prefixes 10.18.0.0/16
+        --subnet-name pls --subnet-prefixes 10.18.1.0/24
+      - network vnet subnet update --vnet-name {name:vnet} --resource-group {rg} --name pls --private-link-service-network-policies Disabled
+      - >-
+        network lb create --name {name:lb} --resource-group {rg} --sku Standard --vnet-name {name:vnet}
+        --subnet pls --frontend-ip-name fe --backend-pool-name be
+      # The frontend's own id (frontendIPConfigurations); see network-pls-frontend-by-name.
+      - run: network lb show --name {name:lb} --resource-group {rg} --query "frontendIPConfigurations[0].id" -o tsv
+        capture: fe_id
+      - >-
+        network private-link-service create --name {name:pls} --resource-group {rg} --vnet-name {name:vnet}
+        --subnet pls --lb-frontend-ip-configs {fe_id}
+      - run: network private-link-service show --name {name:pls} --resource-group {rg} --query name -o tsv
+        until: { stdout: { equals: "{name:pls}" } }
+      - network private-link-service list --resource-group {rg}
+      - network private-link-service list --query "[?name=='{name:pls}'].name"
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/privateLinkServices/{name:pls}/privateEndpointConnections?api-version=2023-09-01
+    command: network private-link-service delete --name {name:pls} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-pls-connection
+    operations:
+      [
+        Microsoft.Network PrivateLinkServices GetPrivateEndpointConnection,
+        Microsoft.Network PrivateLinkServices UpdatePrivateEndpointConnection,
+        Microsoft.Network PrivateLinkServices DeletePrivateEndpointConnection,
+      ]
+    note: The benchmark's oracle (ta.py private-endpoint-create) targets a link service the same way.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        network vnet create --name {name:vnet} --resource-group {rg} --address-prefixes 10.19.0.0/16
+        --subnet-name pls --subnet-prefixes 10.19.1.0/24
+      - network vnet subnet update --vnet-name {name:vnet} --resource-group {rg} --name pls --private-link-service-network-policies Disabled
+      - network vnet subnet create --vnet-name {name:vnet} --resource-group {rg} --name endpoints --address-prefixes 10.19.2.0/24
+      - >-
+        network lb create --name {name:lb} --resource-group {rg} --sku Standard --vnet-name {name:vnet}
+        --subnet pls --frontend-ip-name fe --backend-pool-name be
+      - run: network lb show --name {name:lb} --resource-group {rg} --query "frontendIPConfigurations[0].id" -o tsv
+        capture: fe_id
+      - run: >-
+          network private-link-service create --name {name:pls} --resource-group {rg} --vnet-name {name:vnet}
+          --subnet pls --lb-frontend-ip-configs {fe_id} --query id -o tsv
+        capture: pls_id
+      - >-
+        network private-endpoint create --name {name:pe} --resource-group {rg} --vnet-name {name:vnet}
+        --subnet endpoints --private-connection-resource-id {pls_id} --connection-name conn
+    command: network private-link-service show --name {name:pls} --resource-group {rg} --query "privateEndpointConnections[].name"
+    expect:
+      json: { path: "", length: 1 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        Typed server COVERAGE_SKIPS: creating a private endpoint to a private link service never
+        registers a private-endpoint connection on the service (private_endpoints__create_or_update
+        does not add one), so the service-side Get, Update and Delete of the connection have nothing
+        to act on.
+      date: 2026-09-27
+
+  - id: network-pls-frontend-by-name
+    operations: [Microsoft.Network PrivateLinkServices CreateOrUpdate]
+    note: >-
+      The CLI's documented form (--lb-name with the frontend's name) builds the id with
+      `frontendIpConfigurations`; the load balancer stores `frontendIPConfigurations`.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        network vnet create --name {name:vnet} --resource-group {rg} --address-prefixes 10.23.0.0/16
+        --subnet-name pls --subnet-prefixes 10.23.1.0/24
+      - network vnet subnet update --vnet-name {name:vnet} --resource-group {rg} --name pls --private-link-service-network-policies Disabled
+      - >-
+        network lb create --name {name:lb} --resource-group {rg} --sku Standard --vnet-name {name:vnet}
+        --subnet pls --frontend-ip-name fe --backend-pool-name be
+    command: >-
+      network private-link-service create --name {name:pls} --resource-group {rg} --vnet-name {name:vnet}
+      --subnet pls --lb-name {name:lb} --lb-frontend-ip-configs fe --query name -o tsv
+    expect:
+      stdout: { equals: "{name:pls}" }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        L2: the emulator matches the frontend IP configuration id case-sensitively, so the id the CLI
+        builds (`.../frontendIpConfigurations/fe`) answers 400 InvalidResourceReference "was not
+        found" although the configuration exists as `.../frontendIPConfigurations/fe`; Azure
+        resource ids are case-insensitive. The same create with the stored id succeeds.
+      date: 2026-09-27
+
+  # --- Bastion (extension `bastion`; ssh, rdp and tunnel are refused by the policy) ---
+
+  - id: network-bastion
+    operations:
+      [
+        Microsoft.Network BastionHosts CreateOrUpdate,
+        Microsoft.Network BastionHosts Get,
+        Microsoft.Network BastionHosts List,
+        Microsoft.Network BastionHosts ListByResourceGroup,
+        Microsoft.Network BastionHosts UpdateTags,
+        Microsoft.Network BastionHosts Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        network vnet create --name {name:vnet} --resource-group {rg} --address-prefixes 10.21.0.0/16
+        --subnet-name AzureBastionSubnet --subnet-prefixes 10.21.1.0/26
+      - network public-ip create --name {name:pip} --resource-group {rg} --sku Standard
+      - >-
+        network bastion create --name {name:bas} --resource-group {rg} --location {location}
+        --vnet-name {name:vnet} --public-ip-address {name:pip}
+      - run: network bastion show --name {name:bas} --resource-group {rg} --query name -o tsv
+        until: { stdout: { equals: "{name:bas}" } }
+      - network bastion list --resource-group {rg}
+      - network bastion list --query "[?name=='{name:bas}'].name"
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/bastionHosts/{name:bas}?api-version=2023-09-01
+        --body '{"tags": {"matrix": "l2"}}'
+    command: network bastion delete --name {name:bas} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  # --- Classic Front Door (extension `front-door`; CI sets FRONT_DOOR_CLASSIC_ALLOW_CREATE=1) ---
+
+  - id: network-front-door
+    operations:
+      [
+        Microsoft.Network FrontDoors CreateOrUpdate,
+        Microsoft.Network FrontDoors Get,
+        Microsoft.Network FrontDoors List,
+        Microsoft.Network FrontDoors ListByResourceGroup,
+        Microsoft.Network FrontDoorFrontendEndpoints ListByFrontDoor,
+        Microsoft.Network FrontDoorFrontendEndpoints Get,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - network front-door create --name {name:fd} --resource-group {rg} --backend-address www.example.com
+      - run: network front-door show --name {name:fd} --resource-group {rg} --query name -o tsv
+        until: { stdout: { equals: "{name:fd}" } }
+      - network front-door list --resource-group {rg}
+      - network front-door list --query "[?name=='{name:fd}'].name"
+      - network front-door frontend-endpoint show --front-door-name {name:fd} --resource-group {rg} --name DefaultFrontendEndpoint
+    command: >-
+      network front-door frontend-endpoint list --front-door-name {name:fd} --resource-group {rg}
+      --query "[].name"
+    expect:
+      json: { path: "", equals: [DefaultFrontendEndpoint] }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-front-door-https-purge
+    operations:
+      [
+        Microsoft.Network FrontDoorFrontendEndpoints EnableHttps,
+        Microsoft.Network FrontDoorFrontendEndpoints DisableHttps,
+        Microsoft.Network FrontDoorEndpoints PurgeContent,
+        Microsoft.Network FrontDoors ValidateCustomDomain,
+        Microsoft.Network FrontDoors Delete,
+      ]
+    note: The benchmark's oracle (ta.py fd-disable-https).
+    setup:
+      - group create --name {rg} --location {location}
+      - network front-door create --name {name:fd} --resource-group {rg} --backend-address www.example.com
+      - >-
+        network front-door frontend-endpoint enable-https --front-door-name {name:fd} --resource-group {rg}
+        --name DefaultFrontendEndpoint
+      - >-
+        network front-door frontend-endpoint disable-https --front-door-name {name:fd} --resource-group {rg}
+        --name DefaultFrontendEndpoint
+      - network front-door purge-endpoint --name {name:fd} --resource-group {rg} --content-paths "/*"
+      - network front-door check-custom-domain --name {name:fd} --resource-group {rg} --host-name www.{id}.example.com
+    command: network front-door delete --name {name:fd} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-front-door-rules-engine
+    operations:
+      [
+        Microsoft.Network FrontDoorRulesEngines CreateOrUpdate,
+        Microsoft.Network FrontDoorRulesEngines Get,
+        Microsoft.Network FrontDoorRulesEngines ListByFrontDoor,
+        Microsoft.Network FrontDoorRulesEngines Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - network front-door create --name {name:fd} --resource-group {rg} --backend-address www.example.com
+      - >-
+        network front-door rules-engine rule create --front-door-name {name:fd} --resource-group {rg}
+        --name add-header --rules-engine-name headers --priority 1 --action-type RequestHeader
+        --header-action Overwrite --header-name X-L2 --header-value matrix --match-variable RequestMethod
+        --operator Equal --match-values GET
+      - run: network front-door rules-engine show --front-door-name {name:fd} --resource-group {rg} --name headers
+        until: { json: { path: name, equals: headers } }
+      - network front-door rules-engine list --front-door-name {name:fd} --resource-group {rg}
+    command: network front-door rules-engine delete --front-door-name {name:fd} --resource-group {rg} --name headers
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-front-door-name-check
+    operations:
+      [
+        Microsoft.Network FrontDoorNameAvailability Check,
+        Microsoft.Network FrontDoorNameAvailabilityWithSubscription Check,
+      ]
+    setup:
+      - >-
+        rest --method post --url /providers/Microsoft.Network/checkFrontDoorNameAvailability?api-version=2021-06-01
+        --body '{"name": "{name:fd}", "type": "Microsoft.Network/frontDoors"}'
+    command: network front-door check-name-availability --name {name:fd} --resource-type Microsoft.Network/frontDoors
+    expect:
+      json: { path: nameAvailability, equals: Available }
+
+  - id: network-front-door-waf
+    operations:
+      [
+        Microsoft.Network FrontDoorWafPolicies CreateOrUpdate,
+        Microsoft.Network FrontDoorWafPolicies Get,
+        Microsoft.Network FrontDoorWafPolicies List,
+        Microsoft.Network FrontDoorWafPolicies ListAll,
+        Microsoft.Network FrontDoorWafPolicies Update,
+        Microsoft.Network FrontDoorWafPolicies Delete,
+        Microsoft.Network FrontDoorWafManagedRuleSets List,
+      ]
+    note: The benchmark's oracle (td.py td-fd-waf-list-all) lists all policies with rest.
+    setup:
+      - group create --name {rg} --location {location}
+      - network front-door waf-policy create --name {alnum:waf} --resource-group {rg} --mode Detection
+      - run: network front-door waf-policy show --name {alnum:waf} --resource-group {rg} --query policySettings.mode -o tsv
+        until: { stdout: { equals: Detection } }
+      - network front-door waf-policy list --resource-group {rg}
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/providers/Microsoft.Network/FrontDoorWebApplicationFirewallPolicies?api-version=2022-05-01
+      - network front-door waf-policy update --name {alnum:waf} --resource-group {rg} --tags matrix=l2
+      - network front-door waf-policy managed-rule-definition list
+    command: network front-door waf-policy delete --name {alnum:waf} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  # --- Network experiments (td.py oracles, rest only: az has no command group for them) ---
+
+  - id: network-experiment-profile
+    operations:
+      [
+        Microsoft.Network NetworkExperimentProfiles CreateOrUpdate,
+        Microsoft.Network NetworkExperimentProfiles Get,
+        Microsoft.Network NetworkExperimentProfiles List,
+        Microsoft.Network NetworkExperimentProfiles ListByResourceGroup,
+        Microsoft.Network NetworkExperimentProfiles Update,
+        Microsoft.Network NetworkPreconfiguredEndpoints List,
+        Microsoft.Network NetworkExperimentProfiles Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/NetworkExperimentProfiles/{name:nep}?api-version=2019-11-01
+        --body '{"location": "{location}", "properties": {"enabledState": "Disabled"}}'
+      - run: >-
+          rest --method get
+          --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/NetworkExperimentProfiles/{name:nep}?api-version=2019-11-01
+        until: { json: { path: properties.enabledState, equals: Disabled } }
+      - rest --method get --url /subscriptions/{sub}/providers/Microsoft.Network/NetworkExperimentProfiles?api-version=2019-11-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/NetworkExperimentProfiles?api-version=2019-11-01
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/NetworkExperimentProfiles/{name:nep}?api-version=2019-11-01
+        --body '{"tags": {"matrix": "l2"}}'
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/NetworkExperimentProfiles/{name:nep}/preconfiguredEndpoints?api-version=2019-11-01
+    command: >-
+      rest --method delete
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/NetworkExperimentProfiles/{name:nep}?api-version=2019-11-01
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: network-experiment
+    operations:
+      [
+        Microsoft.Network NetworkExperiments CreateOrUpdate,
+        Microsoft.Network NetworkExperiments Get,
+        Microsoft.Network NetworkExperiments ListByProfile,
+        Microsoft.Network NetworkExperiments Update,
+        Microsoft.Network NetworkExperiments Delete,
+        Microsoft.Network NetworkReports GetLatencyScorecards,
+        Microsoft.Network NetworkReports GetTimeseries,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/NetworkExperimentProfiles/{name:nep}?api-version=2019-11-01
+        --body '{"location": "{location}", "properties": {"enabledState": "Enabled"}}'
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/NetworkExperimentProfiles/{name:nep}/Experiments/ab?api-version=2019-11-01
+        --body '{"location": "{location}", "properties": {"description": "l2", "endpointA": {"name": "a",
+        "endpoint": "a.example.com"}, "endpointB": {"name": "b", "endpoint": "b.example.com"}, "enabledState": "Enabled"}}'
+      - run: >-
+          rest --method get
+          --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/NetworkExperimentProfiles/{name:nep}/Experiments/ab?api-version=2019-11-01
+        until: { json: { path: properties.description, equals: l2 } }
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/NetworkExperimentProfiles/{name:nep}/Experiments?api-version=2019-11-01
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/NetworkExperimentProfiles/{name:nep}/Experiments/ab?api-version=2019-11-01
+        --body '{"properties": {"description": "l2-updated"}}'
+      - >-
+        rest --method get
+        --url "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/NetworkExperimentProfiles/{name:nep}/Experiments/ab/LatencyScorecard?api-version=2019-11-01&aggregationInterval=Daily"
+      - >-
+        rest --method get
+        --url "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/NetworkExperimentProfiles/{name:nep}/Experiments/ab/Timeseries?api-version=2019-11-01&aggregationInterval=Hourly&timeseriesType=MeasurementCounts&startDateTimeUTC=2026-09-01T00:00:00Z&endDateTimeUTC=2026-09-02T00:00:00Z"
+    command: >-
+      rest --method delete
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/NetworkExperimentProfiles/{name:nep}/Experiments/ab?api-version=2019-11-01
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait

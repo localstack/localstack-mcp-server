@@ -1,0 +1,344 @@
+# Microsoft.DBforPostgreSQL: flexible servers, databases, firewall rules, parameters, backups,
+# threat protection, and Cosmos DB for PostgreSQL clusters (ServerGroupsv2). A server runs a real
+# PostgreSQL container (ls-pg-flexible-*), so server cases are `backing: true`.
+# R.1: the typed server's fifteen skips were known gaps: the eleven ServerGroupsv2 operations (a
+# created cluster never persisted), CapturedLogs (404), and Stop, Start, Restart (the server state
+# thrashed back to Creating under its -n 8 load). A full run on 2026-09-28 saw them pass twice on
+# az 2.85 and a probe passed each operation, except the cluster Restart (az's poller fails on the
+# emulator's bare 202), which keeps a known-gap case of its own.
+provider: Microsoft.DBforPostgreSQL
+cases:
+  - id: pg-catalogue
+    operations:
+      [
+        Microsoft.DBforPostgreSQL CapabilitiesByLocation List,
+        Microsoft.DBforPostgreSQL NameAvailability CheckWithLocation,
+        Microsoft.DBforPostgreSQL Clusters CheckNameAvailability,
+        Microsoft.DBforPostgreSQL Operations List,
+      ]
+    setup:
+      - postgres flexible-server list-skus --location {location} --query "length(@) > `0`"
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/providers/Microsoft.DBforPostgreSQL/locations/{location}/checkNameAvailability?api-version=2024-08-01
+        --body '{"name": "{name:pg}", "type": "Microsoft.DBforPostgreSQL/flexibleServers"}'
+      - rest --method get --url /providers/Microsoft.DBforPostgreSQL/operations?api-version=2024-08-01
+    command: >-
+      rest --method post --url /subscriptions/{sub}/providers/Microsoft.DBforPostgreSQL/checkNameAvailability?api-version=2022-11-08
+      --body '{"name": "{name:pgc}", "type": "Microsoft.DBforPostgreSQL/serverGroupsv2"}'
+    expect:
+      json: { path: nameAvailable, equals: true }
+
+  - id: pg-server
+    operations:
+      [
+        Microsoft.DBforPostgreSQL FlexibleServers Servers_CreateOrUpdate,
+        Microsoft.DBforPostgreSQL FlexibleServers Servers_Get,
+        Microsoft.DBforPostgreSQL FlexibleServers Servers_ListByResourceGroup,
+        Microsoft.DBforPostgreSQL FlexibleServers Servers_ListBySubscription,
+        Microsoft.DBforPostgreSQL FlexibleServers Servers_Update,
+      ]
+    backing: true
+    note: The benchmark's oracles (ta.py pg-server-create, pg-servers-list); samples postgres flexible-server create/show.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        postgres flexible-server create --name {name:pg} --resource-group {rg} --location {location}
+        --tier Burstable --sku-name Standard_B1ms --version 16 --admin-user pgadmin
+        --admin-password LocalStack123! --public-access None --yes
+      - run: postgres flexible-server show --name {name:pg} --resource-group {rg} --query state -o tsv
+        until: { stdout: { equals: Ready } }
+      - postgres flexible-server list --resource-group {rg}
+      - postgres flexible-server list --query "[?name=='{name:pg}'].name"
+    command: postgres flexible-server update --name {name:pg} --resource-group {rg} --tags matrix=l2 --yes
+    expect:
+      json: { path: tags.matrix, equals: l2 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: pg-databases-firewall
+    operations:
+      [
+        Microsoft.DBforPostgreSQL FlexibleServers Databases_Create,
+        Microsoft.DBforPostgreSQL FlexibleServers Databases_Get,
+        Microsoft.DBforPostgreSQL FlexibleServers Databases_ListByServer,
+        Microsoft.DBforPostgreSQL FlexibleServers Databases_Delete,
+        Microsoft.DBforPostgreSQL FlexibleServers FirewallRules_CreateOrUpdate,
+        Microsoft.DBforPostgreSQL FlexibleServers FirewallRules_Get,
+        Microsoft.DBforPostgreSQL FlexibleServers FirewallRules_ListByServer,
+        Microsoft.DBforPostgreSQL FlexibleServers FirewallRules_Delete,
+      ]
+    backing: true
+    note: >-
+      Samples postgres flexible-server db and firewall-rule create. Enabled, not None: az sends
+      publicNetworkAccess Disabled for None, then refuses firewall rules on that server client-side
+      (MySQL has no such check). No flag az 2.86 renamed (db --database-name, and
+      firewall-rule --name/--rule-name, which became --server-name/--name): the creates go through
+      rest and the rest through --ids, so the case runs on 2.85 (AZ_MIN_VERSION) and 2.90 alike.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        postgres flexible-server create --name {name:pg} --resource-group {rg} --location {location}
+        --tier Burstable --sku-name Standard_B1ms --version 16 --admin-user pgadmin
+        --admin-password LocalStack123! --public-access Enabled --yes
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.DBforPostgreSQL/flexibleServers/{name:pg}/databases/shop?api-version=2024-08-01
+        --body '{"properties": {"charset": "UTF8", "collation": "en_US.utf8"}}'
+      - run: >-
+          postgres flexible-server db show
+          --ids /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.DBforPostgreSQL/flexibleServers/{name:pg}/databases/shop
+        until: { json: { path: name, equals: shop } }
+      - postgres flexible-server db list --server-name {name:pg} --resource-group {rg}
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.DBforPostgreSQL/flexibleServers/{name:pg}/firewallRules/office?api-version=2024-08-01
+        --body '{"properties": {"startIpAddress": "10.0.0.1", "endIpAddress": "10.0.0.9"}}'
+      - run: >-
+          postgres flexible-server firewall-rule show
+          --ids /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.DBforPostgreSQL/flexibleServers/{name:pg}/firewallRules/office
+        until: { json: { path: endIpAddress, equals: 10.0.0.9 } }
+      - >-
+        postgres flexible-server firewall-rule list
+        --ids /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.DBforPostgreSQL/flexibleServers/{name:pg}
+      - >-
+        postgres flexible-server firewall-rule delete
+        --ids /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.DBforPostgreSQL/flexibleServers/{name:pg}/firewallRules/office --yes
+    command: >-
+      postgres flexible-server db delete
+      --ids /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.DBforPostgreSQL/flexibleServers/{name:pg}/databases/shop --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: pg-parameters
+    operations:
+      [
+        Microsoft.DBforPostgreSQL FlexibleServers Configurations_Get,
+        Microsoft.DBforPostgreSQL FlexibleServers Configurations_ListByServer,
+        Microsoft.DBforPostgreSQL FlexibleServers Configurations_Put,
+        Microsoft.DBforPostgreSQL FlexibleServers Configurations_Update,
+      ]
+    backing: true
+    note: The benchmark's oracles (ta.py pg-parameter-get, pg-parameter-set).
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        postgres flexible-server create --name {name:pg} --resource-group {rg} --location {location}
+        --tier Burstable --sku-name Standard_B1ms --version 16 --admin-user pgadmin
+        --admin-password LocalStack123! --public-access None --yes
+      - postgres flexible-server parameter show --name max_connections --server-name {name:pg} --resource-group {rg}
+      - postgres flexible-server parameter list --server-name {name:pg} --resource-group {rg} --query "length(@) > `0`"
+      - postgres flexible-server parameter set --name max_connections --value 150 --server-name {name:pg} --resource-group {rg}
+    command: >-
+      rest --method patch
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.DBforPostgreSQL/flexibleServers/{name:pg}/configurations/work_mem?api-version=2024-08-01
+      --body '{"properties": {"value": "8192", "source": "user-override"}}'
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: pg-backups-admins-protection
+    operations:
+      [
+        Microsoft.DBforPostgreSQL FlexibleServers BackupsAutomaticAndOnDemand_Create,
+        Microsoft.DBforPostgreSQL FlexibleServers BackupsAutomaticAndOnDemand_Get,
+        Microsoft.DBforPostgreSQL FlexibleServers BackupsAutomaticAndOnDemand_ListByServer,
+        Microsoft.DBforPostgreSQL FlexibleServers BackupsAutomaticAndOnDemand_Delete,
+        Microsoft.DBforPostgreSQL FlexibleServers AdministratorsMicrosoftEntra_ListByServer,
+        Microsoft.DBforPostgreSQL FlexibleServers AdvancedThreatProtectionSettings_Get,
+        Microsoft.DBforPostgreSQL FlexibleServers AdvancedThreatProtectionSettings_ListByServer,
+        Microsoft.DBforPostgreSQL FlexibleServers ServerThreatProtectionSettings_CreateOrUpdate,
+        Microsoft.DBforPostgreSQL FlexibleServers CapabilitiesByServer_List,
+        Microsoft.DBforPostgreSQL FlexibleServers Replicas_ListByServer,
+        Microsoft.DBforPostgreSQL FlexibleServers PrivateLinkResources_ListByServer,
+      ]
+    backing: true
+    note: >-
+      tb.py postgres-threat-protection; td.py td-pg-capabilities. The backup commands avoid the flags
+      az 2.86 renamed (--name/--backup-name became --server-name/--name): rest creates, --ids reads.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        postgres flexible-server create --name {name:pg} --resource-group {rg} --location {location}
+        --tier Burstable --sku-name Standard_B1ms --version 16 --admin-user pgadmin
+        --admin-password LocalStack123! --public-access None --yes
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.DBforPostgreSQL/flexibleServers/{name:pg}/backups/manual1?api-version=2024-08-01
+      - run: >-
+          postgres flexible-server backup show
+          --ids /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.DBforPostgreSQL/flexibleServers/{name:pg}/backups/manual1
+        until: { json: { path: name, equals: manual1 } }
+      - >-
+        postgres flexible-server backup list
+        --ids /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.DBforPostgreSQL/flexibleServers/{name:pg}
+      - >-
+        postgres flexible-server backup delete
+        --ids /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.DBforPostgreSQL/flexibleServers/{name:pg}/backups/manual1 --yes
+      - postgres flexible-server microsoft-entra-admin list --server-name {name:pg} --resource-group {rg}
+      - postgres flexible-server advanced-threat-protection-setting update --server-name {name:pg} --resource-group {rg} --state Enabled
+      - postgres flexible-server advanced-threat-protection-setting show --server-name {name:pg} --resource-group {rg}
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.DBforPostgreSQL/flexibleServers/{name:pg}/advancedThreatProtectionSettings?api-version=2024-08-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.DBforPostgreSQL/flexibleServers/{name:pg}/capabilities?api-version=2024-08-01
+      - postgres flexible-server replica list --name {name:pg} --resource-group {rg}
+    command: network private-link-resource list --name {name:pg} --resource-group {rg} --type Microsoft.DBforPostgreSQL/flexibleServers
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: pg-delete
+    operations: [Microsoft.DBforPostgreSQL FlexibleServers Servers_Delete]
+    backing: true
+    note: The benchmark's oracle (ta.py pg-server-delete).
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        postgres flexible-server create --name {name:pg} --resource-group {rg} --location {location}
+        --tier Burstable --sku-name Standard_B1ms --version 16 --admin-user pgadmin
+        --admin-password LocalStack123! --public-access None --yes
+    command: postgres flexible-server delete --name {name:pg} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: pg-stop-start-restart
+    operations:
+      [
+        Microsoft.DBforPostgreSQL FlexibleServers Servers_Stop,
+        Microsoft.DBforPostgreSQL FlexibleServers Servers_Start,
+        Microsoft.DBforPostgreSQL FlexibleServers Servers_Restart,
+      ]
+    backing: true
+    note: >-
+      The benchmark's oracle (td.py td-pg-stop). A known gap until a full run on 2026-09-28 (typed server: Stop
+      answered 409 "in state Creating" under its -n 8 load); the case now runs all three.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        postgres flexible-server create --name {name:pg} --resource-group {rg} --location {location}
+        --tier Burstable --sku-name Standard_B1ms --version 16 --admin-user pgadmin
+        --admin-password LocalStack123! --public-access None --yes
+      - run: postgres flexible-server show --name {name:pg} --resource-group {rg} --query state -o tsv
+        until: { stdout: { equals: Ready } }
+      - postgres flexible-server stop --name {name:pg} --resource-group {rg}
+      - run: postgres flexible-server show --name {name:pg} --resource-group {rg} --query state -o tsv
+        until: { stdout: { equals: Stopped } }
+      - postgres flexible-server start --name {name:pg} --resource-group {rg}
+      - run: postgres flexible-server show --name {name:pg} --resource-group {rg} --query state -o tsv
+        until: { stdout: { equals: Ready } }
+    command: postgres flexible-server restart --name {name:pg} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: pg-captured-logs
+    operations: [Microsoft.DBforPostgreSQL FlexibleServers CapturedLogs_ListByServer]
+    backing: true
+    note: >-
+      A known gap until a full run on 2026-09-28 (typed server: GET .../capturedLogs answered 404).
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        postgres flexible-server create --name {name:pg} --resource-group {rg} --location {location}
+        --tier Burstable --sku-name Standard_B1ms --version 16 --admin-user pgadmin
+        --admin-password LocalStack123! --public-access None --yes
+    command: postgres flexible-server server-logs list --server-name {name:pg} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: pg-cluster
+    operations:
+      [
+        Microsoft.DBforPostgreSQL ServerGroupsv2 Clusters_Create,
+        Microsoft.DBforPostgreSQL ServerGroupsv2 Clusters_List,
+        Microsoft.DBforPostgreSQL ServerGroupsv2 Clusters_ListByResourceGroup,
+      ]
+    backing: true
+    note: Cosmos DB for PostgreSQL (td.py td-pg-cluster-server); the create answers without persisting.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        cosmosdb postgres cluster create --name {name:pgc} --resource-group {rg} --location {location}
+        --node-count 0 --coordinator-server-edition GeneralPurpose --coordinator-v-cores 2
+        --coordinator-storage 131072 --administrator-login-password LocalStack123!
+      - cosmosdb postgres cluster list --resource-group {rg}
+    command: cosmosdb postgres cluster list --query "length(@) >= `0`"
+    expect:
+      json: { path: "", equals: true }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: pg-cluster-persisted
+    operations:
+      [
+        Microsoft.DBforPostgreSQL ServerGroupsv2 Clusters_Get,
+        Microsoft.DBforPostgreSQL ServerGroupsv2 Clusters_Delete,
+        Microsoft.DBforPostgreSQL ServerGroupsv2 Clusters_Start,
+        Microsoft.DBforPostgreSQL ServerGroupsv2 Clusters_Stop,
+        Microsoft.DBforPostgreSQL ServerGroupsv2 FirewallRules_CreateOrUpdate,
+        Microsoft.DBforPostgreSQL ServerGroupsv2 FirewallRules_Get,
+        Microsoft.DBforPostgreSQL ServerGroupsv2 FirewallRules_Delete,
+        Microsoft.DBforPostgreSQL ServerGroupsv2 FirewallRules_ListByCluster,
+        Microsoft.DBforPostgreSQL ServerGroupsv2 Servers_Get,
+        Microsoft.DBforPostgreSQL ServerGroupsv2 Servers_ListByCluster,
+      ]
+    backing: true
+    note: >-
+      A known gap until a full run on 2026-09-28 (typed server: the created cluster never persisted); a probe then
+      passed each of these operations. Restart is its own known gap below.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        cosmosdb postgres cluster create --name {name:pgc} --resource-group {rg} --location {location}
+        --node-count 0 --coordinator-server-edition GeneralPurpose --coordinator-v-cores 2
+        --coordinator-storage 131072 --administrator-login-password LocalStack123!
+      - cosmosdb postgres cluster show --name {name:pgc} --resource-group {rg}
+      - >-
+        cosmosdb postgres firewall-rule create --cluster-name {name:pgc} --resource-group {rg}
+        --name office --start-ip-address 10.0.0.1 --end-ip-address 10.0.0.9
+      - cosmosdb postgres firewall-rule show --cluster-name {name:pgc} --resource-group {rg} --name office
+      - cosmosdb postgres firewall-rule list --cluster-name {name:pgc} --resource-group {rg}
+      - cosmosdb postgres firewall-rule delete --cluster-name {name:pgc} --resource-group {rg} --name office --yes
+      - run: cosmosdb postgres cluster server list --cluster-name {name:pgc} --resource-group {rg} --query "[0].name" -o tsv
+        capture: pgc_server
+      - cosmosdb postgres cluster server show --cluster-name {name:pgc} --resource-group {rg} --server-name {pgc_server}
+      - cosmosdb postgres cluster stop --cluster-name {name:pgc} --resource-group {rg}
+      - cosmosdb postgres cluster start --cluster-name {name:pgc} --resource-group {rg}
+    command: cosmosdb postgres cluster delete --name {name:pgc} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: pg-cluster-restart
+    operations: [Microsoft.DBforPostgreSQL ServerGroupsv2 Clusters_Restart]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        cosmosdb postgres cluster create --name {name:pgc} --resource-group {rg} --location {location}
+        --node-count 0 --coordinator-server-edition GeneralPurpose --coordinator-v-cores 2
+        --coordinator-storage 131072 --administrator-login-password LocalStack123!
+    command: cosmosdb postgres cluster restart --cluster-name {name:pgc} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        The emulator answers the restart POST with 202 and no Location or
+        Azure-AsyncOperation header, so az's poller fails client-side ("TypeError: 'NoneType' object
+        is not callable" in azure-core's _parse_resource). The same POST through rest answers {}.
+      date: 2026-09-28

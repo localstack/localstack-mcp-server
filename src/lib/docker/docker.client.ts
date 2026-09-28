@@ -1,7 +1,11 @@
 import { PassThrough } from "stream";
 import { createRequire } from "node:module";
 import { LOCALSTACK_PORT } from "../../core/config";
-import type { LocalStackContainerSpec } from "../localstack/container-spec.logic";
+import {
+  stackFromImage,
+  type LocalStackContainerSpec,
+  type LocalStackStack,
+} from "../localstack/container-spec.logic";
 
 export interface ContainerExecResult {
   stdout: string;
@@ -104,9 +108,34 @@ export interface ContainerMetadata {
   id: string;
   name?: string;
   image?: string;
+  /** `Config.Labels`; the Azure image's `description` label identifies bare-ID containers. */
+  labels?: Record<string, string>;
   env?: string[];
   mounts?: ContainerMountInfo[];
+  /** `HostConfig.PortBindings`: container port ("4566/tcp") to its host bindings. */
+  portBindings?: Record<string, Array<{ HostIp?: string; HostPort?: string }> | null>;
+  /** The container's IP on each network it is attached to. */
+  ipAddresses?: string[];
 }
+
+interface RunningContainerSummary {
+  Id: string;
+  Names?: string[];
+  Image?: string;
+  Labels?: Record<string, string>;
+  Ports?: Array<{ PrivatePort?: number; PublicPort?: number; Type?: string }>;
+}
+
+const STACK_LABELS: Record<LocalStackStack, string> = {
+  aws: "AWS",
+  snowflake: "Snowflake",
+  azure: "Azure",
+};
+
+/** Container names LocalStack tooling uses, in lookup priority order. */
+const KNOWN_CONTAINER_NAMES = ["localstack-main", "localstack-aws", "localstack-azure"];
+/** lstk names the Azure container `localstack-azure-<tag>` when the tag is not `latest`. */
+const LSTK_AZURE_TAGGED_NAME = /^localstack-azure-[A-Za-z0-9._-]+$/;
 
 export class LocalStackContainerNotFoundError extends Error {
   constructor(message: string) {
@@ -144,18 +173,26 @@ export class DockerApiClient {
     return (container.Names || []).some((n) => this.normalizeContainerName(n) === configuredName);
   }
 
+  /**
+   * Whether the container publishes the configured gateway port on the host. The
+   * container side is 4566 by default, but the spec builder publishes GATEWAY_LISTEN
+   * entries 1:1 (container 4666 -> host 4666), so the container port may also equal
+   * the configured one.
+   */
   private publishesConfiguredGatewayPort(container: {
     Ports?: Array<{ PrivatePort?: number; PublicPort?: number; Type?: string }>;
   }): boolean {
     const configuredPort = Number(process.env.LOCALSTACK_PORT || LOCALSTACK_PORT);
     return (container.Ports || []).some(
       (port) =>
-        port.Type === "tcp" && port.PrivatePort === 4566 && port.PublicPort === configuredPort
+        port.Type === "tcp" &&
+        port.PublicPort === configuredPort &&
+        (port.PrivatePort === 4566 || port.PrivatePort === configuredPort)
     );
   }
 
   private hasLocalStackImage(container: { Image?: string }): boolean {
-    return /^(?:[^/]+\/)?localstack\/(?:localstack(?:-pro)?|snowflake|localstack-azure-alpha)(?::|@|$)/.test(
+    return /^(?:[^/]+\/)?localstack\/(?:localstack(?:-pro)?|snowflake|localstack-azure(?:-alpha)?)(?::|@|$)/.test(
       container.Image || ""
     );
   }
@@ -191,24 +228,67 @@ export class DockerApiClient {
     );
   }
 
-  private findByKnownLocalStackName<T extends { Names?: string[] }>(
-    containers: T[]
-  ): T | undefined {
-    return ["localstack-main", "localstack-aws"]
-      .map((name) => containers.find((c) => this.matchesConfiguredContainerName(c, name)))
-      .find(Boolean);
+  /** Containers with a known LocalStack name, in priority order. */
+  private findByKnownLocalStackNames<T extends { Names?: string[] }>(containers: T[]): T[] {
+    const byExactName = KNOWN_CONTAINER_NAMES.map((name) =>
+      containers.find((c) => this.matchesConfiguredContainerName(c, name))
+    ).filter((c): c is T => Boolean(c));
+    const byLstkTag = containers.filter(
+      (c) =>
+        !byExactName.includes(c) &&
+        (c.Names || []).some((n) => LSTK_AZURE_TAGGED_NAME.test(this.normalizeContainerName(n)))
+    );
+    return [...byExactName, ...byLstkTag];
   }
 
-  async findLocalStackContainer(): Promise<string> {
-    const running = (await (this.docker.listContainers as any)({
-      filters: { status: ["running"] },
-    })) as Array<{
-      Id: string;
-      Names?: string[];
-      Image?: string;
-      Ports?: Array<{ PrivatePort?: number; PublicPort?: number; Type?: string }>;
-    }>;
+  private containerLabel(container: RunningContainerSummary): string {
+    const name = this.normalizeContainerName(container.Names?.[0]);
+    return `"${name || container.Id}"`;
+  }
 
+  /** A candidate of a known, different stack is skipped; an unknown one is kept. */
+  private isStackCompatible(container: RunningContainerSummary, stack: LocalStackStack): boolean {
+    const actual = stackFromImage(container.Image, container.Labels);
+    return actual === undefined || actual === stack;
+  }
+
+  /**
+   * Find the running LocalStack container. With `stack`, containers that belong to a
+   * different stack are skipped, and a failure names the container that was found.
+   */
+  async findLocalStackContainer(opts: { stack?: LocalStackStack } = {}): Promise<string> {
+    const running = ((await (this.docker.listContainers as any)({
+      filters: { status: ["running"] },
+    })) || []) as RunningContainerSummary[];
+
+    if (!opts.stack) return this.selectLocalStackContainer(running);
+
+    const expected = opts.stack;
+    try {
+      return this.selectLocalStackContainer(
+        running.filter((container) => this.isStackCompatible(container, expected))
+      );
+    } catch (error) {
+      if (!isLocalStackContainerNotFoundError(error)) throw error;
+      let otherId: string | undefined;
+      try {
+        otherId = this.selectLocalStackContainer(running);
+      } catch {
+        otherId = undefined;
+      }
+      const other = running.find((container) => container.Id === otherId);
+      const otherStack = other ? stackFromImage(other.Image, other.Labels) : undefined;
+      if (other && otherStack && otherStack !== expected) {
+        throw new LocalStackContainerNotFoundError(
+          `The running LocalStack container ${this.containerLabel(other)} (image: ${other.Image}) is the ` +
+            `${STACK_LABELS[otherStack]} stack, not the ${STACK_LABELS[expected]} stack this tool needs.`
+        );
+      }
+      throw error;
+    }
+  }
+
+  private selectLocalStackContainer(running: RunningContainerSummary[]): string {
     const explicitName = (
       process.env.MAIN_CONTAINER_NAME ||
       process.env.LOCALSTACK_MAIN_CONTAINER_NAME ||
@@ -224,14 +304,27 @@ export class DockerApiClient {
     }
 
     if (!explicitName) {
-      const byKnownName = this.findByKnownLocalStackName(running || []);
-      if (byKnownName) return byKnownName.Id as string;
+      const explicitPort = Boolean(process.env.LOCALSTACK_PORT?.trim());
+      const knownNames = this.findByKnownLocalStackNames(running || []);
+      if (knownNames.length > 0 && !explicitPort) return knownNames[0].Id as string;
+      if (knownNames.length > 0 && explicitPort) {
+        // With an explicit port, a known name alone is not enough: the owner's shared
+        // `localstack-azure` on 4566 must never be picked by a server configured for a
+        // test emulator on another port (plan review F01).
+        const onPort = knownNames.filter((c) => this.publishesConfiguredGatewayPort(c));
+        if (onPort.length === 1) return onPort[0].Id as string;
+        if (onPort.length > 1) {
+          throw new LocalStackContainerNotFoundError(
+            `Found several LocalStack containers publishing the configured gateway port ${process.env.LOCALSTACK_PORT}: ` +
+              `${onPort.map((c) => this.containerLabel(c)).join(", ")}. Set MAIN_CONTAINER_NAME to the one to use.`
+          );
+        }
+      }
 
       const localstackImages = (running || []).filter((c) => this.hasLocalStackImage(c));
       const byGatewayPort = localstackImages.find((c) => this.publishesConfiguredGatewayPort(c));
       if (byGatewayPort) return byGatewayPort.Id as string;
 
-      const explicitPort = Boolean(process.env.LOCALSTACK_PORT?.trim());
       if (explicitPort && localstackImages.length > 0) {
         throw new LocalStackContainerNotFoundError(
           `Found running LocalStack containers, but none publishes the configured gateway port ${process.env.LOCALSTACK_PORT}. ` +
@@ -261,6 +354,7 @@ export class DockerApiClient {
       id: containerId,
       name: this.normalizeContainerName(inspect?.Name),
       image: inspect?.Config?.Image,
+      labels: inspect?.Config?.Labels || undefined,
       env: inspect?.Config?.Env,
       mounts: (inspect?.Mounts || []).map(
         (mount: { Type?: string; Name?: string; Source?: string; Destination?: string }) => ({
@@ -270,7 +364,17 @@ export class DockerApiClient {
           destination: mount.Destination,
         })
       ),
+      portBindings: inspect?.HostConfig?.PortBindings || undefined,
+      ipAddresses: this.containerIps(inspect?.NetworkSettings?.Networks),
     };
+  }
+
+  /** The container's IP on each attached network; undefined when there is none. */
+  private containerIps(networks: unknown): string[] | undefined {
+    const ips = Object.values((networks || {}) as Record<string, { IPAddress?: string }>)
+      .map((network) => network?.IPAddress)
+      .filter((ip): ip is string => Boolean(ip));
+    return ips.length ? ips : undefined;
   }
 
   /**
@@ -398,6 +502,25 @@ export class DockerApiClient {
       timeoutMs,
       "Docker image inspect"
     );
+  }
+
+  /**
+   * The image's baked-in `Config.Env` (an array of `KEY=value`). Used on restart to tell a
+   * container's operator-set env (the flags to carry over) from the image's own defaults
+   *. Best-effort: returns [] if the image cannot be inspected, so the caller falls
+   * back to its system-var backstop rather than failing the restart.
+   */
+  async imageConfigEnv(imageName: string, timeoutMs = 30000): Promise<string[]> {
+    try {
+      const info = (await this.withDockerRequestTimeout(
+        this.docker.getImage(imageName).inspect(),
+        timeoutMs,
+        "Docker image inspect"
+      )) as { Config?: { Env?: string[] } };
+      return info?.Config?.Env ?? [];
+    } catch {
+      return [];
+    }
   }
 
   /**

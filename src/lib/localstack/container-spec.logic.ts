@@ -17,19 +17,52 @@
 export const DEFAULT_CONTAINER_NAME = "localstack-main";
 export const DEFAULT_AWS_IMAGE = "localstack/localstack-pro:latest";
 export const DEFAULT_SNOWFLAKE_IMAGE = "localstack/snowflake:latest";
+export const DEFAULT_AZURE_IMAGE = "localstack/localstack-azure:latest";
 export const DEFAULT_GATEWAY_CONTAINER_PORT = 4566;
 export const DEFAULT_HTTPS_GATEWAY_PORT = 443;
 export const DEFAULT_SERVICE_PORT_START = 4510;
 export const DEFAULT_SERVICE_PORT_END = 4560; // inclusive — 51 ports, CLI parity
 export const NAMED_VOLUME_NAME = "localstack-mcp";
+/**
+ * The LOCALSTACK_CLIENT_NAME this server stamps on every container it starts. A restart reads it
+ * back to tell its own containers from externally started ones, so it lives here once.
+ */
+export const MCP_CLIENT_NAME = "localstack-mcp-server";
 const VOLUME_CONTAINER_PATH = "/var/lib/localstack";
 const DOCKER_SOCKET_CONTAINER_PATH = "/var/run/docker.sock";
 
 /**
+ * Settings of the Azure client tool. They configure this server, not the emulator.
+ * Listed by name (not by prefix), so that emulator settings a user passes as
+ * `LOCALSTACK_AZURE_*` still reach the container.
+ */
+export const AZURE_CLIENT_ENV_KEYS = [
+  "LOCALSTACK_AZURE_PORT",
+  "LOCALSTACK_AZURE_ENDPOINT",
+  "LOCALSTACK_AZURE_IMAGE_NAME", // selects the image; not runtime config
+  "LOCALSTACK_AZURE_FORWARD_TARGET",
+  "LOCALSTACK_AZ_PATH",
+  "LOCALSTACK_AZ_CONFIG_DIR",
+  "LOCALSTACK_AZ_EXTENSION_DIR",
+  "LOCALSTACK_AZ_BICEP_PATH",
+  "LOCALSTACK_AZ_TIMEOUT_SECONDS",
+  "LOCALSTACK_AZ_MAX_OUTPUT_CHARS",
+  "LOCALSTACK_AZ_MAX_HELP_CHARS",
+  "LOCALSTACK_AZ_WORKDIR",
+  "LOCALSTACK_AZ_EGRESS_GUARD",
+  "LOCALSTACK_AZ_DENYLIST_FILE",
+  "LOCALSTACK_AZ_RUNNER",
+  "LOCALSTACK_AZ_PYCACHE_DIR",
+  "LOCALSTACK_AZ_TEST_ENVELOPE",
+] as const;
+
+/**
  * Env vars that configure how MCP clients/tools reach LocalStack. They must never
  * leak into the runtime container, where they would corrupt its own URL generation.
+ * The container entrypoint re-exports `LOCALSTACK_X` as `X`, so an Azure client
+ * setting such as `LOCALSTACK_AZ_CONFIG_DIR` would otherwise arrive as a host path.
  */
-const CLIENT_ONLY_ENV_KEYS = new Set([
+const CLIENT_ONLY_ENV_KEYS = new Set<string>([
   "HOSTNAME",
   "LOCALSTACK_HOSTNAME",
   "LOCALSTACK_PORT",
@@ -41,6 +74,7 @@ const CLIENT_ONLY_ENV_KEYS = new Set([
   "LOCALSTACK_API_KEY",
   "LOCALSTACK_IMAGE_NAME", // selects the image; not runtime config
   "LOCALSTACK_VOLUME_DIR", // host-side path; meaningless inside the container
+  ...AZURE_CLIENT_ENV_KEYS,
 ]);
 
 /**
@@ -80,7 +114,7 @@ const AI_AGENT_DETECTORS: Array<[string, string[]]> = [
   ["replit", ["REPL_ID"]],
 ];
 
-export type LocalStackStack = "aws" | "snowflake";
+export type LocalStackStack = "aws" | "snowflake" | "azure";
 
 export type VolumeResolution = { type: "bind"; source: string } | { type: "volume"; name: string };
 
@@ -128,15 +162,47 @@ export function resolveImage(
   hostEnv: Record<string, string | undefined>
 ): string {
   if (stack === "snowflake") return DEFAULT_SNOWFLAKE_IMAGE;
+  if (stack === "azure") {
+    // Only the Azure-specific override: an AWS IMAGE_NAME must not hijack the Azure stack.
+    return hostEnv.LOCALSTACK_AZURE_IMAGE_NAME?.trim() || DEFAULT_AZURE_IMAGE;
+  }
   const override = hostEnv.LOCALSTACK_IMAGE_NAME?.trim() || hostEnv.IMAGE_NAME?.trim();
   return override || DEFAULT_AWS_IMAGE;
 }
 
-/** Which stack a LocalStack container image belongs to (undefined when unknown). */
-export function stackFromImage(image?: string): LocalStackStack | undefined {
-  if (!image) return undefined;
-  if (/\/snowflake(:|@|$)/.test(image)) return "snowflake";
+const AZURE_IMAGE = /(^|\/)localstack-azure(-alpha)?(:|@|$)/;
+const BARE_IMAGE_ID = /^(sha256:)?[0-9a-f]{12,64}$/;
+
+/**
+ * Which stack a LocalStack container image belongs to (undefined when unknown).
+ *
+ * `labels` are the container's `Config.Labels`: the Azure image's `description` label
+ * names Azure, which identifies a container started from a bare image ID (as `docker
+ * ps` shows once the tag has moved on). A bare ID without that label is unknown, not
+ * AWS; any other named image keeps the historical "aws" default.
+ */
+export function stackFromImage(
+  image?: string,
+  labels?: Record<string, string | undefined>
+): LocalStackStack | undefined {
+  if (image && /\/snowflake(:|@|$)/.test(image)) return "snowflake";
+  if (image && AZURE_IMAGE.test(image)) return "azure";
+  if (/azure/i.test(labels?.description ?? "")) return "azure";
+  if (!image || BARE_IMAGE_ID.test(image)) return undefined;
   return "aws";
+}
+
+/**
+ * Which stack a gateway's health `edition` names (undefined when unknown). Verified
+ * values: `pro` and `bigdata-pro` (AWS), `azure-alpha` (Azure). The Snowflake value
+ * is unconfirmed (plan Q21), so anything with "snowflake" in it counts.
+ */
+export function stackFromEdition(edition?: string): LocalStackStack | undefined {
+  const value = (edition || "").trim().toLowerCase();
+  if (!value || value === "unknown") return undefined;
+  if (value.includes("azure")) return "azure";
+  if (value.includes("snowflake")) return "snowflake";
+  return "aws"; // pro, bigdata-pro, community, enterprise, ...
 }
 
 export function resolveContainerName(hostEnv: Record<string, string | undefined>): string {
@@ -424,7 +490,7 @@ function buildEnv(input: ContainerSpecInput, ports: ResolvedPorts, name: string)
   env.set("EXTERNAL_SERVICE_PORTS_END", String(ports.servicePortEnd));
   env.set("DOCKER_HOST", `unix://${DOCKER_SOCKET_CONTAINER_PATH}`);
   env.set("LOCALSTACK_AUTH_TOKEN", input.authToken);
-  env.set("LOCALSTACK_CLIENT_NAME", "localstack-mcp-server");
+  env.set("LOCALSTACK_CLIENT_NAME", MCP_CLIENT_NAME);
   env.set("LOCALSTACK_CLIENT_VERSION", input.serverVersion);
   const aiAgent = detectAiAgent(hostEnv);
   if (aiAgent) env.set("AI_AGENT", aiAgent);

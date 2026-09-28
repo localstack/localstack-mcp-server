@@ -8,6 +8,7 @@ import {
   requireAuthToken,
   requireLocalStackRunning,
   requireProFeature,
+  requireStack,
 } from "../core/preflight";
 import { withToolAnalytics } from "../core/analytics";
 import { ProFeature } from "../lib/localstack/license-checker";
@@ -67,6 +68,7 @@ export default async function localstackStateManagement(args: StateManagementArg
     async () => {
       const preflightError = await runPreflights([
         requireAuthToken(),
+        requireStack("aws", "localstack-state-management"),
         requireLocalStackRunning(),
         requireProFeature(ProFeature.STATE_MANAGEMENT),
       ]);

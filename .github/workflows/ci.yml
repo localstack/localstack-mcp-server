@@ -9,34 +9,102 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # The prettier step diffs against origin/main (plan review R02, N7).
+          fetch-depth: 0
 
-      - name: Use Node.js 20
-        uses: actions/setup-node@v2
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
         with:
           node-version: 22.x
 
       - name: Install dependencies
-        run: yarn
+        run: yarn install --frozen-lockfile
 
       - name: Audit production dependencies
+        if: matrix.os == 'ubuntu-latest'
         run: npx audit-ci --high --skip-dev
 
-      - name: Type-check
-        run: npx tsc --noEmit
+      - name: Type-check (src and the test code)
+        run: npx tsc --noEmit && npx tsc --noEmit -p tsconfig.tests.json
 
-      - name: Unit tests
-        run: yarn test
+      - name: Prettier on the changed files
+        # Only the changed files: prettier already fails at HEAD on localstack.client.ts.
+        if: matrix.os == 'ubuntu-latest' && github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          files=$(git diff --name-only --diff-filter=d origin/main... -- '*.ts' '*.mjs')
+          if [ -n "$files" ]; then npx prettier --check $files; fi
+
+      - name: Unit tests, with the Azure coverage gate
+        # The threshold is the gate (plan review R02, F31).
+        shell: bash
+        run: >-
+          yarn test --ci --coverage
+          --collectCoverageFrom='src/lib/azure/**/*.ts'
+          --collectCoverageFrom='!src/lib/azure/**/*.test.ts'
+          --collectCoverageFrom='!src/lib/azure/testing/**'
+          --collectCoverageFrom='src/lib/cli/**/*.ts'
+          --collectCoverageFrom='!src/lib/cli/**/*.test.ts'
+          --collectCoverageFrom='src/tools/localstack-azure-client.ts'
+          --coverageThreshold='{"global":{"lines":90}}'
 
       - name: Build the project
         run: yarn build
 
+      - name: Install az (macOS, when the image lacks it)
+        if: matrix.os == 'macos-latest'
+        run: command -v az || brew install azure-cli
+
+      - name: Pinned Bicep for the spawn smoke (ubuntu, macOS)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64) asset=bicep-linux-x64; sum=64c345a58e0c3e48b1bc98a4e62d6b3adb1d238281297de3400aeafb2697aa5a ;;
+            Linux-aarch64) asset=bicep-linux-arm64; sum=4406214cc274cfac7c821552aec2178b80aec637d91ed8b244282964c1cf24e3 ;;
+            Darwin-arm64) asset=bicep-osx-arm64; sum=68046a084c88503cf6bd11dacf2a1c4ffcb7e3ac9c6b310d295e024af21bbea4 ;;
+            Darwin-x86_64) asset=bicep-osx-x64; sum=8ba5771b5261413d88583829f2ea24509eb65b06d899620c17283ecb60d5ca73 ;;
+            *) echo "no pinned Bicep for $(uname -s)-$(uname -m)"; exit 0 ;;
+          esac
+          mkdir -p "$HOME/bicep-bin"
+          curl -fsSL -o "$HOME/bicep-bin/bicep" "https://github.com/Azure/bicep/releases/download/v0.47.16/$asset"
+          echo "$sum  $HOME/bicep-bin/bicep" | shasum -a 256 -c -
+          chmod +x "$HOME/bicep-bin/bicep"
+          echo "LOCALSTACK_AZ_BICEP_PATH=$HOME/bicep-bin/bicep" >> "$GITHUB_ENV"
+
+      - name: az spawn smoke (the runner's real az, no emulator)
+        run: npx jest src/lib/azure/spawn.smoke
+        env:
+          AZ_SMOKE: "1"
+
+      - name: az spawn smoke with a pip az (Windows)
+        # The only job with the pip layout (plan section 8).
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/az"
+          "$RUNNER_TEMP/az/Scripts/pip" install --quiet azure-cli==2.90.0
+          npx jest src/lib/azure/spawn.smoke
+        env:
+          AZ_SMOKE: "1"
+          LOCALSTACK_AZ_PATH: ${{ runner.temp }}\az\Scripts\python.exe
+
   mcp-direct-tests:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     env:
       LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
 
@@ -50,7 +118,7 @@ jobs:
           node-version: 22.x
 
       - name: Install dependencies
-        run: yarn
+        run: yarn install --frozen-lockfile
 
       - name: Run MCP Server Tester
         run: yarn test:mcp:direct

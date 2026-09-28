@@ -1,0 +1,357 @@
+name: Azure weekly
+
+# The heavy Azure suites (plan section 8): the L2 matrix sharded x4, L3 in full with the
+# internal-network job, L4 over all samples, the drift gates DR1-DR8, the az version
+# matrix (DR3), and E2 when an API key exists. A summary job opens or updates a tracking
+# issue on failure.
+on:
+  schedule:
+    - cron: "0 7 * * 1" # Mondays 07:00 UTC, as the typed server had it
+  workflow_dispatch:
+  repository_dispatch:
+    # samples-changed: sent by localstack-azure-samples (re-pointed from the typed repo);
+    # azure-emulator-release: for an emulator release hook, when the platform sends one.
+    types: [samples-changed, azure-emulator-release]
+
+permissions:
+  contents: read
+
+env:
+  AZ_VERSION: "2.90.0"
+  AZ_MIN_VERSION: "2.85.0"
+  SAMPLES_COMMIT: "5ae698478bd4810b619469959b73c61f326bc569"
+  LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+  LOCALSTACK_AZ_PATH: /home/runner/az/bin/python3
+  LOCALSTACK_AZ_BICEP_PATH: /home/runner/bicep-bin/bicep
+  AZURE_CI_EMULATOR_CONTAINER: ls-azure-ci
+  MCP_ANALYTICS_DISABLED: "1"
+
+jobs:
+  matrix:
+    name: L2 matrix (shard ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/azure-live-setup
+        with:
+          az-version: ${{ env.AZ_VERSION }}
+      - name: Start this shard's own emulator
+        run: bash scripts/ci/azure-emulator-up.sh
+      - name: The full matrix, this shard's cases
+        run: AZURE_LIVE=1 npx jest -c jest.azure-live.config.js --selectProjects matrix-full --runInBand
+        env:
+          AZURE_MATRIX_SHARD: ${{ matrix.shard }}/4
+          AZURE_MATRIX_BACKING: "1"
+          AZURE_OP_CATALOGUE_OUT: test-results/azure-op-catalogue-${{ matrix.shard }}.json
+      - name: Emulator logs
+        if: always()
+        run: mkdir -p emulator-logs && docker logs "$AZURE_CI_EMULATOR_CONTAINER" > emulator-logs/emulator.log 2>&1 || true
+      - name: Scan for the token before any upload
+        id: scan
+        if: always()
+        run: node scripts/ci/scan-for-secret.mjs emulator-logs test-results
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.scan.outcome == 'success'
+        with:
+          name: azure-matrix-shard-${{ matrix.shard }}
+          path: |
+            test-results/
+            emulator-logs/
+          retention-days: 7
+
+  # One catalogue for the portal's inventory gate (R.2), kept longer than the shards: the
+  # portal's own weekly runs at the same hour and reads it by artifact name.
+  catalogue:
+    name: Merged operation catalogue (for the portal)
+    needs: matrix
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: azure-matrix-shard-*
+          path: shards
+      - name: Merge the shard catalogues (best result per operation)
+        run: node scripts/ci/merge-op-catalogue.cjs --out catalogue/azure-op-catalogue.json shards
+      - uses: actions/upload-artifact@v4
+        with:
+          name: azure-op-catalogue
+          path: catalogue/azure-op-catalogue.json
+          retention-days: 30
+
+  egress:
+    name: L3 egress (guard records, home guard, leak replay)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/azure-live-setup
+        with:
+          az-version: ${{ env.AZ_VERSION }}
+      - run: bash scripts/ci/azure-emulator-up.sh
+      - name: L3 in full, including the stop-between-calls case and the leak replay
+        run: AZURE_LIVE=1 npx jest -c jest.azure-live.config.js --selectProjects egress --runInBand
+        env:
+          AZURE_EGRESS_CI: "1"
+          AZURE_EGRESS_REPORT: test-results/egress-steps.jsonl
+      - name: Emulator logs, then remove the job's emulator
+        if: always()
+        run: |
+          mkdir -p emulator-logs
+          docker logs "$AZURE_CI_EMULATOR_CONTAINER" > emulator-logs/emulator.log 2>&1 || true
+          docker rm -f "$AZURE_CI_EMULATOR_CONTAINER" || true
+      - id: scan
+        if: always()
+        run: node scripts/ci/scan-for-secret.mjs --env LOCALSTACK_AUTH_TOKEN emulator-logs test-results
+      - uses: actions/upload-artifact@v4
+        if: failure() && steps.scan.outcome == 'success'
+        with:
+          name: azure-egress-logs
+          path: |
+            test-results/
+            emulator-logs/
+          retention-days: 7
+
+  egress-internal-network:
+    name: L3 internal network (no route to the internet)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      EGRESS_INTERNAL_OUT: ${{ github.workspace }}/egress-internal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+      - name: Build the server image under test
+        run: docker build -t localstack/localstack-mcp-server:ci .
+      - run: docker pull --quiet localstack/localstack-azure:latest
+      # Feasibility first: licence activation while dual-homed, and reachability on the
+      # internal network (tests/azure/egress-internal/README.md).
+      - name: Dual-homed emulator, MCP server on an internal network only
+        run: bash tests/azure/egress-internal/run.sh
+        env:
+          MCP_SERVER_IMAGE: localstack/localstack-mcp-server:ci
+      # run.sh has already replaced any token in these files.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: egress-internal
+          path: egress-internal/
+          retention-days: 7
+
+  samples-all:
+    name: L4 all samples
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      AZURE_CI_EMULATOR_CONTAINER: ls-azure-samples
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/azure-live-setup
+        with:
+          az-version: ${{ env.AZ_VERSION }}
+      - name: Samples repo at the pinned commit
+        uses: actions/checkout@v4
+        with:
+          repository: localstack/localstack-azure-samples
+          ref: ${{ env.SAMPLES_COMMIT }}
+          path: samples-repo
+      # The samples repo's own tool list (its .github/workflows/run-samples.yml), without az:
+      # the shim is the samples' az.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.0"
+          terraform_wrapper: false
+      - name: System packages (jq, zip, the MySQL, PostgreSQL and SQL Server clients)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y jq zip unixodbc-dev libsnappy-dev default-mysql-client postgresql-client
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
+          curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc >/dev/null
+          curl -fsSL "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list" | sudo tee /etc/apt/sources.list.d/mssql-release.list >/dev/null
+          sudo apt-get update -q
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 mssql-tools18
+          echo "/opt/mssql-tools18/bin" >> "$GITHUB_PATH"
+      - name: The samples' Python requirements
+        run: |
+          python -m venv "$RUNNER_TEMP/samples-py"
+          "$RUNNER_TEMP/samples-py/bin/pip" install --quiet -r samples-repo/requirements-dev.txt
+          echo "PYTHON_BIN=$RUNNER_TEMP/samples-py/bin/python" >> "$GITHUB_ENV"
+      - run: bash scripts/ci/azure-emulator-up.sh
+      - name: "~/.azure fingerprint (before)"
+        run: node tests/azure/tools/azure-home-fingerprint.mjs > "$RUNNER_TEMP/azure-home-before.json"
+      - name: Every sample's own deploy and test commands through the az shim
+        run: AZURE_LIVE=1 npx jest -c jest.azure-live.config.js --selectProjects samples-all --runInBand
+        env:
+          AZURE_SAMPLES_DIR: ${{ github.workspace }}/samples-repo
+          AZURE_SAMPLES_COMMIT: ${{ env.SAMPLES_COMMIT }}
+          AZURE_SAMPLES_RESULTS_DIR: ${{ github.workspace }}/test-results/samples
+          AZURE_SAMPLES_CI_REWRITE: "1"
+      - name: Emulator logs, then remove the job's emulator
+        if: always()
+        run: |
+          mkdir -p emulator-logs
+          docker logs "$AZURE_CI_EMULATOR_CONTAINER" > emulator-logs/emulator.log 2>&1 || true
+          docker rm -f "$AZURE_CI_EMULATOR_CONTAINER" || true
+      - name: "~/.azure unchanged"
+        if: always()
+        run: node tests/azure/tools/azure-home-fingerprint.mjs --compare "$RUNNER_TEMP/azure-home-before.json"
+      - id: scan
+        if: always()
+        run: node scripts/ci/scan-for-secret.mjs --env LOCALSTACK_AUTH_TOKEN emulator-logs test-results
+      - uses: actions/upload-artifact@v4
+        if: failure() && steps.scan.outcome == 'success'
+        with:
+          name: azure-samples-logs
+          path: |
+            test-results/
+            emulator-logs/
+          retention-days: 7
+
+  drift:
+    name: Drift gates DR1-DR8
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/azure-live-setup
+        with:
+          az-version: ${{ env.AZ_VERSION }}
+      - name: The samples repo's current commit (DR8)
+        run: git clone --quiet --depth 1 https://github.com/localstack/localstack-azure-samples.git "$RUNNER_TEMP/samples-latest"
+      - run: bash scripts/ci/azure-emulator-up.sh
+      - name: DR1-DR8
+        run: AZURE_LIVE=1 npx jest -c jest.azure-live.config.js --selectProjects drift --runInBand
+        env:
+          AZURE_DR4: "1"
+          AZURE_SAMPLES_DIR: ${{ runner.temp }}/samples-latest
+      - name: DR4 — the generated file-argument table is current for the pinned az
+        run: |
+          export AZURE_CONFIG_DIR="$RUNNER_TEMP/gen-az-config" AZURE_EXTENSION_DIR="$HOME/.localstack/azure/mcp-extensions"
+          ~/az/bin/python3 scripts/gen-az-file-args.py > "$RUNNER_TEMP/az-file-args.json"
+          node -e "
+            const a = require(process.argv[1]).commands, b = require('./src/lib/azure/az-file-args.generated.json').commands;
+            const diff = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+            if (diff.length) { console.error('az-file-args.generated.json is stale for', diff.length, 'commands:', diff.slice(0, 20).join(', ')); process.exit(1); }
+            console.log('file-argument table current');
+          " "$RUNNER_TEMP/az-file-args.json"
+      - name: Emulator logs
+        if: always()
+        run: mkdir -p emulator-logs && docker logs "$AZURE_CI_EMULATOR_CONTAINER" > emulator-logs/emulator.log 2>&1 || true
+      - id: scan
+        if: always()
+        run: node scripts/ci/scan-for-secret.mjs emulator-logs test-results
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.scan.outcome == 'success'
+        with:
+          name: azure-drift-reports
+          path: |
+            test-results/
+            emulator-logs/
+          retention-days: 30
+
+  az-versions:
+    name: DR3 — L1 with az ${{ matrix.az }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        az: ["2.85.0", "latest"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/azure-live-setup
+        with:
+          az-version: ${{ matrix.az }}
+          extensions: "false"
+      - run: bash scripts/ci/azure-emulator-up.sh
+      - name: DR3 — the resolved version
+        run: AZURE_LIVE=1 npx jest -c jest.azure-live.config.js --selectProjects drift -t "DR3" --runInBand
+        env:
+          AZ_EXPECTED_VERSION: ${{ matrix.az != 'latest' && matrix.az || '' }}
+      # The emulator above is not the harness's own, so L1 runs its scenario on it and
+      # skips its stop step (it stops only what it started).
+      - name: L1 (scenario)
+        run: node tests/docker/validate-image.mjs -- node dist/cli.js
+        env:
+          HARNESS_ONLY: azure
+          HARNESS_TOKEN_REAL: "1"
+
+  evals:
+    name: E2 composition evals
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip without an API key
+        id: key
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then echo "no ANTHROPIC_API_KEY secret: E2 skipped"; echo "run=false" >> "$GITHUB_OUTPUT"; else echo "run=true" >> "$GITHUB_OUTPUT"; fi
+      - uses: ./.github/actions/azure-live-setup
+        if: steps.key.outputs.run == 'true'
+        with:
+          az-version: ${{ env.AZ_VERSION }}
+      - if: steps.key.outputs.run == 'true'
+        run: bash scripts/ci/azure-emulator-up.sh
+      - name: E2 at n=3 with the spend cap
+        if: steps.key.outputs.run == 'true'
+        run: node tests/azure/evals/run.mjs --runs 3 --max-usd "${AZURE_EVALS_MAX_USD:-20}" --out test-results/e2
+      - id: scan
+        if: always() && steps.key.outputs.run == 'true'
+        run: node scripts/ci/scan-for-secret.mjs test-results --env LOCALSTACK_AUTH_TOKEN,ANTHROPIC_API_KEY
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.key.outputs.run == 'true' && steps.scan.outcome == 'success'
+        with:
+          name: azure-e2-results
+          path: test-results/e2/
+          retention-days: 30
+
+  summary:
+    name: Tracking issue on failure
+    needs: [matrix, egress, egress-internal-network, samples-all, drift, az-versions, evals]
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # The Azure code owners (.github/CODEOWNERS): every alert mentions them, and a new
+          # issue is assigned to ASSIGNEE.
+          OWNERS: "@localstack/smurf @HarshCasper"
+          ASSIGNEE: HarshCasper
+        run: |
+          title="Azure weekly suite failing"
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$title in:title" --json number --jq '.[0].number' --limit 100)
+          body="The Azure weekly run failed: $RUN_URL (jobs: matrix, egress, egress-internal-network, samples-all, drift, az-versions, evals). cc $OWNERS"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            url=$(gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body")
+            # Assigned separately, so that an assignee GitHub refuses cannot lose the alert.
+            gh issue edit "$url" --repo "$GITHUB_REPOSITORY" --add-assignee "$ASSIGNEE" || echo "::warning::could not assign $ASSIGNEE to $url"
+          fi

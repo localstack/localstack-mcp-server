@@ -1,0 +1,107 @@
+# Microsoft.ServiceBus.DataPlane: the namespace's ATOM entity-management API (what the SDKs'
+# administration clients call), reached with `rest` against the namespace host, a local host of
+# the emulator. az has no command group for it; the answers are ATOM XML, checked as text.
+# Namespace names use {name:sbns}: Azure (and the emulator, 400 NamespaceUnavailable InvalidName)
+# refuses a namespace name that ends in -sb or -mgmt.
+# The ATOM API answers on the emulator's gateway port ({port}) under the namespace host name.
+# The advertised serviceBusEndpoint (`https://<ns>.servicebus.azure.localhost.localstack.cloud:4511`,
+# no trailing slash; Azure's ends in `:443/`) does not answer HTTPS: see
+# servicebus-dp-advertised-endpoint.
+provider: Microsoft.ServiceBus.DataPlane
+cases:
+  - id: servicebus-dp-entity-get
+    operations: [Microsoft.ServiceBus.DataPlane Entity Get]
+    note: The benchmark's T-A task sb-dp-queue-max-delivery reads the same queue description.
+    setup:
+      - group create --name {rg} --location {location}
+      - servicebus namespace create --name {name:sbns} --resource-group {rg} --location {location} --sku Standard
+      - servicebus queue create --name orders --namespace-name {name:sbns} --resource-group {rg} --max-delivery-count 6
+    command: >-
+      rest --method get
+      --url https://{name:sbns}.servicebus.azure.localhost.localstack.cloud:{port}/orders?api-version=2021-05
+      --resource https://servicebus.azure.net
+    expect:
+      stdout:
+        - { contains: QueueDescription }
+        - { matches: "<MaxDeliveryCount>6</MaxDeliveryCount>" }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: servicebus-dp-entity-put-delete
+    operations:
+      [Microsoft.ServiceBus.DataPlane Entity Put, Microsoft.ServiceBus.DataPlane Entity Delete]
+    setup:
+      - group create --name {rg} --location {location}
+      - servicebus namespace create --name {name:sbns} --resource-group {rg} --location {location} --sku Standard
+      - >-
+        rest --method put
+        --url https://{name:sbns}.servicebus.azure.localhost.localstack.cloud:{port}/invoices?api-version=2021-05
+        --resource https://servicebus.azure.net
+        --headers "Content-Type=application/atom+xml;type=entry;charset=utf-8"
+        --body '<entry xmlns="http://www.w3.org/2005/Atom"><content type="application/xml"><QueueDescription
+        xmlns="http://schemas.microsoft.com/netservices/2010/10/servicebus/connect"><MaxDeliveryCount>4</MaxDeliveryCount></QueueDescription></content></entry>'
+      - run: servicebus queue show --name invoices --namespace-name {name:sbns} --resource-group {rg} --query maxDeliveryCount
+        until: { json: { path: "", equals: 4 } }
+    command: >-
+      rest --method delete
+      --url https://{name:sbns}.servicebus.azure.localhost.localstack.cloud:{port}/invoices?api-version=2021-05
+      --resource https://servicebus.azure.net
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: servicebus-dp-subscription
+    operations:
+      [
+        Microsoft.ServiceBus.DataPlane Subscription Put,
+        Microsoft.ServiceBus.DataPlane Subscription Get,
+        Microsoft.ServiceBus.DataPlane Subscription Delete,
+      ]
+    note: The benchmark's T-A tasks sb-dp-subscription-max-delivery and sb-dp-subscription-delete.
+    setup:
+      - group create --name {rg} --location {location}
+      - servicebus namespace create --name {name:sbns} --resource-group {rg} --location {location} --sku Standard
+      - servicebus topic create --name events --namespace-name {name:sbns} --resource-group {rg}
+      - >-
+        rest --method put
+        --url https://{name:sbns}.servicebus.azure.localhost.localstack.cloud:{port}/events/subscriptions/audit?api-version=2021-05
+        --resource https://servicebus.azure.net --headers "Content-Type=application/atom+xml;type=entry;charset=utf-8"
+        --body '<entry xmlns="http://www.w3.org/2005/Atom"><content type="application/xml"><SubscriptionDescription
+        xmlns="http://schemas.microsoft.com/netservices/2010/10/servicebus/connect"><MaxDeliveryCount>5</MaxDeliveryCount></SubscriptionDescription></content></entry>'
+      - run: >-
+          rest --method get
+          --url https://{name:sbns}.servicebus.azure.localhost.localstack.cloud:{port}/events/subscriptions/audit?api-version=2021-05
+          --resource https://servicebus.azure.net
+        until: { stdout: { contains: "<MaxDeliveryCount>5</MaxDeliveryCount>" } }
+    command: >-
+      rest --method delete
+      --url https://{name:sbns}.servicebus.azure.localhost.localstack.cloud:{port}/events/subscriptions/audit?api-version=2021-05
+      --resource https://servicebus.azure.net
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: servicebus-dp-advertised-endpoint
+    operations: [Microsoft.ServiceBus.DataPlane Entity Get]
+    note: A client that builds the ATOM URL from the namespace's serviceBusEndpoint, as SDKs do.
+    timeout: 60
+    setup:
+      - group create --name {rg} --location {location}
+      - servicebus namespace create --name {name:sbns} --resource-group {rg} --location {location} --sku Standard
+      - servicebus queue create --name orders --namespace-name {name:sbns} --resource-group {rg}
+      - run: servicebus namespace show --name {name:sbns} --resource-group {rg} --query serviceBusEndpoint -o tsv
+        capture: sb_endpoint
+    command: rest --method get --url {sb_endpoint}/orders?api-version=2021-05 --resource https://servicebus.azure.net
+    expect:
+      stdout: { contains: QueueDescription }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        L2: the advertised serviceBusEndpoint's port (4511) does not answer HTTPS: a GET of the
+        ATOM API there hangs until the caller gives up (300 s, the tool's timeout, on 2026-09-27;
+        this case stops it at 60 s), while the same request on the gateway port answers. Azure
+        serves AMQP and HTTPS on the one namespace host.
+      date: 2026-09-27

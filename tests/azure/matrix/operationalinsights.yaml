@@ -1,0 +1,153 @@
+# Microsoft.OperationalInsights: Log Analytics workspaces.
+# R.1: the typed server's three skips (Failover, ListLinkTargets, ReconcileNSP, all 404 then) passed
+# live on 2026-09-27 (fixed upstream: 200 with `{}`, `[]`, `{}`), so they are plain cases.
+provider: Microsoft.OperationalInsights
+cases:
+  - id: la-workspace-create
+    operations: [Microsoft.OperationalInsights Workspaces CreateOrUpdate]
+    pr: true
+    note: Samples monitor log-analytics workspace create/show (12 uses).
+    setup:
+      - group create --name {rg} --location {location}
+    command: >-
+      monitor log-analytics workspace create --resource-group {rg} --workspace-name {name:law}
+      --location {location} --retention-time 30
+    expect:
+      json:
+        - { path: name, equals: "{name:law}" }
+        - { path: provisioningState, equals: Succeeded }
+        - { path: customerId, matches: "^[0-9a-f-]{36}$" }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: la-workspace-read-update
+    operations:
+      [
+        Microsoft.OperationalInsights Workspaces Get,
+        Microsoft.OperationalInsights Workspaces ListByResourceGroup,
+        Microsoft.OperationalInsights Workspaces List,
+        Microsoft.OperationalInsights Workspaces Update,
+      ]
+    note: The benchmark's oracle (ta.py la-workspace-retention).
+    setup:
+      - group create --name {rg} --location {location}
+      - monitor log-analytics workspace create --resource-group {rg} --workspace-name {name:law} --location {location}
+      - run: monitor log-analytics workspace show --resource-group {rg} --workspace-name {name:law} --query name -o tsv
+        until: { stdout: { equals: "{name:law}" } }
+      - run: monitor log-analytics workspace list --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: ["{name:law}"] } }
+      - monitor log-analytics workspace list --query "[?name=='{name:law}'].name"
+    command: monitor log-analytics workspace update --resource-group {rg} --workspace-name {name:law} --retention-time 90
+    expect:
+      json: { path: retentionInDays, equals: 90 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: la-workspace-keys
+    operations:
+      [
+        Microsoft.OperationalInsights SharedKeys GetSharedKeys,
+        Microsoft.OperationalInsights Workspaces ListKeys,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - monitor log-analytics workspace create --resource-group {rg} --workspace-name {name:law} --location {location}
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.OperationalInsights/workspaces/{name:law}/listKeys?api-version=2015-03-20
+    command: monitor log-analytics workspace get-shared-keys --resource-group {rg} --workspace-name {name:law}
+    expect:
+      json: { path: primarySharedKey, exists: true }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: la-workspace-delete-lists
+    operations:
+      [
+        Microsoft.OperationalInsights Workspaces Delete,
+        Microsoft.OperationalInsights DeletedWorkspaces List,
+        Microsoft.OperationalInsights DeletedWorkspaces ListByResourceGroup,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - monitor log-analytics workspace create --resource-group {rg} --workspace-name {name:law} --location {location}
+      - monitor log-analytics workspace delete --resource-group {rg} --workspace-name {name:law} --yes
+      - monitor log-analytics workspace list-deleted-workspaces --query "length(@)"
+    command: monitor log-analytics workspace list-deleted-workspaces --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: la-workspace-deleted-listed
+    operations: [Microsoft.OperationalInsights DeletedWorkspaces ListByResourceGroup]
+    note: A soft-deleted workspace should appear in the deleted list (the benchmark's la-deleted-workspaces).
+    setup:
+      - group create --name {rg} --location {location}
+      - monitor log-analytics workspace create --resource-group {rg} --workspace-name {name:law} --location {location}
+      - monitor log-analytics workspace delete --resource-group {rg} --workspace-name {name:law} --yes
+    command: monitor log-analytics workspace list-deleted-workspaces --resource-group {rg} --query "[].name"
+    expect:
+      json: { path: "", equals: ["{name:law}"] }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        Found by the benchmark (ta.py la-deleted-workspaces, blocked): deleting a workspace never adds
+        it to the deleted-workspaces list; the list is always empty.
+      date: 2026-09-27
+
+  - id: la-workspace-failback-nsp
+    operations:
+      [
+        Microsoft.OperationalInsights Workspaces Failback,
+        Microsoft.OperationalInsights Workspaces ListNSP,
+        Microsoft.OperationalInsights Workspaces GetNSP,
+      ]
+    note: The benchmark's oracle (ta.py la-failback); the emulator accepts it without replication state.
+    setup:
+      - group create --name {rg} --location {location}
+      - monitor log-analytics workspace create --resource-group {rg} --workspace-name {name:law} --location {location}
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.OperationalInsights/workspaces/{name:law}/networkSecurityPerimeterConfigurations?api-version=2023-09-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.OperationalInsights/workspaces/{name:law}/networkSecurityPerimeterConfigurations/default?api-version=2023-09-01
+    command: monitor log-analytics workspace failback --resource-group {rg} --workspace-name {name:law}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: la-workspace-failover
+    operations: [Microsoft.OperationalInsights Workspaces Failover]
+    setup:
+      - group create --name {rg} --location {location}
+      - monitor log-analytics workspace create --resource-group {rg} --workspace-name {name:law} --location {location}
+    command: >-
+      rest --method post
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.OperationalInsights/locations/{location}/workspaces/{name:law}/failover?api-version=2023-01-01-preview
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: la-link-targets
+    operations: [Microsoft.OperationalInsights Workspaces ListLinkTargets]
+    command: rest --method get --url /subscriptions/{sub}/providers/Microsoft.OperationalInsights/linkTargets?api-version=2020-03-01-preview
+    expect:
+      json: { path: "", length: 0 }
+
+  - id: la-reconcile-nsp
+    operations: [Microsoft.OperationalInsights Workspaces ReconcileNSP]
+    setup:
+      - group create --name {rg} --location {location}
+      - monitor log-analytics workspace create --resource-group {rg} --workspace-name {name:law} --location {location}
+    command: >-
+      rest --method post
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.OperationalInsights/workspaces/{name:law}/networkSecurityPerimeterConfigurations/default/reconcile?api-version=2023-09-01
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait

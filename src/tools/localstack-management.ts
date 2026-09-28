@@ -1,18 +1,27 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import {
+  CARRIED_ENV_KEY,
+  cannotRecreateResponse,
+  carriedRestartEnv,
+  pickCarriedEnv,
   deriveRecreateOverrides,
   getLocalStackStatus,
   getSnowflakeEmulatorStatus,
   launchRuntime,
   resolveContainerName,
+  unmountableBindSource,
 } from "../lib/localstack/localstack.utils";
 import {
   DockerApiClient,
   isLocalStackContainerNotFoundError,
   type ContainerMetadata,
 } from "../lib/docker/docker.client";
-import { stackFromImage, type VolumeResolution } from "../lib/localstack/container-spec.logic";
+import {
+  MCP_CLIENT_NAME,
+  stackFromImage,
+  type VolumeResolution,
+} from "../lib/localstack/container-spec.logic";
 import {
   runPreflights,
   requireProFeature,
@@ -22,21 +31,33 @@ import {
 import { ResponseBuilder } from "../core/response-builder";
 import { ProFeature } from "../lib/localstack/license-checker";
 import { withToolAnalytics } from "../core/analytics";
+import { azureStartedCheck, getAzureRuntimeStatus } from "../lib/azure/runtime-status";
+import { ensureLoopbackForwarder } from "../lib/azure/loopback-forwarder";
+import { azureConfig } from "../lib/azure/services";
 
 const AWS_ALREADY_RUNNING_MESSAGE =
   "⚠️  LocalStack is already running. Use 'restart' if you want to apply new configuration.";
 const SNOWFLAKE_ALREADY_RUNNING_MESSAGE =
   "⚠️  Snowflake emulator is already running. Use 'restart' if you want to apply new configuration.";
+const AZURE_ALREADY_RUNNING_MESSAGE =
+  "⚠️  The LocalStack Azure emulator is already running. Use 'restart' if you want to apply new configuration.";
+
+type Service = "aws" | "snowflake" | "azure";
+const SERVICE_LABELS: Record<Service, string> = {
+  aws: "AWS",
+  snowflake: "Snowflake",
+  azure: "Azure",
+};
 
 export const schema = {
   action: z
     .enum(["start", "stop", "restart", "status"])
     .describe("The LocalStack management action to perform"),
   service: z
-    .enum(["aws", "snowflake"])
+    .enum(["aws", "snowflake", "azure"])
     .default("aws")
     .describe(
-      "The LocalStack stack/service to manage. Use 'aws' for the default AWS emulator, or 'snowflake' for the Snowflake emulator."
+      "The LocalStack stack/service to manage. Use 'aws' for the default AWS emulator, 'snowflake' for the Snowflake emulator, or 'azure' for the Azure emulator."
     ),
   envVars: z
     .record(z.string(), z.string())
@@ -107,10 +128,12 @@ interface StartOverrides {
 }
 
 /** Best-effort look at the running LocalStack container (null when none/undetectable). */
-async function inspectRunningContainer(): Promise<ContainerMetadata | null> {
+async function inspectRunningContainer(
+  stack?: "azure" | "aws" | "snowflake"
+): Promise<ContainerMetadata | null> {
   try {
     const dockerClient = new DockerApiClient();
-    const containerId = await dockerClient.findLocalStackContainer();
+    const containerId = await dockerClient.findLocalStackContainer(stack ? { stack } : {});
     return await dockerClient.inspectContainer(containerId);
   } catch {
     return null;
@@ -120,7 +143,7 @@ async function inspectRunningContainer(): Promise<ContainerMetadata | null> {
 /** Gate on the SNOWFLAKE pro feature only when the running container is the Snowflake stack. */
 async function requireSnowflakeProIfSnowflakeRunning() {
   const metadata = await inspectRunningContainer();
-  if (!metadata || stackFromImage(metadata.image) !== "snowflake") {
+  if (!metadata || stackFromImage(metadata.image, metadata.labels) !== "snowflake") {
     // Not running / different stack — the handlers report those states accurately.
     return null;
   }
@@ -134,9 +157,35 @@ async function handleStart({
   overrides,
 }: {
   envVars?: Record<string, string>;
-  service: "aws" | "snowflake";
+  service: Service;
   overrides?: StartOverrides;
 }) {
+  if (service === "azure") {
+    // The emulator is started on LOCALSTACK_PORT, and the readiness checks read the
+    // Azure tool's port: both must name the same gateway.
+    const azurePort = process.env.LOCALSTACK_AZURE_PORT?.trim();
+    const gatewayPort = process.env.LOCALSTACK_PORT?.trim() || "4566";
+    if (azurePort && azurePort !== gatewayPort) {
+      return ResponseBuilder.error(
+        "Conflicting Azure port settings",
+        `LOCALSTACK_AZURE_PORT (${azurePort}) differs from LOCALSTACK_PORT (${gatewayPort}), the port the start action publishes the emulator on. Set LOCALSTACK_PORT=${azurePort} for a port-shifted emulator, or unset LOCALSTACK_AZURE_PORT.`
+      );
+    }
+    return await launchRuntime({
+      stack: "azure",
+      envVars,
+      getStatus: getAzureRuntimeStatus,
+      processLabel: "LocalStack Azure emulator",
+      alreadyRunningMessage: AZURE_ALREADY_RUNNING_MESSAGE,
+      successTitle: "🚀 LocalStack Azure emulator started successfully!",
+      statusHeading: "Health check",
+      timeoutMessage:
+        "❌ LocalStack Azure emulator start timed out after 120 seconds. Its health check did not report the Azure edition. If this was the first start, the image pull may still be in progress — retry in a bit.",
+      onReady: azureStartedCheck,
+      ...overrides,
+    });
+  }
+
   if (service === "snowflake") {
     return await launchRuntime({
       stack: "snowflake",
@@ -230,7 +279,7 @@ async function handleRestart({
   service,
 }: {
   envVars?: Record<string, string>;
-  service: "aws" | "snowflake";
+  service: Service;
 }) {
   const dockerClient = new DockerApiClient();
   let containerId: string;
@@ -263,6 +312,49 @@ async function handleRestart({
     metadata = undefined;
   }
 
+  // Before stopping anything: a container whose state folder this machine cannot mount
+  // could not be recreated, and stopping it removes it (an lstk emulator started from
+  // WSL was deleted this way by a Windows server).
+  const overrides = deriveRecreateOverrides(metadata, service);
+  const unmountable = unmountableBindSource(overrides);
+  if (unmountable) return cannotRecreateResponse(unmountable, metadata?.name ?? containerId);
+
+  // Carry an EXTERNALLY started container's own env flags over, so a restart does not silently
+  // drop settings this server never set and cannot reproduce — e.g. a shared Azure emulator's
+  // MSSQL_ACCEPT_EULA, DISABLE_EVENTS and portal flag, started by lstk or `docker run`.
+  // A container this server started (its launcher stamps LOCALSTACK_CLIENT_NAME) got its env from
+  // this server's config, so upstream's "restart applies new configuration" holds and nothing is
+  // carried: a restart can still drop a setting. The image's baked env is subtracted so only
+  // operator choices are carried; the caller's own `envVars` still win. Best-effort throughout.
+  const startedByThisServer = (metadata?.env ?? []).includes(
+    `LOCALSTACK_CLIENT_NAME=${MCP_CLIENT_NAME}`
+  );
+  const image = metadata?.image;
+  // Promise.resolve().then: a synchronous throw from the client becomes a caught rejection too.
+  const imageEnv =
+    image && !startedByThisServer
+      ? await Promise.resolve()
+          .then(() => dockerClient.imageConfigEnv(image))
+          .catch((): string[] => [])
+      : [];
+  // A server-started container that an earlier restart made from an external one lists what it
+  // carries (CARRIED_ENV_KEY): keep carrying exactly that, so a SECOND restart does not drop the
+  // external flags (seen live). Without the list, nothing is carried (upstream semantics).
+  const carriedList = (metadata?.env ?? [])
+    .find((entry) => entry.startsWith(`${CARRIED_ENV_KEY}=`))
+    ?.slice(CARRIED_ENV_KEY.length + 1)
+    .split(",")
+    .filter(Boolean);
+  const carried = startedByThisServer
+    ? pickCarriedEnv(metadata?.env, carriedList ?? [])
+    : carriedRestartEnv(metadata?.env, imageEnv);
+  const carriedKeys = Object.keys(carried).filter((key) => !(envVars && key in envVars));
+  const mergedEnv: Record<string, string> = { ...carried, ...(envVars ?? {}) };
+  if (Object.keys(carried).length > 0) {
+    mergedEnv[CARRIED_ENV_KEY] = Object.keys(carried).sort().join(",");
+  }
+  const startEnv = Object.keys(mergedEnv).length > 0 ? mergedEnv : undefined;
+
   try {
     await dockerClient.stopContainer(containerId);
     await dockerClient.waitForRemoval(containerId);
@@ -275,16 +367,57 @@ async function handleRestart({
     );
   }
 
-  return await handleStart({
-    envVars,
-    service,
-    overrides: deriveRecreateOverrides(metadata, service),
+  const started = await handleStart({ envVars: startEnv, service, overrides });
+  return carriedKeys.length > 0 ? appendCarriedEnvNote(started, carriedKeys) : started;
+}
+
+/** Add a line to a restart response naming the settings carried from the old container (D-30). */
+function appendCarriedEnvNote(
+  response: ReturnType<typeof ResponseBuilder.markdown>,
+  carriedKeys: string[]
+): ReturnType<typeof ResponseBuilder.markdown> {
+  const note =
+    `\n\n♻️ Carried ${carriedKeys.length} setting${carriedKeys.length === 1 ? "" : "s"} over from the ` +
+    `previous container: ${carriedKeys.sort().join(", ")}.`;
+  let appended = false;
+  const content = response.content?.map((part: { type: string; text?: string }) => {
+    if (appended || part.type !== "text" || typeof part.text !== "string") return part;
+    appended = true;
+    return { ...part, text: part.text + note };
   });
+  return { ...response, content } as ReturnType<typeof ResponseBuilder.markdown>;
+}
+
+/** `Container: "<name>" (image <image>, gateway <HostIp>:<HostPort>)` (plan task 3.2). */
+function describeContainer(running: ContainerMetadata): string {
+  const bindings = running.portBindings ?? {};
+  const configured = process.env.LOCALSTACK_PORT?.trim() || "4566";
+  const all = Object.values(bindings).flatMap((hosts) => hosts ?? []);
+  const gateway =
+    all.find((b) => b.HostPort === configured) ?? (bindings["4566/tcp"] ?? [])[0] ?? undefined;
+  const where = gateway
+    ? `${gateway.HostIp || "0.0.0.0"}:${gateway.HostPort}`
+    : "not published on the host";
+  return `Container: "${running.name ?? running.id}" (image ${running.image ?? "unknown"}, gateway ${where})`;
 }
 
 // Handle status action
-async function handleStatus({ service }: { service: "aws" | "snowflake" }) {
-  const statusResult = await getLocalStackStatus();
+async function handleStatus({ service }: { service: Service }) {
+  // In the Docker image the emulator is reached through the loopback forwarder, which the
+  // Azure tool starts on its first call: without it here, a status asked first probed an
+  // empty 127.0.0.1 and said "not running" for a running emulator.
+  if (service === "azure" && azureConfig().inDocker) {
+    await ensureLoopbackForwarder().catch(() => undefined);
+  }
+  // Side by side (LOCALSTACK_AZURE_PORT != LOCALSTACK_PORT): the Azure emulator sits on the
+  // Azure tool's own port, not on the gateway the other tools use, so status service: azure
+  // reads that one and its container (it used to report the AWS emulator on 4666).
+  const gatewayPort = process.env.LOCALSTACK_PORT?.trim() || "4566";
+  const azureSideBySide =
+    service === "azure" && String(azureConfig().port ?? gatewayPort) !== gatewayPort;
+  const statusResult = await getLocalStackStatus(
+    azureSideBySide ? azureConfig().healthBaseUrl : undefined
+  );
   let result = "📊 LocalStack Status:\n\n";
   result += statusResult.statusOutput || "LocalStack status is unavailable.";
 
@@ -293,15 +426,45 @@ async function handleStatus({ service }: { service: "aws" | "snowflake" }) {
     return ResponseBuilder.markdown(result);
   }
 
-  if (service === "snowflake") {
-    const metadata = await inspectRunningContainer();
-    if (metadata && stackFromImage(metadata.image) === "aws") {
-      result +=
-        `\n\n⚠️  The running LocalStack container ("${metadata.name}", image: ${metadata.image}) is the AWS stack — ` +
-        "the Snowflake emulator is not running. Stop it first, then start with service: snowflake.";
-      return ResponseBuilder.markdown(result);
-    }
+  const running = await inspectRunningContainer(azureSideBySide ? "azure" : undefined);
+  const runningStack = running ? stackFromImage(running.image, running.labels) : undefined;
+  // Always name the container, so a caller can check it before a stop or restart
+  // (the phase 3 recipe; review R02, gap A).
+  if (running) result += `\n\n${describeContainer(running)}`;
 
+  // Another stack's container is running. A Snowflake image may report the AWS
+  // stack's `pro` edition, so for service: snowflake only a clear AWS or Azure image
+  // counts as foreign (Q21).
+  const foreign =
+    running &&
+    runningStack &&
+    runningStack !== service &&
+    (service !== "snowflake" || runningStack !== "snowflake");
+  if (running && runningStack && foreign) {
+    const next =
+      runningStack === "azure"
+        ? "Use localstack-azure-client with it, or stop it first"
+        : "Stop it first";
+    result +=
+      `\n\n⚠️  The running LocalStack container ("${running.name}", image: ${running.image}) is the ${SERVICE_LABELS[runningStack]} stack — ` +
+      `the ${SERVICE_LABELS[service]} emulator is not running. ${next}, then start with service: ${service}.`;
+    return ResponseBuilder.markdown(result);
+  }
+
+  if (service === "azure") {
+    const azure = await getAzureRuntimeStatus();
+    if (azure.isReady) {
+      result += "\n\n✅ LocalStack is running and the Azure emulator health check passed.";
+    } else {
+      const diagnostics = [azure.statusOutput, azure.status.message].filter(Boolean).join(" | ");
+      result +=
+        "\n\n⚠️  LocalStack is running, but the Azure emulator health check did not pass." +
+        (diagnostics ? ` (${diagnostics})` : "");
+    }
+    return ResponseBuilder.markdown(result);
+  }
+
+  if (service === "snowflake") {
     const snowflakeStatus = await getSnowflakeEmulatorStatus();
 
     if (snowflakeStatus.isReady || snowflakeStatus.isRunning) {

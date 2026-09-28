@@ -1,0 +1,368 @@
+# Microsoft.App: Container Apps environments, apps, revisions, replicas, jobs, session pools.
+# Environments and apps run on the emulator's Docker engine, so those cases are `backing: true`
+# (nginx:latest, the benchmark's T-B image); the subscription-scope catalogue calls are light.
+# The typed server had no Microsoft.App skips.
+provider: Microsoft.App
+cases:
+  - id: containerapp-catalogue
+    operations:
+      [
+        Microsoft.App Operations List,
+        Microsoft.App Usages List,
+        Microsoft.App BillingMeters Get,
+        Microsoft.App AvailableWorkloadProfiles Get,
+        Microsoft.App Microsoft.App GetCustomDomainVerificationId,
+      ]
+    note: The benchmark's oracle (td.py td-app-operations).
+    setup:
+      - rest --method get --url /providers/Microsoft.App/operations?api-version=2025-01-01
+      - rest --method get --url /subscriptions/{sub}/providers/Microsoft.App/locations/{location}/usages?api-version=2025-01-01
+      - rest --method get --url /subscriptions/{sub}/providers/Microsoft.App/locations/{location}/billingMeters?api-version=2025-01-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/providers/Microsoft.App/locations/{location}/availableManagedEnvironmentsWorkloadProfileTypes?api-version=2025-01-01
+    command: rest --method post --url /subscriptions/{sub}/providers/Microsoft.App/getCustomDomainVerificationId?api-version=2025-01-01
+    expect:
+      exitCode: 0
+
+  - id: containerapp-env
+    operations:
+      [
+        Microsoft.App ManagedEnvironments CreateOrUpdate,
+        Microsoft.App ManagedEnvironments Get,
+        Microsoft.App ManagedEnvironments ListByResourceGroup,
+        Microsoft.App ManagedEnvironments ListBySubscription,
+        Microsoft.App ManagedEnvironments Update,
+        Microsoft.App ManagedEnvironments GetAuthToken,
+        Microsoft.App ManagedEnvironments ListWorkloadProfileStates,
+        Microsoft.App ManagedEnvironmentUsages List,
+      ]
+    backing: true
+    note: Samples containerapp env create/show; tb.py containerapp-revision.
+    setup:
+      - group create --name {rg} --location {location}
+      - containerapp env create --name {name:env} --resource-group {rg} --location {location}
+      - run: containerapp env show --name {name:env} --resource-group {rg} --query properties.provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+      - containerapp env list --resource-group {rg}
+      - containerapp env list --query "[?name=='{name:env}'].name"
+      - containerapp env update --name {name:env} --resource-group {rg} --tags matrix=l2
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/managedEnvironments/{name:env}/getAuthtoken?api-version=2025-01-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/managedEnvironments/{name:env}/workloadProfileStates?api-version=2025-01-01
+    command: >-
+      rest --method get
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/managedEnvironments/{name:env}/usages?api-version=2025-01-01
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: containerapp-env-children
+    operations:
+      [
+        Microsoft.App ManagedEnvironmentsStorages CreateOrUpdate,
+        Microsoft.App ManagedEnvironmentsStorages Get,
+        Microsoft.App ManagedEnvironmentsStorages List,
+        Microsoft.App ManagedEnvironmentsStorages Delete,
+        Microsoft.App DaprComponents CreateOrUpdate,
+        Microsoft.App DaprComponents Get,
+        Microsoft.App DaprComponents List,
+        Microsoft.App DaprComponents ListSecrets,
+        Microsoft.App DaprComponents Delete,
+        Microsoft.App HttpRouteConfig List,
+        Microsoft.App Certificates List,
+        Microsoft.App ManagedCertificates List,
+      ]
+    backing: true
+    note: The benchmark's oracle (ta.py app-http-route-configs-list).
+    setup:
+      - group create --name {rg} --location {location}
+      - containerapp env create --name {name:env} --resource-group {rg} --location {location}
+      - >-
+        containerapp env storage set --name {name:env} --resource-group {rg} --storage-name files
+        --azure-file-account-name {storage} --azure-file-account-key a2V5 --azure-file-share-name share1
+        --access-mode ReadOnly
+      - containerapp env storage show --name {name:env} --resource-group {rg} --storage-name files
+      - containerapp env storage list --name {name:env} --resource-group {rg}
+      - containerapp env storage remove --name {name:env} --resource-group {rg} --storage-name files --yes
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/managedEnvironments/{name:env}/daprComponents/statestore?api-version=2025-01-01
+        --body '{"properties": {"componentType": "state.in-memory", "version": "v1", "secrets": [{"name": "k", "value": "v"}],
+        "metadata": [{"name": "mode", "value": "l2"}]}}'
+      - containerapp env dapr-component show --name {name:env} --resource-group {rg} --dapr-component-name statestore
+      - containerapp env dapr-component list --name {name:env} --resource-group {rg}
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/managedEnvironments/{name:env}/daprComponents/statestore/listSecrets?api-version=2025-01-01
+      - containerapp env dapr-component remove --name {name:env} --resource-group {rg} --dapr-component-name statestore
+      - containerapp env certificate list --name {name:env} --resource-group {rg}
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/managedEnvironments/{name:env}/managedCertificates?api-version=2025-01-01
+    command: containerapp env http-route-config list --name {name:env} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: containerapp-env-diagnostics
+    operations:
+      [
+        Microsoft.App ManagedEnvironmentsDiagnostics GetRoot,
+        Microsoft.App ManagedEnvironmentDiagnostics ListDetectors,
+        Microsoft.App ManagedEnvironmentPrivateEndpointConnections List,
+        Microsoft.App ManagedEnvironmentPrivateLinkResources List,
+        Microsoft.App ManagedEnvironments Delete,
+      ]
+    backing: true
+    note: The benchmark's oracle (td.py td-aca-env-diagnostics).
+    setup:
+      - group create --name {rg} --location {location}
+      - containerapp env create --name {name:env} --resource-group {rg} --location {location}
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/managedEnvironments/{name:env}/detectorProperties/rootApi/?api-version=2025-01-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/managedEnvironments/{name:env}/detectors?api-version=2025-01-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/managedEnvironments/{name:env}/privateEndpointConnections?api-version=2025-01-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/managedEnvironments/{name:env}/privateLinkResources?api-version=2025-01-01
+    command: containerapp env delete --name {name:env} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: containerapp-app
+    operations:
+      [
+        Microsoft.App ContainerApps CreateOrUpdate,
+        Microsoft.App ContainerApps Get,
+        Microsoft.App ContainerApps ListByResourceGroup,
+        Microsoft.App ContainerApps ListBySubscription,
+        Microsoft.App ContainerApps Update,
+        Microsoft.App ContainerApps ListSecrets,
+      ]
+    backing: true
+    note: Samples containerapp create/show/update/secret list (tb.py containerapp-revision).
+    setup:
+      - group create --name {rg} --location {location}
+      - containerapp env create --name {name:env} --resource-group {rg} --location {location}
+      - >-
+        containerapp create --name {name:app} --resource-group {rg} --environment {name:env}
+        --image nginx:latest --target-port 80 --ingress external --secrets api-key=l2-secret --no-wait
+      - run: containerapp show --name {name:app} --resource-group {rg} --query properties.provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+        wait: 600
+      - containerapp list --resource-group {rg}
+      - containerapp list --query "[?name=='{name:app}'].name"
+      - containerapp update --name {name:app} --resource-group {rg} --set-env-vars MATRIX=l2 --revision-suffix v2
+    command: containerapp secret list --name {name:app} --resource-group {rg} --show-values --query "[].name"
+    expect:
+      json: { path: "", equals: [api-key] }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: containerapp-revisions-replicas
+    operations:
+      [
+        Microsoft.App ContainerAppsRevisions ListRevisions,
+        Microsoft.App ContainerAppsRevisions GetRevision,
+        Microsoft.App ContainerAppsRevisions RestartRevision,
+        Microsoft.App ContainerAppsRevisions DeactivateRevision,
+        Microsoft.App ContainerAppsRevisions ActivateRevision,
+        Microsoft.App ContainerAppsRevisionReplicas ListReplicas,
+        Microsoft.App ContainerAppsRevisionReplicas GetReplica,
+      ]
+    backing: true
+    note: Samples containerapp revision list, containerapp replica list.
+    setup:
+      - group create --name {rg} --location {location}
+      - containerapp env create --name {name:env} --resource-group {rg} --location {location}
+      - >-
+        containerapp create --name {name:app} --resource-group {rg} --environment {name:env}
+        --image nginx:latest --target-port 80 --ingress external --revisions-mode multiple --no-wait
+      - run: containerapp show --name {name:app} --resource-group {rg} --query properties.provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+        wait: 600
+      - run: containerapp revision list --name {name:app} --resource-group {rg} --query "[0].name" -o tsv
+        capture: revision
+      - containerapp revision show --name {name:app} --resource-group {rg} --revision {revision}
+      - containerapp revision restart --name {name:app} --resource-group {rg} --revision {revision}
+      - containerapp revision deactivate --name {name:app} --resource-group {rg} --revision {revision}
+      - containerapp revision activate --name {name:app} --resource-group {rg} --revision {revision}
+      - run: containerapp replica list --name {name:app} --resource-group {rg} --revision {revision} --query "[0].name" -o tsv
+        capture: replica
+    command: containerapp replica show --name {name:app} --resource-group {rg} --revision {revision} --replica {replica}
+    expect:
+      json: { path: name, equals: "{replica}" }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: containerapp-auth-diagnostics
+    operations:
+      [
+        Microsoft.App ContainerAppsAuthConfigs CreateOrUpdate,
+        Microsoft.App ContainerAppsAuthConfigs Get,
+        Microsoft.App ContainerAppsAuthConfigs ListByContainerApp,
+        Microsoft.App ContainerAppsAuthConfigs Delete,
+        Microsoft.App ContainerApps GetAuthToken,
+        Microsoft.App ContainerApps ListCustomHostNameAnalysis,
+        Microsoft.App ContainerAppsDiagnostics ListDetectors,
+        Microsoft.App ContainerAppsDiagnostics ListRevisions,
+        Microsoft.App ContainerAppsDiagnostics GetRoot,
+      ]
+    backing: true
+    note: The benchmark's oracle (ta.py app-auth-config).
+    setup:
+      - group create --name {rg} --location {location}
+      - containerapp env create --name {name:env} --resource-group {rg} --location {location}
+      - containerapp create --name {name:app} --resource-group {rg} --environment {name:env} --image nginx:latest --target-port 80 --ingress external --no-wait
+      - run: containerapp show --name {name:app} --resource-group {rg} --query properties.provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+        wait: 600
+      - containerapp auth update --name {name:app} --resource-group {rg} --enabled false --unauthenticated-client-action AllowAnonymous --yes
+      - run: containerapp auth show --name {name:app} --resource-group {rg} --query platform.enabled
+        until: { json: { path: "", equals: false } }
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/containerApps/{name:app}/authConfigs?api-version=2025-01-01
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/containerApps/{name:app}/getAuthtoken?api-version=2025-01-01
+      - >-
+        rest --method post
+        --url "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/containerApps/{name:app}/listCustomHostNameAnalysis?api-version=2025-01-01&customHostname=www.{id}.example.com"
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/containerApps/{name:app}/detectors?api-version=2025-01-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/containerApps/{name:app}/detectorProperties/revisionsApi/revisions/?api-version=2025-01-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/containerApps/{name:app}/detectorProperties/rootApi/?api-version=2025-01-01
+    command: >-
+      rest --method delete
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/containerApps/{name:app}/authConfigs/current?api-version=2025-01-01
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: containerapp-stop-start-delete
+    operations:
+      [
+        Microsoft.App ContainerApps Stop,
+        Microsoft.App ContainerApps Start,
+        Microsoft.App ContainerAppsSourceControls ListByContainerApp,
+        Microsoft.App ContainerApps Delete,
+      ]
+    backing: true
+    note: Samples containerapp delete; ta.py app-source-control reads the GitHub action config.
+    setup:
+      - group create --name {rg} --location {location}
+      - containerapp env create --name {name:env} --resource-group {rg} --location {location}
+      - containerapp create --name {name:app} --resource-group {rg} --environment {name:env} --image nginx:latest --target-port 80 --ingress external --no-wait
+      - run: containerapp show --name {name:app} --resource-group {rg} --query properties.provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+        wait: 600
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/containerApps/{name:app}/stop?api-version=2025-01-01
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/containerApps/{name:app}/start?api-version=2025-01-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/containerApps/{name:app}/sourcecontrols?api-version=2025-01-01
+    command: containerapp delete --name {name:app} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: containerapp-job
+    operations:
+      [
+        Microsoft.App Jobs CreateOrUpdate,
+        Microsoft.App Jobs Get,
+        Microsoft.App Jobs ListByResourceGroup,
+        Microsoft.App Jobs ListBySubscription,
+        Microsoft.App Jobs Update,
+        Microsoft.App Jobs ListSecrets,
+        Microsoft.App Jobs Start,
+        Microsoft.App JobsExecutions List,
+        Microsoft.App Jobs StopMultipleExecutions,
+        Microsoft.App Jobs Delete,
+      ]
+    backing: true
+    note: The benchmark's oracles (ta.py app-job-create, app-job-start).
+    setup:
+      - group create --name {rg} --location {location}
+      - containerapp env create --name {name:env} --resource-group {rg} --location {location}
+      - >-
+        containerapp job create --name {name:job} --resource-group {rg} --environment {name:env}
+        --trigger-type Manual --replica-timeout 60 --replica-retry-limit 0 --image nginx:latest
+        --cpu 0.25 --memory 0.5Gi --secrets token=l2
+      - run: containerapp job show --name {name:job} --resource-group {rg} --query properties.provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+      - containerapp job list --resource-group {rg}
+      - containerapp job list --query "[?name=='{name:job}'].name"
+      - containerapp job update --name {name:job} --resource-group {rg} --replica-timeout 90
+      - containerapp job secret list --name {name:job} --resource-group {rg}
+      - containerapp job start --name {name:job} --resource-group {rg}
+      - containerapp job execution list --name {name:job} --resource-group {rg}
+      - containerapp job stop --name {name:job} --resource-group {rg}
+    command: containerapp job delete --name {name:job} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: containerapp-session-pool
+    operations:
+      [
+        Microsoft.App ContainerAppsSessionPools CreateOrUpdate,
+        Microsoft.App ContainerAppsSessionPools Get,
+        Microsoft.App ContainerAppsSessionPools ListByResourceGroup,
+        Microsoft.App ContainerAppsSessionPools ListBySubscription,
+        Microsoft.App ContainerAppsSessionPools Update,
+        Microsoft.App ContainerAppsSessionPools Delete,
+      ]
+    backing: true
+    note: The benchmark's oracle (td.py td-session-pool-update) patches the pool with rest.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/sessionPools/{name:pool}?api-version=2025-01-01
+        --body '{"location": "{location}", "properties": {"poolManagementType": "Dynamic", "containerType": "PythonLTS",
+        "scaleConfiguration": {"maxConcurrentSessions": 5}, "dynamicPoolConfiguration": {"lifecycleConfiguration":
+        {"lifecycleType": "Timed", "cooldownPeriodInSeconds": 300}}}}'
+      - run: >-
+          rest --method get
+          --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/sessionPools/{name:pool}?api-version=2025-01-01
+        until: { json: { path: properties.scaleConfiguration.maxConcurrentSessions, equals: 5 } }
+      - rest --method get --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/sessionPools?api-version=2025-01-01
+      - rest --method get --url /subscriptions/{sub}/providers/Microsoft.App/sessionPools?api-version=2025-01-01
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/sessionPools/{name:pool}?api-version=2025-01-01
+        --body '{"properties": {"scaleConfiguration": {"maxConcurrentSessions": 8}}}'
+    command: >-
+      rest --method delete
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/sessionPools/{name:pool}?api-version=2025-01-01
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
