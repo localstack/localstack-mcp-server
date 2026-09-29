@@ -297,7 +297,7 @@ rewrite refuses to run without `DOCKER_CONFIG`.
   among them.
 - **The environment:**
   - `AZURE_LIVE=1`, and `CI=true`, which GitHub sets;
-  - `LOCALSTACK_AUTH_TOKEN` from the `LOCALSTACK_AUTH_TOKEN_AZURE` secret (else `LOCALSTACK_AUTH_TOKEN`);
+  - `LOCALSTACK_AUTH_TOKEN` from the secret;
   - `AZURE_SAMPLES_CI_REWRITE=1` for `samples-all`.
 
   The replay prepends the shim to `PATH` itself; the workflow does nothing for that.

@@ -29,7 +29,7 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     env:
-      CI_LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+      CI_LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
     steps:
       - uses: actions/checkout@v4
 
@@ -84,15 +84,15 @@ jobs:
             --final "${IMAGE_NAME}:ci" \
             --record docker/image-size.json
 
-      # The whole scenario in two runs, each with its own token: AWS and Snowflake with
-      # LOCALSTACK_AUTH_TOKEN, then the Azure stage with LOCALSTACK_AUTH_TOKEN_AZURE (else
-      # LOCALSTACK_AUTH_TOKEN). The Azure stage starts its own emulator (bound to 0.0.0.0, so the
-      # forwarder's host.docker.internal path reaches it), and runs even when the first run fails.
+      # The whole scenario in two runs with the same token, whose licence must cover AWS,
+      # Snowflake and Azure: AWS and Snowflake, then the Azure stage. The Azure stage starts its
+      # own emulator (bound to 0.0.0.0, so the forwarder's host.docker.internal path reaches it),
+      # and runs even when the first run fails.
       - name: Integration test Docker runtime (AWS and Snowflake)
         if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
         env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
-          HARNESS_TOKEN_REAL: ${{ secrets.LOCALSTACK_AUTH_TOKEN != '' && '1' || '0' }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
+          HARNESS_TOKEN_REAL: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE != '' && '1' || '0' }}
           HARNESS_SKIP: cloudpods,ephemeral,replicator,chaos,azure
         run: |
           npm ci --prefix data/sample-cdk
@@ -110,8 +110,8 @@ jobs:
       - name: Integration test Docker runtime (the Azure stage)
         if: ${{ !cancelled() && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) }}
         env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE || secrets.LOCALSTACK_AUTH_TOKEN }}
-          HARNESS_TOKEN_REAL: ${{ (secrets.LOCALSTACK_AUTH_TOKEN_AZURE || secrets.LOCALSTACK_AUTH_TOKEN) != '' && '1' || '0' }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
+          HARNESS_TOKEN_REAL: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE != '' && '1' || '0' }}
           HARNESS_ONLY: azure
           HARNESS_AZURE_EXTENSIONS: "1"
           HARNESS_AZURE_FORWARDER: "1"
@@ -138,7 +138,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE || secrets.LOCALSTACK_AUTH_TOKEN }}
+      LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
       AZURE_CI_EMULATOR_CONTAINER: ls-azure-l5
       AZURE_EMULATOR_LOG_DIR: emulator-logs
     steps:

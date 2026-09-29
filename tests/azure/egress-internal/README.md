@@ -98,7 +98,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60 # an image build with az takes about 9 minutes cold
     env:
-      LOCALSTACK_AUTH_TOKEN: "${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE || secrets.LOCALSTACK_AUTH_TOKEN }}"
+      LOCALSTACK_AUTH_TOKEN: "${{ secrets.LOCALSTACK_AUTH_TOKEN }}"
       EGRESS_INTERNAL_OUT: "${{ runner.temp }}/egress-internal"
     steps:
       - uses: actions/checkout@v4
