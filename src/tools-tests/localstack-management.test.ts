@@ -235,7 +235,7 @@ describe("localstack-management service=azure", () => {
     mockedLaunch.mockResolvedValue({ content: [{ type: "text", text: "launched" }] } as any);
   });
 
-  test("start passes stack azure, the Azure labels and the Azure status function (3.1)", async () => {
+  test("start passes stack azure, the Azure labels and the Azure status function", async () => {
     await localstackManagement({ action: "start", service: "azure" } as any);
     expect(mockedLaunch).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -256,7 +256,7 @@ describe("localstack-management service=azure", () => {
     expect(mockedLaunch).not.toHaveBeenCalled();
   });
 
-  test("status: a healthy Azure emulator passes, and the Container line names it (3.2)", async () => {
+  test("status: a healthy Azure emulator passes, and the Container line names it", async () => {
     mockDocker({
       findLocalStackContainer: jest.fn().mockResolvedValue("id-az"),
       inspectContainer: jest.fn().mockResolvedValue(azureContainer()),
@@ -294,7 +294,7 @@ describe("localstack-management service=azure", () => {
       name: "localstack-uat-aws",
       image: "localstack/localstack-pro:latest",
     };
-    // As the real lookup does: it follows LOCALSTACK_PORT (4666, the F01 safety rule), so
+    // As the real lookup does: it follows LOCALSTACK_PORT (4666: an emulator on another port is never picked), so
     // no Azure container is found there; the AWS one must never be taken for it.
     mockDocker({
       findLocalStackContainer: jest.fn(async (opts?: { stack?: string }) => {
@@ -323,6 +323,57 @@ describe("localstack-management service=azure", () => {
     expect(result).not.toContain("localstack-uat-aws");
     expect(result).not.toContain("is the AWS stack");
     (azureConfig as jest.Mock).mockReturnValue({ inDocker: false });
+  });
+
+  describe("side by side (AWS on LOCALSTACK_PORT=4666, Azure on LOCALSTACK_AZURE_PORT=4566)", () => {
+    const sideBySide = () => {
+      process.env.LOCALSTACK_PORT = "4666";
+      process.env.LOCALSTACK_AZURE_PORT = "4566";
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { azureConfig } = require("../lib/azure/services");
+      (azureConfig as jest.Mock).mockReturnValue({
+        inDocker: false,
+        port: 4566,
+        healthBaseUrl: "http://127.0.0.1:4566",
+      });
+      const docker = {
+        // The Azure container is found only by stack and the Azure port; without them the
+        // lookup follows LOCALSTACK_PORT to the AWS emulator.
+        findLocalStackContainer: jest.fn(async (opts?: { stack?: string; port?: string }) =>
+          opts?.stack === "azure" && opts?.port === "4566" ? "id-azure" : "id-aws"
+        ),
+        inspectContainer: jest.fn(),
+        stopContainer: jest.fn().mockResolvedValue(undefined),
+        removeContainer: jest.fn().mockResolvedValue(undefined),
+        waitForRemoval: jest.fn().mockResolvedValue(undefined),
+        findContainerByNameAnyState: jest.fn().mockResolvedValue(undefined),
+      };
+      mockDocker(docker);
+      return docker;
+    };
+    afterEach(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { azureConfig } = require("../lib/azure/services");
+      (azureConfig as jest.Mock).mockReturnValue({ inDocker: false });
+    });
+
+    test("stop service: azure stops the Azure container, never the AWS one", async () => {
+      const docker = sideBySide();
+      const result = await localstackManagement({ action: "stop", service: "azure" } as any);
+      expect(text(result)).toMatch(/stopped successfully/);
+      expect(docker.stopContainer).toHaveBeenCalledWith("id-azure");
+      expect(docker.stopContainer).not.toHaveBeenCalledWith("id-aws");
+    });
+
+    test("restart service: azure refuses before anything is stopped", async () => {
+      const docker = sideBySide();
+      const result = await localstackManagement({ action: "restart", service: "azure" } as any);
+      expect(text(result)).toMatch(/Conflicting Azure port settings/);
+      expect(text(result)).toMatch(/Nothing was stopped/);
+      expect(docker.stopContainer).not.toHaveBeenCalled();
+      expect(docker.removeContainer).not.toHaveBeenCalled();
+      expect(mockedLaunch).not.toHaveBeenCalled();
+    });
   });
 
   test("status: an AWS container is reported as the foreign stack", async () => {
@@ -402,7 +453,7 @@ describe("localstack-management service=azure", () => {
     );
   });
 
-  test("restart of an lstk-named localstack-azure keeps its name, image and volume (3.3)", async () => {
+  test("restart of an lstk-named localstack-azure keeps its name, image and volume", async () => {
     const stopContainer = jest.fn().mockResolvedValue(undefined);
     mockDocker({
       findLocalStackContainer: jest.fn().mockResolvedValue("id-az"),
@@ -510,6 +561,37 @@ describe("localstack-management service=azure", () => {
     // The answer names the carried keys, and never the token's value.
     expect(result).toMatch(/MSSQL_ACCEPT_EULA/);
     expect(result).not.toMatch(/stale-token/);
+  });
+
+  test("restart: this server's own env block wins over a carried value, directly or as LOCALSTACK_*", async () => {
+    // The old container ran with PERSISTENCE=0 and DEBUG=0; the MCP config now sets
+    // PERSISTENCE=1 and LOCALSTACK_DEBUG=1, which the start forwards itself.
+    process.env.PERSISTENCE = "1";
+    process.env.LOCALSTACK_DEBUG = "1";
+    try {
+      mockDocker({
+        findLocalStackContainer: jest.fn().mockResolvedValue("id-az"),
+        inspectContainer: jest
+          .fn()
+          .mockResolvedValue(
+            azureContainer({ env: ["PERSISTENCE=0", "DEBUG=0", "MSSQL_ACCEPT_EULA=Y"] })
+          ),
+        imageConfigEnv: jest.fn().mockResolvedValue([]),
+        stopContainer: jest.fn().mockResolvedValue(undefined),
+        waitForRemoval: jest.fn().mockResolvedValue(undefined),
+      });
+      const result = text(
+        await localstackManagement({ action: "restart", service: "azure" } as any)
+      );
+      const options = mockedLaunch.mock.calls[0][0];
+      expect(options.envVars).not.toHaveProperty("PERSISTENCE");
+      expect(options.envVars).not.toHaveProperty("DEBUG");
+      expect(options.envVars).toMatchObject({ MSSQL_ACCEPT_EULA: "Y" }); // the host does not set it
+      expect(result).not.toMatch(/PERSISTENCE/);
+    } finally {
+      delete process.env.PERSISTENCE;
+      delete process.env.LOCALSTACK_DEBUG;
+    }
   });
 
   test("restart: the caller's own envVars win over a carried value", async () => {

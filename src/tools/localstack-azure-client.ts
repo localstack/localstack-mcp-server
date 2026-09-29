@@ -97,11 +97,11 @@ const usesBicepparam = (argv: string[]) =>
   argv.some((a) => /\.bicepparam$/i.test(a.replace(/^@/, "")));
 
 /**
- * Runs one `az` command against the LocalStack Azure emulator. The
- * order is section 5.2's: the token, the config and the pure policy first, so a
- * refusal needs no emulator; `version` after the CLI probe only; in Docker the
- * loopback forwarder before the parallel group; Bicep checks before any spawn; the
- * bootstrap; then the runner and the output.
+ * Runs one `az` command against the LocalStack Azure emulator, in this order: the
+ * token, the config and the pure policy first, so a refusal needs no emulator;
+ * `version` after the CLI probe only; in Docker the loopback forwarder before the
+ * parallel group; Bicep checks before any spawn; the bootstrap; then the runner and
+ * the output.
  */
 export default async function localstackAzureClient(
   { command }: InferSchema<typeof schema>,

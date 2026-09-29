@@ -208,6 +208,32 @@ describe("buildLocalStackContainerSpec", () => {
     expect(byDefault.Image).toBe("localstack/localstack-azure:latest");
   });
 
+  test("stack azure forwards the Azure emulator's own settings from the env block", () => {
+    const env = envMap(
+      buildLocalStackContainerSpec(
+        baseInput({
+          stack: "azure",
+          hostEnv: {
+            LS_AZURE_ENFORCE_RBAC: "1",
+            LS_AZURE_PORTAL: "1",
+            MSSQL_ACCEPT_EULA: "Y",
+            FRONT_DOOR_CLASSIC_ALLOW_CREATE: "1",
+            CDN_CLASSIC_ALLOW_CREATE: "1",
+            UNRELATED_HOST_VAR: "x",
+          },
+        })
+      )
+    );
+    expect(env).toMatchObject({
+      LS_AZURE_ENFORCE_RBAC: "1",
+      LS_AZURE_PORTAL: "1",
+      MSSQL_ACCEPT_EULA: "Y",
+      FRONT_DOOR_CLASSIC_ALLOW_CREATE: "1",
+      CDN_CLASSIC_ALLOW_CREATE: "1",
+    });
+    expect(env.UNRELATED_HOST_VAR).toBeUndefined();
+  });
+
   test("binds to 0.0.0.0 when the server runs inside Docker (DooD reachability)", () => {
     const spec = buildLocalStackContainerSpec(baseInput({ isInDocker: true }));
     expect(spec.HostConfig.PortBindings["4566/tcp"][0].HostIp).toBe("0.0.0.0");

@@ -212,6 +212,24 @@ describe("ensureLoopbackForwarder (mocked Docker socket, no real listener)", () 
     expect(start).toHaveBeenCalledTimes(1);
   });
 
+  test("then LOCALSTACK_HOSTNAME, when it names the emulator's host and answers", async () => {
+    const { d } = deps({
+      hostname: "localstack-main",
+      canConnect: jest.fn(
+        async (host: string) => host === "localstack-main" || host === "host.docker.internal"
+      ),
+    });
+    expect((await ensureLoopbackForwarder(d))?.target).toBe("localstack-main");
+  });
+
+  test("an unreachable LOCALSTACK_HOSTNAME falls through to the other targets", async () => {
+    const { d } = deps({
+      hostname: "nowhere",
+      canConnect: jest.fn(async (host: string) => host === "172.18.0.5"),
+    });
+    expect((await ensureLoopbackForwarder(d))?.target).toBe("172.18.0.5");
+  });
+
   test("then host.docker.internal when it answers", async () => {
     const { d } = deps({
       canConnect: jest.fn(async (host: string) => host === "host.docker.internal"),

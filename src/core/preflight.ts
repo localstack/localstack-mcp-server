@@ -29,7 +29,7 @@ const STACK_CLIENT_TOOLS: Record<LocalStackStack, string> = {
 
 /**
  * Whether the Snowflake emulator's health `edition` tells it apart from AWS.
- * It does not: localstack/snowflake:latest reports `pro`, as AWS does (checked 2026-09-28).
+ * It does not: localstack/snowflake:latest reports `pro`, as AWS does.
  * So the Snowflake client's guard refuses only on clear evidence (a Snowflake image that
  * reports `pro` is never turned away), and requireStack names the stack from the image.
  */
@@ -93,8 +93,10 @@ export const requireStack = async (
     container = await detectContainerStack();
     actual = container.stack;
   }
-  // The Snowflake emulator's health reports edition `pro` too, so an
-  // AWS reading is checked against the running container's image before it is named.
+  // The Snowflake emulator's health reports edition `pro` too, so an AWS reading is checked
+  // against the running container's image before a non-AWS tool is refused with it. AWS tools
+  // skip this: the Snowflake emulator serves AWS APIs as well (its docs create S3 buckets and
+  // MWAA environments on it), so it is not the wrong emulator for them.
   if (actual === "aws" && expected !== "aws") {
     container = container ?? (await detectContainerStack());
     if (container.stack === "snowflake") actual = "snowflake";
@@ -180,8 +182,8 @@ export const requireLocalStackRunning = async (): Promise<ToolResponse | null> =
 };
 
 // ---------------------------------------------------------------------------
-// The Azure client. The handler runs them in the order of plan
-// section 5.2: the config and the policy first (no emulator needed), then
+// The Azure client. The handler runs them in this order: the config and the policy
+// first (no emulator needed), then
 // requireStack("azure"), requireAzureEmulatorRunning() and requireAzureCli() as one
 // group, then the bootstrap.
 // ---------------------------------------------------------------------------

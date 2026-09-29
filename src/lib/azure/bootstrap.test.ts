@@ -87,8 +87,8 @@ const deps = (runner: AzRunner, over: Partial<BootstrapDeps> = {}): BootstrapDep
   ...over,
 });
 
-describe("the five calls (B.5)", () => {
-  test("exactly five calls, with the cloud JSON as one element and B.5's config values", async () => {
+describe("the five calls", () => {
+  test("exactly five calls, with the cloud JSON as one element and the CLI config values", async () => {
     const { runner, calls } = fakeRunner();
     await ensureAzureCliConfigured(target, deps(runner));
     expect(calls).toEqual([

@@ -29,7 +29,8 @@ test.describe("Gemini Azure eval", () => {
     }
     console.log(`Azure eval pass rate: ${passed}/${caseResults.length}`);
 
-    const passRate = caseResults.length > 0 ? passed / caseResults.length : 1;
-    expect(passRate).toBeGreaterThanOrEqual(0.8);
+    // No results means the dataset did not run: a failure, not a pass.
+    expect(caseResults.length).toBeGreaterThan(0);
+    expect(passed / caseResults.length).toBeGreaterThanOrEqual(0.8);
   });
 });

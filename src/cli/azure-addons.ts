@@ -66,14 +66,17 @@ export async function runInstallAzureAddons(
   }
 
   const deps = io.deps ?? defaultAzureStepDeps();
-  try {
-    deps.locate();
-  } catch {
-    err(
-      "The Azure CLI (az) was not found. The Azure tool runs it against the LocalStack Azure " +
-        `emulator, so install it first.\n\n${AZURE_CLI_INSTALL_OPTIONS}\n\nThen run this command again.`
-    );
-    return 1;
+  // Only the extensions need az: Bicep is a plain download, so `--no-extensions` works without it.
+  if (wantExtensions) {
+    try {
+      deps.locate();
+    } catch {
+      err(
+        "The Azure CLI (az) was not found. The Azure tool runs it against the LocalStack Azure " +
+          `emulator, so install it first.\n\n${AZURE_CLI_INSTALL_OPTIONS}\n\nThen run this command again.`
+      );
+      return 1;
+    }
   }
 
   const results: AzureStepResult[] = [];

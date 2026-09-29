@@ -681,8 +681,9 @@ describe("shim: a real child process against a fake MCP server", () => {
     expect(got.name).toBe("localstack-azure-client");
     expect(got.command).toBe(quote.toToolCommand(argv));
     expect(splitCliArgs(got.command.replace(/^az /, ""), AZURE_OPTIONS)).toEqual(argv);
-    expect(path.resolve(got.cwd)).toBe(path.resolve(dir));
-    expect(path.resolve(got.workdir)).toBe(path.resolve(dir));
+    // Real paths: macOS reports /private/var for a temp dir under /var.
+    expect(fs.realpathSync.native(got.cwd)).toBe(fs.realpathSync.native(dir));
+    expect(fs.realpathSync.native(got.workdir)).toBe(fs.realpathSync.native(dir));
     expect(got.envelope).toBe("1");
     expect(got.guard).toBe("1");
     expect(got.shimVars).toEqual([]);
@@ -1139,13 +1140,15 @@ describe("shim: a file elsewhere in the sample widens the workdir to the sample"
   let elsewhere: string;
   let outsideFile: string;
   beforeAll(() => {
-    root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "lsaz-shim-root-")));
+    // As spelled, not through realpath: on macOS the temp dir is behind a link (/var ->
+    // /private/var), which the policy must handle.
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "lsaz-shim-root-"));
     cwd = path.join(root, "function");
     for (const d of [cwd, path.join(root, "scripts"), path.join(root, "apim")]) fs.mkdirSync(d);
     spec = path.join(root, "apim", "openapi.json");
     fs.writeFileSync(spec, "{}");
     fs.writeFileSync(path.join(cwd, "app.zip"), "zip");
-    elsewhere = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "lsaz-shim-elsewhere-")));
+    elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "lsaz-shim-elsewhere-"));
     outsideFile = path.join(elsewhere, "openapi.json");
     fs.writeFileSync(outsideFile, "{}");
   });

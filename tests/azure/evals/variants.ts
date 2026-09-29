@@ -59,7 +59,7 @@ export const LONG_DESCRIPTION = [
   "",
   "Context",
   '- The CLI is already configured for the emulator: a "LocalStack" cloud is active and a service principal is logged in, so every command reaches only the local emulator, never real Azure. Do not run `az login`, `az logout` or `az cloud ...`: they are rejected because they would break that routing.',
-  "- Subscription: 00000000-0000-0000-0000-000000000000. Default location: westeurope; pass --location wherever a command needs one.",
+  "- Subscription: 00000000-0000-0000-0000-000000000000. There is no default location: pass --location (for example westeurope) wherever a command needs one.",
   "- Write the command without the leading `az` (a leading `az` is accepted and ignored).",
   "- Extensions that commands need (cdn/afd, graph, k8s-configuration, k8s-extension, fleet, monitor app-insights and others) are pre-installed. Installing or updating extensions is not possible.",
   "",

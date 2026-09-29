@@ -305,6 +305,15 @@ function mapWindowsLauncher(file: string, ctx: ResolveAzContext): Mapped {
   };
 }
 
+/**
+ * WSL interop does not forward AZURE_CONFIG_DIR, so a Windows az would use the user's real
+ * ~/.azure. There is deliberately no escape hatch.
+ */
+const windowsAzThroughWsl = (file: string): Mapped => ({
+  ok: false,
+  reason: `${file}: a Windows Azure CLI seen through WSL; it would use your real Windows ~/.azure profile, so it is never used`,
+});
+
 /** Map one POSIX `az` to its Python, or to itself when its shape is unknown. */
 function mapPosixLauncher(file: string, ctx: ResolveAzContext): Mapped {
   const pathApi = path.posix;
@@ -313,20 +322,21 @@ function mapPosixLauncher(file: string, ctx: ResolveAzContext): Mapped {
     isWsl(ctx) &&
     [file, real].some((p) => /^\/mnt\/[a-z]\//i.test(p) || /\.(exe|cmd|bat)$/i.test(p))
   ) {
-    // WSL interop does not forward AZURE_CONFIG_DIR, so a Windows az would use the
-    // user's real ~/.azure. There is deliberately no escape hatch.
-    return {
-      ok: false,
-      reason: `${file}: a Windows Azure CLI seen through WSL; it would use your real Windows ~/.azure profile, so it is never used`,
-    };
+    return windowsAzThroughWsl(file);
   }
+  // A launcher elsewhere can still run a Windows Python: drives mount at /c with
+  // `[automount] root = /`, and not only under /mnt.
+  const windowsPython = (python: string) => isWsl(ctx) && /\.exe$/i.test(python);
   if (/^python(\d+(\.\d+)*)?$/.test(pathApi.basename(real))) {
-    return { ok: true, exe: { file: real, prefixArgs: pythonPrefix(ctx), installer: "explicit" } };
+    // By the path as given: a venv's python links to the system Python, and Python finds the
+    // venv (pyvenv.cfg) next to the path it was started by.
+    return { ok: true, exe: { file, prefixArgs: pythonPrefix(ctx), installer: "explicit" } };
   }
   const text = ctx.fs.readText(real, 16 * 1024);
   if (text === undefined) return { ok: false, reason: `${file}: unreadable` };
   const python = shebangPython(text, "linux");
   if (python) {
+    if (windowsPython(python)) return windowsAzThroughWsl(file);
     if (!ctx.fs.isFile(python))
       return { ok: false, reason: `${file}: its interpreter ${python} is missing` };
     return {
@@ -347,6 +357,7 @@ function mapPosixLauncher(file: string, ctx: ResolveAzContext): Mapped {
   for (const dir of [pathApi.dirname(file), pathApi.dirname(real)]) {
     const parsed = parseBashLauncher(text, dir, "linux");
     if (parsed && ctx.fs.isFile(parsed.python)) {
+      if (windowsPython(parsed.python)) return windowsAzThroughWsl(file);
       const installer = parsed.installer
         ? (parsed.installer.toLowerCase() as AzExecutable["installer"])
         : "script";

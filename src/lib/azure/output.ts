@@ -323,8 +323,8 @@ function connRefusedHint(hostPort: string): string {
   return (
     `Could not connect to the LocalStack Azure emulator at ${inlineCode(hostPort)}: nothing is ` +
     "listening. Start it with `localstack-management` (`action: start`, `service: azure`), or " +
-    "`lstk start --type azure`, then retry. If it runs on another port, set " +
-    "`LOCALSTACK_AZURE_PORT`."
+    "`lstk start --type azure`, then retry. If it runs on another port, set `LOCALSTACK_PORT` " +
+    "(`LOCALSTACK_AZURE_PORT` only when it runs beside an AWS emulator)."
   );
 }
 

@@ -70,7 +70,29 @@ describe("getAzureEmulatorStatus", () => {
     expect(status).toMatchObject({ ok: false, problem: "not-running" });
     expect(status.message).toMatch(/not running at http:\/\/127\.0\.0\.1:4566/);
     expect(status.message).toMatch(/service: azure/);
-    expect(status.message).toMatch(/LOCALSTACK_AZURE_PORT/);
+    // The documented setting first; the Azure one only for the side-by-side layout.
+    expect(status.message).toMatch(
+      /set LOCALSTACK_PORT \(LOCALSTACK_AZURE_PORT only when it runs beside an AWS emulator\)/
+    );
+  });
+
+  test("unreachable, with LOCALSTACK_HOSTNAME naming another host: says it does not apply", async () => {
+    process.env.LOCALSTACK_HOSTNAME = "remote-box";
+    try {
+      const onHost = await getAzureEmulatorStatus(CONFIG, deps({ health: undefined }));
+      expect(onHost.message).toMatch(/LOCALSTACK_HOSTNAME \(remote-box\) does not apply/);
+      // In Docker the loopback forwarder tries it, so there is nothing to say.
+      const inDocker = await getAzureEmulatorStatus(
+        { ...CONFIG, inDocker: true },
+        deps({ health: undefined })
+      );
+      expect(inDocker.message).not.toMatch(/LOCALSTACK_HOSTNAME/);
+      process.env.LOCALSTACK_HOSTNAME = "localhost";
+      const local = await getAzureEmulatorStatus(CONFIG, deps({ health: undefined }));
+      expect(local.message).not.toMatch(/LOCALSTACK_HOSTNAME/);
+    } finally {
+      delete process.env.LOCALSTACK_HOSTNAME;
+    }
   });
 
   test("busy: an open port that answers no health check is not-responding, not not-running", async () => {

@@ -107,6 +107,8 @@ export interface ForwarderDeps {
   port: number;
   /** LOCALSTACK_AZURE_FORWARD_TARGET. */
   forwardTarget?: string;
+  /** LOCALSTACK_HOSTNAME: where the documented configuration says the emulator lives. */
+  hostname?: string;
   canConnect(host: string, port: number, timeoutMs: number): Promise<boolean>;
   findEmulator(): Promise<EmulatorContainer | undefined>;
   log(line: string): void;
@@ -157,6 +159,7 @@ export function defaultForwarderDeps(config: {
     inDocker: config.inDocker,
     port: config.port,
     forwardTarget: config.forwardTarget,
+    hostname: process.env.LOCALSTACK_HOSTNAME?.trim() || undefined,
     canConnect,
     findEmulator: findEmulatorViaDocker,
     log: (line) => process.stderr.write(`[localstack-azure-client] ${line}\n`),
@@ -263,6 +266,14 @@ async function startFirstReachable(d: ForwarderDeps): Promise<Forwarder | undefi
   const emulator = await d.findEmulator();
   const candidates: Array<{ host: string; kind: "host" | "container"; explicit?: boolean }> = [];
   if (d.forwardTarget) candidates.push({ host: d.forwardTarget, kind: "host", explicit: true });
+  // LOCALSTACK_HOSTNAME names where the emulator lives (a container on a shared network):
+  // checked like the others, so host.docker.internal keeps its fallback to the container IP.
+  if (
+    d.hostname &&
+    !/^(localhost|127\.0\.0\.1|::1|\[::1\]|host\.docker\.internal)$/i.test(d.hostname)
+  ) {
+    candidates.push({ host: d.hostname, kind: "host" });
+  }
   candidates.push({ host: "host.docker.internal", kind: "host" });
   for (const ip of emulator?.ipAddresses ?? []) candidates.push({ host: ip, kind: "container" });
   for (const candidate of candidates) {

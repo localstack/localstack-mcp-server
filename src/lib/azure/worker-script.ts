@@ -82,6 +82,19 @@ def _read_capped(tmp):
     return data.decode("utf-8", "replace"), False
 
 
+def _reset_logging():
+    import logging
+
+    try:
+        from knack.log import cli_logger_names
+    except ImportError:  # the tests' stand-in azure.cli.core comes without knack
+        cli_logger_names = []
+    for logger in [logging.getLogger(), *(logging.getLogger(n) for n in cli_logger_names)]:
+        for handler in list(logger.handlers):
+            logger.removeHandler(handler)
+            handler.close()
+
+
 def main():
     from azure.cli.core import get_default_cli
 
@@ -98,6 +111,9 @@ def main():
         # context, e.g. az rest unregisters the global result transforms, which with one shared
         # context left every later command without resourceGroup. Imports stay warm.
         cli = get_default_cli()
+        # knack configures logging only while the root logger has no handlers: drop the
+        # previous command's, so each command gets its own level, as a subprocess does.
+        _reset_logging()
         out = _Capped()
         rc = 1
         saved_stdin = sys.stdin

@@ -10,7 +10,7 @@ import * as VT from "./variants";
 const COMPACT = [
   "Run an Azure CLI (az) command against the local LocalStack for Azure emulator and return its output.",
   "",
-  '- Runs against the local emulator only, never real Azure: the CLI is pre-configured with a "LocalStack" cloud and a dummy login, so all data and secrets are local test data. Subscription: 00000000-0000-0000-0000-000000000000. Default location: westeurope.',
+  '- Runs against the local emulator only, never real Azure: the CLI is pre-configured with a "LocalStack" cloud and a dummy login, so all data and secrets are local test data. Subscription: 00000000-0000-0000-0000-000000000000. There is no default location: pass --location (for example westeurope) wherever a command needs one.',
   "- Unsure of a command or its parameters? Run it with --help first.",
   "Examples: group create --name rg1 --location westeurope",
 ].join("\n");

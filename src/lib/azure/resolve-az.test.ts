@@ -125,6 +125,19 @@ describe("locateAz: LOCALSTACK_AZ_PATH", () => {
     expect(exe.azInstaller).toBe("MSI");
   });
 
+  test("a venv's python is used by its own path, not the system Python it links to", () => {
+    // `python3 -m venv ~/az` links bin/python3 to the system Python, and Python finds the venv
+    // (pyvenv.cfg) next to the path it was started by: the link's target has no azure-cli.
+    const files = {
+      "/home/me/az/bin/python3": { link: "/usr/bin/python3.12" },
+      "/usr/bin/python3.12": {},
+    };
+    const exe = locateAz(posixCtx(files, { LOCALSTACK_AZ_PATH: "/home/me/az/bin/python3" }));
+    expect(exe.file).toBe("/home/me/az/bin/python3");
+    expect(exe.prefixArgs).toEqual(HOST_PREFIX);
+    expect(exe.installer).toBe("explicit");
+  });
+
   test.each(["az.cmd", "C:\\nowhere\\az.cmd"])(
     "a relative or missing path is a hard error, with no fallback to PATH: %s",
     (value) => {
@@ -143,7 +156,7 @@ describe("locateAz: LOCALSTACK_AZ_PATH", () => {
   });
 });
 
-describe("locateAz: PATH order and entry parsing (cases 2 and 3)", () => {
+describe("locateAz: PATH order and entry parsing", () => {
   test("wbin before Python313\\Scripts gives the MSI; reversed gives pip", () => {
     const files = { ...msiFiles, ...pipFiles };
     const msiFirst = locateAz(winCtx(files, { PATH: `${CLI2}\\wbin;${PY313}\\Scripts` }));
@@ -181,7 +194,7 @@ describe("locateAz: PATH order and entry parsing (cases 2 and 3)", () => {
   });
 });
 
-describe("locateAz: broken, pip and unknown Windows launchers (cases 4-7)", () => {
+describe("locateAz: broken, pip and unknown Windows launchers", () => {
   test("an MSI az.cmd without ..\\python.exe is a broken MSI install, with no shell fallback", () => {
     const files = {
       [`${CLI2}\\wbin\\az.cmd`]: { text: MSI_CMD },
@@ -263,7 +276,7 @@ describe("locateAz: broken, pip and unknown Windows launchers (cases 4-7)", () =
   });
 });
 
-describe("locateAz: POSIX launchers (case 8)", () => {
+describe("locateAz: POSIX launchers", () => {
   test("a symlink is realpath'd, and a pip/venv script is rewritten to its shebang python", () => {
     const files = {
       "/home/me/bin/az": { link: "/home/me/tools/azcli/bin/az" },
@@ -336,7 +349,7 @@ describe("locateAz: without az, the answer says how to install it (as the Snowfl
   });
 });
 
-describe("locateAz: WSL (case 9)", () => {
+describe("locateAz: WSL", () => {
   const wslFiles: Record<string, FakeFile> = {
     "/mnt/c/Program Files/Microsoft SDKs/Azure/CLI2/wbin/az": { text: MSI_BASH },
     "/mnt/c/Users/me/AppData/Local/Programs/Python/Python313/Scripts/az": {
@@ -372,6 +385,30 @@ describe("locateAz: WSL (case 9)", () => {
       posixCtx(files, { PATH: `${wslPath}:/home/me/bin`, WSL_DISTRO_NAME: "Ubuntu" })
     );
     expect(exe.file).toBe("/home/me/venv/bin/python");
+  });
+
+  test("a Windows az under another automount root (`root = /` mounts C: at /c) is refused", () => {
+    const cli2 = "/c/Program Files/Microsoft SDKs/Azure/CLI2";
+    const error = locateError(
+      posixCtx(
+        { [`${cli2}/wbin/az`]: { text: MSI_BASH }, [`${cli2}/python.exe`]: {} },
+        { PATH: `${cli2}/wbin`, WSL_DISTRO_NAME: "Ubuntu" }
+      )
+    );
+    expect(error.reasons.join("\n")).toMatch(/through WSL/);
+  });
+
+  test("a launcher whose shebang runs a Windows python.exe is refused under WSL", () => {
+    const error = locateError(
+      posixCtx(
+        {
+          "/home/me/bin/az": { text: pipScript("/c/Python313/python.exe").replace(/\r/g, "") },
+          "/c/Python313/python.exe": {},
+        },
+        { PATH: "/home/me/bin", WSL_DISTRO_NAME: "Ubuntu" }
+      )
+    );
+    expect(error.reasons.join("\n")).toMatch(/through WSL/);
   });
 
   test("an .exe candidate under WSL is refused even outside /mnt", () => {
@@ -444,7 +481,7 @@ describe("parseBashLauncher and the spawn prefix", () => {
   });
 });
 
-describe("resolveAz: the probe (case 10)", () => {
+describe("resolveAz: the probe", () => {
   const ctx = () => winCtx(msiFiles, { PATH: `${CLI2}\\wbin` });
 
   test("a successful probe gives the version", async () => {

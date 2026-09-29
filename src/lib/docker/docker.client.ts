@@ -179,10 +179,13 @@ export class DockerApiClient {
    * entries 1:1 (container 4666 -> host 4666), so the container port may also equal
    * the configured one.
    */
-  private publishesConfiguredGatewayPort(container: {
-    Ports?: Array<{ PrivatePort?: number; PublicPort?: number; Type?: string }>;
-  }): boolean {
-    const configuredPort = Number(process.env.LOCALSTACK_PORT || LOCALSTACK_PORT);
+  private publishesConfiguredGatewayPort(
+    container: {
+      Ports?: Array<{ PrivatePort?: number; PublicPort?: number; Type?: string }>;
+    },
+    port?: string
+  ): boolean {
+    const configuredPort = Number(port || process.env.LOCALSTACK_PORT || LOCALSTACK_PORT);
     return (container.Ports || []).some(
       (port) =>
         port.Type === "tcp" &&
@@ -246,33 +249,42 @@ export class DockerApiClient {
     return `"${name || container.Id}"`;
   }
 
-  /** A candidate of a known, different stack is skipped; an unknown one is kept. */
+  /**
+   * A candidate of a known, different stack is skipped; an unknown one is kept. The Snowflake
+   * image also serves the AWS APIs and ships awslocal (its stages and Snowpipe read S3), so it
+   * counts for AWS.
+   */
   private isStackCompatible(container: RunningContainerSummary, stack: LocalStackStack): boolean {
     const actual = stackFromImage(container.Image, container.Labels);
-    return actual === undefined || actual === stack;
+    return actual === undefined || actual === stack || (stack === "aws" && actual === "snowflake");
   }
 
   /**
    * Find the running LocalStack container. With `stack`, containers that belong to a
-   * different stack are skipped, and a failure names the container that was found.
+   * different stack are skipped, and a failure names the container that was found. With
+   * `port`, that port stands in for LOCALSTACK_PORT: the Azure emulator beside an AWS one
+   * sits on the Azure tool's own port.
    */
-  async findLocalStackContainer(opts: { stack?: LocalStackStack } = {}): Promise<string> {
+  async findLocalStackContainer(
+    opts: { stack?: LocalStackStack; port?: string } = {}
+  ): Promise<string> {
     const running = ((await (this.docker.listContainers as any)({
       filters: { status: ["running"] },
     })) || []) as RunningContainerSummary[];
 
-    if (!opts.stack) return this.selectLocalStackContainer(running);
+    if (!opts.stack) return this.selectLocalStackContainer(running, opts.port);
 
     const expected = opts.stack;
     try {
       return this.selectLocalStackContainer(
-        running.filter((container) => this.isStackCompatible(container, expected))
+        running.filter((container) => this.isStackCompatible(container, expected)),
+        opts.port
       );
     } catch (error) {
       if (!isLocalStackContainerNotFoundError(error)) throw error;
       let otherId: string | undefined;
       try {
-        otherId = this.selectLocalStackContainer(running);
+        otherId = this.selectLocalStackContainer(running, opts.port);
       } catch {
         otherId = undefined;
       }
@@ -288,7 +300,9 @@ export class DockerApiClient {
     }
   }
 
-  private selectLocalStackContainer(running: RunningContainerSummary[]): string {
+  private selectLocalStackContainer(running: RunningContainerSummary[], port?: string): string {
+    const portOverride = port?.trim() || undefined;
+    const configuredPort = portOverride || process.env.LOCALSTACK_PORT?.trim();
     const explicitName = (
       process.env.MAIN_CONTAINER_NAME ||
       process.env.LOCALSTACK_MAIN_CONTAINER_NAME ||
@@ -304,30 +318,38 @@ export class DockerApiClient {
     }
 
     if (!explicitName) {
-      const explicitPort = Boolean(process.env.LOCALSTACK_PORT?.trim());
+      const explicitPort = Boolean(configuredPort);
       const knownNames = this.findByKnownLocalStackNames(running || []);
       if (knownNames.length > 0 && !explicitPort) return knownNames[0].Id as string;
       if (knownNames.length > 0 && explicitPort) {
         // With an explicit port, a known name alone is not enough: a shared
         // `localstack-azure` on 4566 must never be picked by a server configured for a
         // test emulator on another port.
-        const onPort = knownNames.filter((c) => this.publishesConfiguredGatewayPort(c));
+        const onPort = knownNames.filter((c) =>
+          this.publishesConfiguredGatewayPort(c, portOverride)
+        );
         if (onPort.length === 1) return onPort[0].Id as string;
         if (onPort.length > 1) {
           throw new LocalStackContainerNotFoundError(
-            `Found several LocalStack containers publishing the configured gateway port ${process.env.LOCALSTACK_PORT}: ` +
+            `Found several LocalStack containers publishing the configured gateway port ${configuredPort}: ` +
               `${onPort.map((c) => this.containerLabel(c)).join(", ")}. Set MAIN_CONTAINER_NAME to the one to use.`
           );
         }
+        // A container that publishes no port at all (host network, a compose network) cannot
+        // sit on another port, so its known name still identifies it.
+        const unpublished = knownNames.filter((c) => !(c.Ports || []).some((p) => p.PublicPort));
+        if (unpublished.length === 1) return unpublished[0].Id as string;
       }
 
       const localstackImages = (running || []).filter((c) => this.hasLocalStackImage(c));
-      const byGatewayPort = localstackImages.find((c) => this.publishesConfiguredGatewayPort(c));
+      const byGatewayPort = localstackImages.find((c) =>
+        this.publishesConfiguredGatewayPort(c, portOverride)
+      );
       if (byGatewayPort) return byGatewayPort.Id as string;
 
       if (explicitPort && localstackImages.length > 0) {
         throw new LocalStackContainerNotFoundError(
-          `Found running LocalStack containers, but none publishes the configured gateway port ${process.env.LOCALSTACK_PORT}. ` +
+          `Found running LocalStack containers, but none publishes the configured gateway port ${configuredPort}. ` +
             `Set MAIN_CONTAINER_NAME to the container name to use.`
         );
       }
@@ -335,7 +357,7 @@ export class DockerApiClient {
       if (localstackImages.length === 1) return localstackImages[0].Id as string;
       if (localstackImages.length > 1) {
         throw new LocalStackContainerNotFoundError(
-          `Found multiple running LocalStack containers but none publishes the configured gateway port ${process.env.LOCALSTACK_PORT || LOCALSTACK_PORT}. ` +
+          `Found multiple running LocalStack containers but none publishes the configured gateway port ${configuredPort || LOCALSTACK_PORT}. ` +
             `Set MAIN_CONTAINER_NAME to the container name to use.`
         );
       }

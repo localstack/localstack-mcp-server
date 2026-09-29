@@ -325,14 +325,14 @@ describe("DockerApiClient", () => {
     await expect(new DockerApiClient().findLocalStackContainer()).resolves.toBe("az-tag");
   });
 
-  test("F01: with LOCALSTACK_PORT=4666 the lookup picks the test container, never the shared localstack-azure", async () => {
+  test("with LOCALSTACK_PORT=4666 the lookup picks the test container, never the shared localstack-azure", async () => {
     process.env.LOCALSTACK_PORT = "4666";
     const mocks = getDockerMocks();
     mocks.listContainers.mockResolvedValueOnce([sharedAzure, recipeTestContainer]);
     await expect(new DockerApiClient().findLocalStackContainer()).resolves.toBe("test-4666");
   });
 
-  test("F01: with LOCALSTACK_PORT=4666 and only the shared emulator running, the lookup fails instead of picking it", async () => {
+  test("with LOCALSTACK_PORT=4666 and only the shared emulator running, the lookup fails instead of picking it", async () => {
     process.env.LOCALSTACK_PORT = "4666";
     const mocks = getDockerMocks();
     mocks.listContainers.mockResolvedValueOnce([sharedAzure]);
@@ -341,7 +341,7 @@ describe("DockerApiClient", () => {
     );
   });
 
-  test("F01: a known name that does not publish the explicit port is not picked", async () => {
+  test("a known name that does not publish the explicit port is not picked", async () => {
     process.env.LOCALSTACK_PORT = "4567";
     const mocks = getDockerMocks();
     mocks.listContainers.mockResolvedValueOnce([
@@ -355,6 +355,39 @@ describe("DockerApiClient", () => {
     await expect(new DockerApiClient().findLocalStackContainer()).rejects.toThrow(
       /none publishes the configured gateway port 4567/i
     );
+  });
+
+  test("with LOCALSTACK_PORT set, a known name that publishes no port (host or compose network) is found", async () => {
+    process.env.LOCALSTACK_PORT = "4566";
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      {
+        Id: "host-network",
+        Names: ["/localstack-main"],
+        Image: "localstack/localstack-pro:latest",
+        Ports: [],
+      },
+    ]);
+    await expect(new DockerApiClient().findLocalStackContainer()).resolves.toBe("host-network");
+  });
+
+  test("{stack, port} looks on that port: the Azure emulator on 4566 beside an AWS one on LOCALSTACK_PORT", async () => {
+    process.env.LOCALSTACK_PORT = "4666";
+    const mocks = getDockerMocks();
+    const aws = {
+      Id: "aws-4666",
+      Names: ["/localstack-main"],
+      Image: "localstack/localstack-pro:latest",
+      Ports: [{ PrivatePort: 4566, PublicPort: 4666, Type: "tcp" }],
+    };
+    mocks.listContainers.mockResolvedValue([aws, sharedAzure]);
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer({ stack: "azure", port: "4566" })).resolves.toBe(
+      sharedAzure.Id
+    );
+    // Without the port, LOCALSTACK_PORT decides, and it names the AWS emulator.
+    await expect(client.findLocalStackContainer()).resolves.toBe("aws-4666");
+    mocks.listContainers.mockReset();
   });
 
   test("the port rule accepts the default 4566 -> <LOCALSTACK_PORT> layout", async () => {
@@ -393,6 +426,17 @@ describe("DockerApiClient", () => {
     const error = await client.findLocalStackContainer({ stack: "aws" }).catch((e) => e);
     expect(error.name).toBe("LocalStackContainerNotFoundError");
     expect(error.message).toMatch(/"localstack-azure".*is the Azure stack, not the AWS stack/);
+    mocks.listContainers.mockReset();
+  });
+
+  test("{stack: 'aws'} finds the Snowflake emulator's container: it serves the AWS APIs too", async () => {
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValue([
+      { Id: "snow1", Names: ["/localstack-main"], Image: "localstack/snowflake:latest" },
+    ]);
+    await expect(new DockerApiClient().findLocalStackContainer({ stack: "aws" })).resolves.toBe(
+      "snow1"
+    );
     mocks.listContainers.mockReset();
   });
 

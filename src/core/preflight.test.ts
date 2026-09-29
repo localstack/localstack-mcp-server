@@ -172,13 +172,22 @@ describe("requireStack", () => {
   });
 
   test("names the Snowflake emulator, not AWS, when a Snowflake image reports `pro`", async () => {
-    // The Snowflake emulator's health reports edition `pro` (checked 2026-09-28),
+    // The Snowflake emulator's health reports edition `pro`,
     // as AWS does, so the Azure tool met it and said "is LocalStack AWS".
     mockedGetGatewayHealth.mockResolvedValue(awsHealth);
     mockContainer({ image: "localstack/snowflake:latest" });
     const text = (await requireStack("azure", "localstack-azure-client"))?.content[0].text ?? "";
     expect(text).toContain("is LocalStack Snowflake");
     expect(text).toContain("Use `localstack-snowflake-client`");
+  });
+
+  test("lets AWS tools through on the Snowflake image, which serves AWS APIs too", async () => {
+    // The Snowflake docs run `lstk aws s3 mb` and MWAA against that emulator (Snowpipe, stages,
+    // storage integrations, Airflow), and document state export and Cloud Pods for it.
+    mockedGetGatewayHealth.mockResolvedValue(awsHealth);
+    mockContainer({ image: "localstack/snowflake:latest" });
+    expect(await requireStack("aws", "localstack-aws-client")).toBeNull();
+    expect(await requireStack("aws", "localstack-state-management")).toBeNull();
   });
 
   test("still names AWS when the `pro` container is the AWS image", async () => {

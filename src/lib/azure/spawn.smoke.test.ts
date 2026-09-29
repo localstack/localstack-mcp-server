@@ -69,7 +69,7 @@ describeSmoke("the real az (AZ_SMOKE=1)", () => {
     }
   });
 
-  test("the seed is written before the first az call, then B.5's config set line runs once", async () => {
+  test("the seed is written before the first az call, then the config set line runs once", async () => {
     mkdirSync(configDir, { recursive: true });
     const seed = versionCheckSeed(await services.readLocalVersions(az), az.version);
     writeFileSync(path.join(configDir, VERSION_CHECK_FILE), JSON.stringify(seed));

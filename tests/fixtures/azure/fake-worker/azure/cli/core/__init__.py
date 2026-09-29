@@ -18,7 +18,22 @@ _log = logging.getLogger("fake-az")
 _log.addHandler(logging.StreamHandler(sys.stderr))
 _log.setLevel(logging.INFO)
 
+# A slow cold start, as azure-cli's own imports can be.
+time.sleep(float(os.environ.get("FAKE_AZ_IMPORT_DELAY", "0")))
+
 _count = 0
+
+
+def _configure_logging_once(argv):
+    """Like knack's CLILogging.configure: the level is set only while the root logger has no
+    handlers, so in a long-lived process the first command's level would stick."""
+    root = logging.getLogger()
+    if root.handlers:
+        return
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setLevel(logging.DEBUG if "--debug" in argv else logging.WARNING)
+    root.setLevel(logging.DEBUG)
+    root.addHandler(handler)
 
 
 def _connect(target):
@@ -94,6 +109,15 @@ class _Cli:
             return 0
         if cmd == "crash":
             os._exit(9)
+        if cmd == "touch":
+            with open(args[0], "w") as f:
+                f.write("ran")
+            return 0
+        if cmd == "debuglog":
+            _configure_logging_once(argv)
+            # Not under "fake-az", whose INFO level would drop the line before any handler.
+            logging.getLogger("fakecli").debug("DEBUG: a debug line")
+            return 0
         if cmd == "connect":
             return _connect(args[0])
         print(f"unknown fake command {cmd}", file=sys.stderr)

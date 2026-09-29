@@ -13,6 +13,7 @@ import {
 } from "./bootstrap";
 import { buildAzChildEnv, ensurePrivateDirs } from "./child-env";
 import { startEgressProxy } from "./egress-proxy";
+import { emulatorPorts } from "./local-hosts";
 import {
   interpreterFlags,
   listInstalledExtensions,
@@ -99,6 +100,7 @@ export function policyOptions(): PolicyOptions {
     extraDenied: denylistCache,
     protectedDirs: protectedDirs(),
     platform: process.platform,
+    localPorts: emulatorPorts(gatewayPorts(config)),
   };
   return policyCache;
 }
@@ -108,11 +110,22 @@ export function installedExtensionNames(): Set<string> {
   return listExtensionNames(azureConfig().extensionDir);
 }
 
+/** The Azure port and the port of the endpoint az calls (LOCALSTACK_AZURE_ENDPOINT may name another). */
+function gatewayPorts(config: { port: number; endpoint: string }): number[] {
+  try {
+    const url = new URL(config.endpoint);
+    return [config.port, Number(url.port) || (url.protocol === "https:" ? 443 : 80)];
+  } catch {
+    return [config.port];
+  }
+}
+
 /** Containment layer 4; undefined only with LOCALSTACK_AZ_EGRESS_GUARD=0. */
 export function egressGuard(): Promise<EgressProxy | undefined> {
   const config = azureConfig();
   if (!config.egressGuard) return Promise.resolve(undefined);
   guardPromise ??= startEgressProxy({
+    allowedPorts: emulatorPorts(gatewayPorts(config)),
     // stderr only: stdout carries the MCP server's JSON-RPC.
     log: (line) => process.stderr.write(`[localstack-azure-client] ${line}\n`),
   });

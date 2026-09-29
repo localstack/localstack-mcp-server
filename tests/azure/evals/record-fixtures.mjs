@@ -8,7 +8,8 @@
 // For each (task, mode) it keeps the latest record that met its expectation (--oracle: the
 // verifier passed; --negative: it failed) and holds exactly what the verifier read: the slots,
 // the text, and every answer the verifier got (JSON stdout minified; connection-string key
-// parts, which no verifier reads, redacted). Records with a truncated input are skipped.
+// parts in the text, stdout and stderr, which no verifier reads, redacted). Records with a
+// truncated input are skipped.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -67,7 +68,7 @@ const entries = [...latest.values()]
       answer: {
         exitCode: q.answer.exitCode,
         stdout: minify(q.answer.stdout),
-        stderr: String(q.answer.stderr ?? "").slice(0, 400),
+        stderr: redact(q.answer.stderr).slice(0, 400),
         classId: q.answer.classId ?? null,
         ...(q.answer.stoppedByTool ? { stoppedByTool: true } : {}),
       },

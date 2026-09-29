@@ -11,6 +11,7 @@ import {
   REQUIRED_FLAGS,
   scanBicepModules,
 } from "./policy";
+import { emulatorPorts } from "./local-hosts";
 import type { PolicyOptions, PolicyResult } from "./types";
 
 // Synthetic win32 paths keep the lexical file rule deterministic on any host: the paths do not
@@ -222,6 +223,41 @@ describe("evaluateAzCommand: URL rule (request targets only)", () => {
     expect(r.outcome).toBe("ok");
     expect(evalCmd("rest --url https://azure.localhost.localstack.cloud:4566/x").ok).toBe(true);
     expect(evalCmd("rest --url http://127.0.0.1:4566/x").ok).toBe(true);
+  });
+
+  test("with the emulator's ports set, a local host on any other port is refused", () => {
+    const localPorts = emulatorPorts([4566]);
+    const refusedHost = (command: string) => {
+      const r = expectRefused(evalCmd(command, { localPorts }));
+      expect(r.ruleId).toBe("url:blocked");
+      return r.message;
+    };
+    // Docker's unauthenticated API and a local model server: not the emulator.
+    expect(refusedHost("rest --url http://localhost:2375/containers/json")).toContain(
+      "localhost:2375"
+    );
+    expect(refusedHost("rest --method post --url http://127.0.0.1:11434/api/generate")).toContain(
+      "127.0.0.1:11434"
+    );
+    expect(refusedHost("rest --url http://localhost.localstack.cloud/x")).toContain(":80");
+    // The gateway, 443 (a port-less https URL) and the service range stay allowed.
+    for (const url of [
+      "https://azure.localhost.localstack.cloud:4566/subscriptions/0",
+      "https://app--env.aca.azure.localhost.localstack.cloud/",
+      "https://ns.servicebus.azure.localhost.localstack.cloud:4521/",
+      "http://127.0.0.1:4560/x",
+    ])
+      expectOk(evalCmd(`rest --url ${url}`, { localPorts }));
+    // Without the set (the default), any port, as before.
+    expectOk(evalCmd("rest --url http://localhost:2375/containers/json"));
+  });
+
+  test("emulatorPorts: the gateway ports, 443 and the service range from the environment", () => {
+    const byDefault = emulatorPorts([4566, 4567]);
+    expect([4566, 4567, 443, 4510, 4560].every((p) => byDefault.has(p))).toBe(true);
+    expect([2375, 11434, 80, 4561, 4509].some((p) => byDefault.has(p))).toBe(false);
+    const shifted = emulatorPorts([4666], { EXTERNAL_SERVICE_PORTS_START: "4610" });
+    expect(shifted.has(4610) && shifted.has(4660) && !shifted.has(4510)).toBe(true);
   });
 
   test("refuses other absolute URLs on request-target flags", () => {
@@ -573,6 +609,96 @@ describe("evaluateAzCommand: symlink escape (realpath, I/O)", () => {
     }
     fs.rmSync(root, { recursive: true, force: true });
   });
+
+  test("a workdir and a private home reached through a link keep their files allowed", () => {
+    // macOS's /var links to /private/var, and a Windows temp dir can be an 8.3 short name
+    // (C:\Users\RUNNER~1): a file inside such a workdir has a real path that differs from its
+    // lexical one, and must still count as inside. An escape through a link stays refused.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "policy-linkdir-"));
+    const real = path.join(root, "real");
+    const link = path.join(root, "link");
+    fs.mkdirSync(path.join(real, "home"), { recursive: true });
+    fs.mkdirSync(path.join(root, "outside"));
+    fs.writeFileSync(path.join(real, "main.json"), "{}");
+    fs.writeFileSync(path.join(real, "home", "id.pub"), "ssh-rsa x");
+    fs.writeFileSync(path.join(root, "outside", "secret.txt"), "x");
+    let linked = false;
+    try {
+      fs.symlinkSync(real, link, "junction");
+      fs.symlinkSync(path.join(root, "outside"), path.join(real, "out"), "junction");
+      linked = true;
+    } catch {
+      // No privilege to create a link on this machine: skip the assertions gracefully.
+    }
+    if (linked) {
+      const opts = { workdir: link, homeDir: path.join(link, "home"), platform: process.platform };
+      expectOk(evaluateAzCommand("deployment group create -g rg --template-file main.json", opts));
+      expectOk(evaluateAzCommand("aks create -g rg -n c --ssh-key-value ~/id.pub", opts));
+      const escape = evaluateAzCommand("storage blob upload -c c -n b -f out/secret.txt", opts);
+      expect(escape.ok).toBe(false);
+      if (!escape.ok) expect(escape.ruleId).toBe("file:outside-workdir");
+    }
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  describe("roots and `..` through a link (a /home that is /var/home, a linked HOME)", () => {
+    const roots: string[] = [];
+    afterAll(() => roots.forEach((r) => fs.rmSync(r, { recursive: true, force: true })));
+    const layout = () => {
+      const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "policy-canon-")));
+      roots.push(root);
+      for (const d of ["real/work", "real/me/.ssh", "real/me/shared/x"])
+        fs.mkdirSync(path.join(root, d), { recursive: true });
+      fs.writeFileSync(path.join(root, "real/work/main.json"), "{}");
+      fs.writeFileSync(path.join(root, "real/me/.ssh/id_rsa"), "key");
+      // Directory links: junctions on Windows (no privilege needed), symlinks elsewhere.
+      fs.symlinkSync(path.join(root, "real"), path.join(root, "link"), "junction");
+      fs.symlinkSync(
+        path.join(root, "real/me/shared"),
+        path.join(root, "real/work/shared"),
+        "junction"
+      );
+      return { real: path.join(root, "real"), link: path.join(root, "link") };
+    };
+    const on =
+      (workdir: string, homeDir: string, protectedDirs: string[] = []) =>
+      (command: string) =>
+        evaluateAzCommand(command, { workdir, homeDir, protectedDirs, platform: process.platform });
+
+    test("a workdir spelled through a link keeps its existing files inside", () => {
+      const { link } = layout();
+      const run = on(path.join(link, "work"), path.join(link, "h"));
+      expectOk(run("deployment group create -g rg --template-file main.json"));
+    });
+
+    test("a protected dir spelled through a link still protects reads and new files", () => {
+      const { real, link } = layout();
+      const protectedSsh = path.join(link, "me", ".ssh");
+      const run = on(path.join(real, "me"), path.join(link, "me", ".localstack", "home"), [
+        protectedSsh,
+      ]);
+      for (const command of [
+        "ad sp create-for-rbac --cert @.ssh/id_rsa",
+        "storage blob download -c c -n b -f .ssh/authorized_keys",
+      ]) {
+        const refused = expectRefused(run(command));
+        expect(refused.ruleId).toBe("file:protected");
+        expect(refused.message).toContain(protectedSsh); // as configured, not its real path
+      }
+    });
+
+    (process.platform === "win32" ? test.skip : test)(
+      "`..` after a link is checked where the OS resolves it (Win32 collapses `..` first)",
+      () => {
+        const { real } = layout();
+        const run = on(path.join(real, "work"), path.join(real, "h"));
+        const refused = expectRefused(
+          run("storage blob upload -c c -n b -f shared/x/../../.ssh/id_rsa")
+        );
+        expect(refused.ruleId).toBe("file:outside-workdir");
+      }
+    );
+  });
 });
 
 describe("evaluateAzCommand: bicep detection", () => {
@@ -649,6 +775,13 @@ describe("analyticsFields: value-free", () => {
     expect(fields.policy_outcome).toBe("ok");
   });
 
+  test("a value stuck to a short option is cut off: -pS3cret is -p (az accepts that form)", () => {
+    const sql = "sql server create -g rg -n srv -u adminuser -pS3cretPass1x";
+    expect(analyticsFields(sql, evalCmd(sql)).flag_names).toBe("-g,-n,-u,-p");
+    const acr = "acr login -n reg -u user -pRegistryPassw0rd --expose-token";
+    expect(analyticsFields(acr, evalCmd(acr)).flag_names).toBe("-n,-u,-p,--expose-token");
+  });
+
   test("policy_outcome covers ok, rewritten, local, denied and syntax", () => {
     expect(analyticsFields("group list", evalCmd("group list")).policy_outcome).toBe("ok");
     expect(
@@ -683,6 +816,7 @@ describe("analyticsFields: value-free", () => {
       const commands = [
         `keyvault secret set --vault-name v --name pw --value ${JSON.stringify(secret)}`,
         `sql server create -g rg -n s --admin-user a --admin-password ${JSON.stringify(secret)}`,
+        `sql server create -g rg -n s -u a -p${JSON.stringify(secret)}`,
         `storage account keys list --admin-password=${JSON.stringify(secret)}`,
         `storage blob upload --sas-token ${JSON.stringify(secret)} -c c -n n -f f`,
         `webapp config appsettings set --settings ${JSON.stringify("CONN=" + secret + ";Key=" + secret)}`,

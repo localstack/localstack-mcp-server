@@ -1,7 +1,7 @@
 {
   "_metadata": {
     "generator": "scripts/gen-az-file-args.py",
-    "description": "Per-command file-taking arguments, from az's command table: every argument whose type is file_type or whose completer completes files/directories, with all its option strings. Consumed by src/lib/azure/policy.ts. Regenerated on an az pin move (decision DR4).",
+    "description": "Per-command file-taking arguments, from az's command table: every argument whose type is file_type or whose completer completes files/directories, with all its option strings. Consumed by src/lib/azure/policy.ts. Regenerated on an az pin move.",
     "az_version": "2.90.0",
     "python_version": "3.11.0rc1",
     "platform": "linux",

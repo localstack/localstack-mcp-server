@@ -274,7 +274,7 @@ export function getAzureConfig(
   const configDir = configDirSetting
     ? resolveUserPath(configDirSetting, home, cwd, platform)
     : pathApi.join(home, ".localstack", "azure", `mcp-config-${port}`);
-  // N4: the bootstrap rewrites the config dir's cloud, config and login, so it must
+  // The bootstrap rewrites the config dir's cloud, config and login, so it must
   // never be (or contain) the user's real Azure CLI profile.
   const configDirProblem =
     pathApi.basename(configDir).toLowerCase() === ".azure"

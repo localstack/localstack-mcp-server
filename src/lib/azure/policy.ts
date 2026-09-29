@@ -41,7 +41,7 @@ const GENERATED_TABLE: FileArgsTable = require("./az-file-args.generated.json");
  * the generated table misses them, yet they read or write a local path outside the workdir.
  * Only the LOCAL side of each is listed: for `download-batch`
  * `--destination` is local (the source is a remote container); for `upload-batch` `--source`
- * is local. DR4 note: recheck this list when the az pin moves, in case az adds the annotations.
+ * is local. Recheck this list when the az pin moves, in case az adds the annotations.
  */
 const EXTRA_FILE_ARGS: Record<string, { flags: string[]; greedy?: string[] }> = {
   "storage blob download-batch": { flags: ["--destination", "-d"] },
@@ -374,10 +374,13 @@ function stripAt(value: string): string {
 }
 
 /**
- * Classify one path value. Lexical always (resolve, normalise, case-insensitive on win32/darwin);
- * realpath too, but only when the file exists, to catch a symlink or junction that escapes. The
- * realpath step is the one bit of I/O the policy does, and it is skipped for the paths the tests
- * use, which do not exist — so the default path stays pure and deterministic.
+ * Classify one path value. Lexical first (resolve, normalise, case-insensitive on win32/darwin):
+ * a protected or unsupported verdict there is final. Then physical, as the OS will open the path:
+ * the value and every root through realpath (their longest existing prefix), so a symlinked /var
+ * or /home, an 8.3 name, a junction or a mapped drive neither pushes a workdir file outside nor
+ * hides a protected dir, even for a write target that does not exist yet. The physical step is
+ * the one bit of I/O the policy does; a policy for another platform than the host's (as the tests
+ * simulate) stays lexical, so it stays pure and deterministic.
  */
 function classifyPath(rawValue: string, opts: PolicyOptions): PathVerdict {
   const value = stripAt(rawValue);
@@ -404,20 +407,57 @@ function classifyPath(rawValue: string, opts: PolicyOptions): PathVerdict {
   const base = isTilde ? opts.homeDir : opts.workdir;
   const resolvedLexical = P.resolve(base, expanded);
 
+  // A lexical "outside" is not final: the physical check below decides it.
   const lexical = containmentVerdict(resolvedLexical, opts, P);
-  if (lexical.kind !== "ok") return lexical;
+  if (lexical.kind !== "ok" && lexical.kind !== "outside") return lexical;
+  if (plat !== process.platform) return lexical;
 
-  // Only if the lexical path is allowed do we pay for realpath, and only if the file exists.
-  try {
-    if (fs.existsSync(resolvedLexical)) {
-      const real = fs.realpathSync.native(resolvedLexical);
-      const realVerdict = containmentVerdict(real, opts, P);
-      if (realVerdict.kind !== "ok") return realVerdict;
-    }
-  } catch {
-    // A stat/realpath failure is not evidence of an escape; keep the lexical verdict.
+  // Compare like with like: the path and every root through realpath, so a workdir reached
+  // through a link (macOS /var -> /private/var, Windows C:\Users\RUNNER~1) keeps its files, and a
+  // home spelled through a link still protects ~/.ssh, for a write target too.
+  const real = (p: string) => realPrefix(p, P);
+  const protectedDirs = opts.protectedDirs ?? [];
+  const realProtected = protectedDirs.map((dir) => dir && real(dir));
+  const realOpts: PolicyOptions = {
+    ...opts,
+    workdir: real(opts.workdir),
+    homeDir: opts.homeDir && real(opts.homeDir),
+    protectedDirs: realProtected,
+  };
+  // POSIX applies `..` after symlinks (`shared/x/../..` leaves the workdir when `shared` is a
+  // link), so the path goes in unnormalised; Win32 collapses `..` before it opens anything, so
+  // there the lexical path is what az opens.
+  const asOpened =
+    plat === "win32"
+      ? resolvedLexical
+      : P.isAbsolute(expanded)
+        ? expanded
+        : base + P.sep + expanded;
+  const physical = containmentVerdict(real(asOpened), realOpts, P);
+  if (physical.kind === "protected") {
+    // Name the dir as it is configured, not by its real path.
+    return {
+      kind: "protected",
+      dir: protectedDirs[realProtected.indexOf(physical.dir)] || physical.dir,
+    };
   }
-  return { kind: "ok" };
+  return physical;
+}
+
+/** `p` with its longest existing prefix through realpath; the rest keeps its spelling. */
+function realPrefix(p: string, P: PlatformPath): string {
+  let head = p;
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      return P.join(fs.realpathSync.native(head), ...tail);
+    } catch {
+      const parent = P.dirname(head);
+      if (parent === head) return P.resolve(p);
+      tail.unshift(P.basename(head));
+      head = parent;
+    }
+  }
 }
 
 function containmentVerdict(resolved: string, opts: PolicyOptions, P: PlatformPath): PathVerdict {
@@ -427,7 +467,7 @@ function containmentVerdict(resolved: string, opts: PolicyOptions, P: PlatformPa
   // The private home is always allowed, even though a protected dir (the config dir) contains it.
   if (opts.homeDir && inside(opts.homeDir)) return { kind: "ok" };
   // Protected dirs are checked before the workdir allowance: when the workdir is the user's home
-  // or an ancestor, a relative `.ssh/id_rsa` would otherwise pass the workdir check (coordinator).
+  // or an ancestor, a relative `.ssh/id_rsa` would otherwise pass the workdir check.
   for (const dir of opts.protectedDirs ?? []) {
     if (dir && inside(dir)) return { kind: "protected", dir };
   }
@@ -454,7 +494,7 @@ type UrlVerdict =
   | { action: "rewrite"; rewritten: string }
   | { action: "refuse"; host: string };
 
-function classifyUrl(value: string): UrlVerdict {
+function classifyUrl(value: string, localPorts?: ReadonlySet<number>): UrlVerdict {
   // The host is a bracketed IPv6 literal or a name (userinfo stays in it, so
   // `https://management.azure.com@evil.example` is not the management host).
   const match = value.match(
@@ -472,7 +512,13 @@ function classifyUrl(value: string): UrlVerdict {
     const rewritten = rest.startsWith("/") ? rest : "/";
     return { action: "rewrite", rewritten };
   }
-  if (isLocalHost(host)) return { action: "allow" };
+  if (isLocalHost(host)) {
+    // Only the emulator's own ports: localhost:2375 is Docker's API, 11434 a local model server.
+    const effectivePort = port ? Number(port.slice(1)) : scheme === "https" ? 443 : 80;
+    if (localPorts && (isHttp || port) && !localPorts.has(effectivePort))
+      return { action: "refuse", host: `${host}:${effectivePort}` };
+    return { action: "allow" };
+  }
   return { action: "refuse", host };
 }
 
@@ -553,7 +599,7 @@ export function evaluateAzCommand(command: string, opts: PolicyOptions): PolicyR
 
   // 6. The URL rule (request targets only): rewrite, allow local, or refuse. May change argv.
   const notes: string[] = [];
-  const urlResult = applyUrlRule(argv, notes);
+  const urlResult = applyUrlRule(argv, notes, opts.localPorts);
   if (!urlResult.ok) return urlResult.refusal;
   argv = urlResult.argv;
 
@@ -659,7 +705,11 @@ interface UrlPassResult {
   refusal: PolicyResult;
 }
 
-function applyUrlRule(argv: string[], notes: string[]): UrlPassResult {
+function applyUrlRule(
+  argv: string[],
+  notes: string[],
+  localPorts?: ReadonlySet<number>
+): UrlPassResult {
   const out = [...argv];
   const isRest = argv[0] === "rest";
   const isAcrBuildRun = argv[0] === "acr" && (argv[1] === "build" || argv[1] === "run");
@@ -693,7 +743,7 @@ function applyUrlRule(argv: string[], notes: string[]): UrlPassResult {
     write: (rewritten: string) => void,
     kind: "request" | "download" = "download"
   ): UrlPassResult | null => {
-    const verdict = classifyUrl(value);
+    const verdict = classifyUrl(value, localPorts);
     if (verdict.action === "refuse") return refuseHost(flagLabel, verdict.host, kind);
     if (verdict.action === "rewrite") {
       write(verdict.rewritten);
@@ -971,7 +1021,8 @@ function detectBicep(argv: string[]): boolean {
 /**
  * Derive the value-free analytics fields. A secret value must never appear in any of
  * them: `command_path` is only the leading command words (values come after a flag or are
- * quoted), and `flag_names` cuts every flag at its first `=`.
+ * quoted), and `flag_names` keeps only each flag's name (`--flag=value` and a value stuck to a
+ * short option, `-pS3cret`, lose their value).
  */
 export function analyticsFields(
   command: string,
@@ -987,10 +1038,11 @@ export function analyticsFields(
     else break;
   }
 
-  // flag_names: the flag tokens, each cut at its first `=`. A value that itself starts with `-`
-  // is indistinguishable from a flag, so the token right after a space-separated option is always
-  // treated as that option's value and dropped. This can undercount store-true flags, but it
-  // guarantees no secret value is ever emitted (a property test in policy.test.ts checks it).
+  // flag_names: the flag names only: `--flag=value` and a stuck `-pS3cret` (which az accepts)
+  // lose their value. A value that itself starts with `-` is indistinguishable from a flag, so
+  // the token right after a space-separated option is always treated as that option's value and
+  // dropped. This can undercount store-true flags, but it guarantees no secret value is ever
+  // emitted (a property test in policy.test.ts checks it).
   const flagNames: string[] = [];
   let expectValue = false;
   for (const token of argv) {
@@ -999,8 +1051,9 @@ export function analyticsFields(
       continue;
     }
     if (token === "--" || !token.startsWith("-")) continue;
-    flagNames.push(token.split("=")[0]);
-    if (!token.includes("=")) expectValue = true; // its value is the next token
+    const { flag, value } = parseOption(token);
+    flagNames.push(flag);
+    if (value === undefined) expectValue = true; // its value is the next token
   }
 
   return {

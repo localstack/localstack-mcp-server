@@ -92,6 +92,7 @@ test("manifest.json and server.json list the Azure tool and valid variables", ()
     "LOCALSTACK_AZ_CONFIG_DIR",
     "LOCALSTACK_AZ_WORKDIR",
     "LOCALSTACK_AZ_BICEP_PATH",
+    "LOCALSTACK_AZ_BICEP_ENV",
   ]) {
     expect(names).toContain(name);
   }

@@ -2,7 +2,15 @@
 // which jest.spyOn cannot replace.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const childProcess: typeof import("child_process") = require("child_process");
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "fs";
 import os from "os";
 import path from "path";
 import {
@@ -124,7 +132,10 @@ describe("spawn options and stdin", () => {
       const echoed = JSON.parse(result.stdout);
       expect(echoed.stdinIsTTY).toBe(false);
       expect(echoed.stdinEnded).toBe(true);
-      expect(path.resolve(echoed.cwd).toLowerCase()).toBe(path.resolve(workdir).toLowerCase());
+      // Real paths: a temp dir behind a link (macOS /var -> /private/var) reports its target.
+      expect(realpathSync.native(echoed.cwd).toLowerCase()).toBe(
+        realpathSync.native(workdir).toLowerCase()
+      );
       expect(result.exitCode).toBe(0);
     } finally {
       spy.mockRestore();
@@ -132,7 +143,7 @@ describe("spawn options and stdin", () => {
   });
 });
 
-describe("argv fidelity (case 2)", () => {
+describe("argv fidelity", () => {
   // The 15 required values and a few extras; none may be expanded or re-split.
   const values = [
     "[?name=='a'].id | [0]",
@@ -189,7 +200,7 @@ describe("argv fidelity (case 2)", () => {
   });
 });
 
-describe("spawn failures (cases 3 and 4)", () => {
+describe("spawn failures", () => {
   test("a synchronous throw becomes a spawn error, not an exception", async () => {
     const result = await run([], {
       exe: { file: "bad\0file", prefixArgs: [], installer: "explicit" },
@@ -248,7 +259,7 @@ describe("spawn failures (cases 3 and 4)", () => {
   });
 });
 
-describe("UTF-8 (case 5)", () => {
+describe("UTF-8", () => {
   test("non-ASCII output comes back exact on both streams", async () => {
     const result = await run(["utf8"]);
     expect(result.stdout.replace(/\r\n/g, "\n")).toBe("ü✓é\n");
@@ -264,7 +275,7 @@ describe("UTF-8 (case 5)", () => {
   });
 });
 
-describe("the planted azure/cli/__main__.py (case 6)", () => {
+describe("the planted azure/cli/__main__.py", () => {
   withPython(
     "is NOT executed with the -IBm prefix, and IS with plain -m (the positive control)",
     async () => {
@@ -297,7 +308,7 @@ describe("the planted azure/cli/__main__.py (case 6)", () => {
   );
 });
 
-describe("timeouts and tree kills (cases 7-9)", () => {
+describe("timeouts and tree kills", () => {
   test("a timeout sets timedOut and resolves within timeout + grace", async () => {
     const started = Date.now();
     const result = await run(["sleep", "20000"], {}, 700);
@@ -384,7 +395,7 @@ describe("timeouts and tree kills (cases 7-9)", () => {
   });
 });
 
-describe("prompts, environment, caps, exit codes (cases 10-13)", () => {
+describe("prompts, environment, caps, exit codes", () => {
   test("a prompt without --yes fails fast with exit 1, and nothing on stdout", async () => {
     const started = Date.now();
     const result = await run(["prompt"]);
@@ -421,7 +432,8 @@ describe("prompts, environment, caps, exit codes (cases 10-13)", () => {
       expect(echoed.env[k] ?? echoed.env[norm(k)]).toBe(v);
     const extra = keys.filter((k) => !Object.keys(given).map(norm).includes(k));
     if (isWin) expect(extra.every((k) => LIBUV_REQUIRED.includes(k))).toBe(true);
-    else expect(extra).toEqual([]);
+    // macOS adds __CF_USER_TEXT_ENCODING to every process's environment.
+    else expect(extra.filter((k) => k !== "__CF_USER_TEXT_ENCODING")).toEqual([]);
   });
 
   (isWin ? test : test.skip)(

@@ -18,6 +18,7 @@ import {
   type ContainerMetadata,
 } from "../lib/docker/docker.client";
 import {
+  forwardsHostEnvKey,
   MCP_CLIENT_NAME,
   stackFromImage,
   type VolumeResolution,
@@ -107,7 +108,7 @@ export default async function localstackManagement({
       case "start":
         return await handleStart({ envVars, service });
       case "stop":
-        return await handleStop();
+        return await handleStop({ service });
       case "restart":
         return await handleRestart({ envVars, service });
       case "status":
@@ -129,15 +130,28 @@ interface StartOverrides {
 
 /** Best-effort look at the running LocalStack container (null when none/undetectable). */
 async function inspectRunningContainer(
-  stack?: "azure" | "aws" | "snowflake"
+  stack?: "azure" | "aws" | "snowflake",
+  port?: string
 ): Promise<ContainerMetadata | null> {
   try {
     const dockerClient = new DockerApiClient();
-    const containerId = await dockerClient.findLocalStackContainer(stack ? { stack } : {});
+    const containerId = await dockerClient.findLocalStackContainer(stack ? { stack, port } : {});
     return await dockerClient.inspectContainer(containerId);
   } catch {
     return null;
   }
+}
+
+/**
+ * The Azure tool's own port when the Azure emulator runs beside another stack's
+ * (LOCALSTACK_AZURE_PORT differs from LOCALSTACK_PORT), else undefined. There, the gateway
+ * the other tools use is not the Azure emulator, so status, stop and restart must not follow it.
+ */
+function azureSideBySidePort(service: Service): string | undefined {
+  if (service !== "azure") return undefined;
+  const gatewayPort = process.env.LOCALSTACK_PORT?.trim() || "4566";
+  const azurePort = String(azureConfig().port ?? gatewayPort);
+  return azurePort !== gatewayPort ? azurePort : undefined;
 }
 
 /** Gate on the SNOWFLAKE pro feature only when the running container is the Snowflake stack. */
@@ -219,11 +233,16 @@ async function handleStart({
 // Handle stop action — stop the detected container via the Docker API. Also cleans up
 // stopped/stale containers occupying a LocalStack name, so start's conflict advice
 // ("stop it first") always has a working recovery path.
-async function handleStop() {
+async function handleStop({ service }: { service: Service }) {
   const dockerClient = new DockerApiClient();
+  // Side by side, the Azure emulator is the Azure container on the Azure tool's own port; the
+  // gateway's container is another stack's emulator.
+  const azurePort = azureSideBySidePort(service);
   let containerId: string;
   try {
-    containerId = await dockerClient.findLocalStackContainer();
+    containerId = await dockerClient.findLocalStackContainer(
+      azurePort ? { stack: "azure", port: azurePort } : {}
+    );
   } catch (error) {
     if (!isLocalStackContainerNotFoundError(error)) {
       return ResponseBuilder.error(
@@ -232,11 +251,12 @@ async function handleStop() {
       );
     }
 
-    // No RUNNING container found — check for a stale stopped one holding the name.
+    // No RUNNING container found — check for a stale stopped one holding the name. The
+    // configured name is the gateway emulator's, so not side by side.
     try {
-      const stale = await dockerClient.findContainerByNameAnyState(
-        resolveContainerName(process.env)
-      );
+      const stale = azurePort
+        ? undefined
+        : await dockerClient.findContainerByNameAnyState(resolveContainerName(process.env));
       if (stale && !stale.running) {
         await dockerClient.removeContainer(stale.id);
         await dockerClient.waitForRemoval(stale.id);
@@ -246,7 +266,7 @@ async function handleStop() {
       // fall through to the gateway-based reporting below
     }
 
-    const status = await getLocalStackStatus();
+    const status = await getLocalStackStatus(azurePort ? azureConfig().healthBaseUrl : undefined);
     if (status.isRunning) {
       return ResponseBuilder.error(
         "LocalStack container not found",
@@ -281,6 +301,15 @@ async function handleRestart({
   envVars?: Record<string, string>;
   service: Service;
 }) {
+  // Side by side, the start action (which publishes the emulator on LOCALSTACK_PORT) refuses the
+  // Azure emulator, so a restart would stop it and leave it stopped: refuse before any stop.
+  const azurePort = azureSideBySidePort(service);
+  if (azurePort) {
+    return ResponseBuilder.error(
+      "Conflicting Azure port settings",
+      `LOCALSTACK_AZURE_PORT (${azurePort}) differs from LOCALSTACK_PORT (${process.env.LOCALSTACK_PORT?.trim() || "4566"}), the port the start action publishes the emulator on, so this server could not start the Azure emulator again after stopping it. Nothing was stopped. Restart it where it was started, or set LOCALSTACK_PORT=${azurePort}.`
+    );
+  }
   const dockerClient = new DockerApiClient();
   let containerId: string;
   try {
@@ -348,6 +377,10 @@ async function handleRestart({
   const carried = startedByThisServer
     ? pickCarriedEnv(metadata?.env, carriedList ?? [])
     : carriedRestartEnv(metadata?.env, imageEnv);
+  // This server's own env block wins, as on every start: drop what the start forwards itself.
+  for (const key of Object.keys(carried)) {
+    if (forwardsHostEnvKey(key, process.env)) delete carried[key];
+  }
   const carriedKeys = Object.keys(carried).filter((key) => !(envVars && key in envVars));
   const mergedEnv: Record<string, string> = { ...carried, ...(envVars ?? {}) };
   if (Object.keys(carried).length > 0) {
@@ -412,9 +445,8 @@ async function handleStatus({ service }: { service: Service }) {
   // Side by side (LOCALSTACK_AZURE_PORT != LOCALSTACK_PORT): the Azure emulator sits on the
   // Azure tool's own port, not on the gateway the other tools use, so status service: azure
   // reads that one and its container (it used to report the AWS emulator on 4666).
-  const gatewayPort = process.env.LOCALSTACK_PORT?.trim() || "4566";
-  const azureSideBySide =
-    service === "azure" && String(azureConfig().port ?? gatewayPort) !== gatewayPort;
+  const sideBySidePort = azureSideBySidePort(service);
+  const azureSideBySide = sideBySidePort !== undefined;
   const statusResult = await getLocalStackStatus(
     azureSideBySide ? azureConfig().healthBaseUrl : undefined
   );
@@ -426,7 +458,10 @@ async function handleStatus({ service }: { service: Service }) {
     return ResponseBuilder.markdown(result);
   }
 
-  const running = await inspectRunningContainer(azureSideBySide ? "azure" : undefined);
+  const running = await inspectRunningContainer(
+    azureSideBySide ? "azure" : undefined,
+    sideBySidePort
+  );
   const runningStack = running ? stackFromImage(running.image, running.labels) : undefined;
   // Always name the container, so a caller can check it before a stop or restart.
   if (running) result += `\n\n${describeContainer(running)}`;

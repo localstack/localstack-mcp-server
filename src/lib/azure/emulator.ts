@@ -50,7 +50,24 @@ export interface EmulatorDeps {
 type StatusConfig = Pick<
   AzureConfig,
   "port" | "healthBaseUrl" | "endpoint" | "endpointHost" | "egressGuard"
->;
+> &
+  Partial<Pick<AzureConfig, "inDocker">>;
+
+/** LOCALSTACK_PORT, as for every tool; LOCALSTACK_AZURE_PORT only beside an AWS emulator. */
+const PORT_ADVICE =
+  "If it runs on another port, set LOCALSTACK_PORT (LOCALSTACK_AZURE_PORT only when it runs beside an AWS emulator).";
+
+/**
+ * On the host the Azure tool reaches the emulator on this machine only (the egress guard
+ * relays nothing else), so a LOCALSTACK_HOSTNAME naming another host does not apply: say so.
+ */
+function hostnameNote(config: StatusConfig): string {
+  const hostname = process.env.LOCALSTACK_HOSTNAME?.trim();
+  if (!hostname || config.inDocker) return "";
+  if (/^(localhost|127\.0\.0\.1|::1|\[::1\]|(.+\.)?localhost\.localstack\.cloud)$/i.test(hostname))
+    return "";
+  return ` LOCALSTACK_HOSTNAME (${hostname}) does not apply to the Azure tool: on the host it reaches the emulator on this machine only.`;
+}
 
 const HEALTH_TIMEOUT_MS = 3000;
 /** The second, longer health probe: a busy emulator can miss the first. */
@@ -181,7 +198,7 @@ export async function getAzureEmulatorStatus(
     return {
       ok: false,
       problem: "not-running",
-      message: `The LocalStack Azure emulator is not running at ${config.healthBaseUrl}. ${START_ADVICE} If it runs on another port, set LOCALSTACK_AZURE_PORT.`,
+      message: `The LocalStack Azure emulator is not running at ${config.healthBaseUrl}. ${START_ADVICE} ${PORT_ADVICE}${hostnameNote(config)}`,
     };
   }
   const edition = typeof health.edition === "string" ? health.edition : undefined;
@@ -191,7 +208,7 @@ export async function getAzureEmulatorStatus(
       ok: false,
       problem: "wrong-edition",
       edition,
-      message: `The emulator at ${config.healthBaseUrl} is not the LocalStack Azure emulator (edition: ${edition ?? "unknown"}). ${START_ADVICE} If the Azure emulator runs on another port, set LOCALSTACK_AZURE_PORT.`,
+      message: `The emulator at ${config.healthBaseUrl} is not the LocalStack Azure emulator (edition: ${edition ?? "unknown"}). ${START_ADVICE} ${PORT_ADVICE}${hostnameNote(config)}`,
     };
   }
   if (license === false) {

@@ -191,6 +191,39 @@ describeIfPython("WorkerRunner, with the real worker code and a stand-in azure.c
     expect(result.exitCode).toBeNull();
   });
 
+  test("a cancel during the worker's cold start aborts the call, and the command never runs", async () => {
+    const r = runner({
+      env: {
+        ...(process.env as Record<string, string>),
+        PYTHONPATH: STUB,
+        PYTHONDONTWRITEBYTECODE: "1",
+        AZURE_CONFIG_DIR: configDir,
+        FAKE_AZ_IMPORT_DELAY: "2",
+      },
+    });
+    const marker = path.join(root, "ran.txt");
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 300);
+    const started = Date.now();
+    const result = await r.run(["touch", marker], opts({ signal: controller.signal }));
+    expect(result.aborted).toBe(true);
+    expect(Date.now() - started).toBeLessThan(1500); // not held until the worker is up
+    // Well after the worker would have come up: the command still never ran.
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  test("each command gets its own log level: a first --debug does not stick", async () => {
+    const r = runner();
+    const first = await r.run(["debuglog", "--debug"], opts());
+    expect(first.stderr).toContain("DEBUG: a debug line");
+    const pid = out(await r.run(["pid"], opts()));
+    const second = await r.run(["debuglog"], opts());
+    expect(out(await r.run(["pid"], opts()))).toBe(pid); // the same warm worker
+    expect(second.stderr).not.toContain("DEBUG: a debug line");
+    expect((await r.run(["debuglog", "--debug"], opts())).stderr).toContain("DEBUG: a debug line");
+  });
+
   test("fail-fast: a refused CONNECT through the real guard ends the call and names the host", async () => {
     const proxy = await startEgressProxy();
     try {

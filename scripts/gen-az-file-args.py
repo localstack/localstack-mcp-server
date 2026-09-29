@@ -34,7 +34,7 @@ How to run (offline; never touches the real ~/.azure)
         python scripts/gen-az-file-args.py > src/lib/azure/az-file-args.generated.json
 
 The image pins azure-cli 2.90 plus 26 curated extensions (docker/azure-extensions.txt). Whoever
-regenerates on a pin move (decision DR4) should install those extensions first, so extension
+regenerates on a pin move should install those extensions first, so extension
 commands (cdn/afd, k8s-*, fleet, ...) are covered too. On the machine that produced the checked-in
 copy only the built-in modules were present; the JSON metadata records that.
 """
@@ -129,8 +129,7 @@ def main() -> "None":
             "description": (
                 "Per-command file-taking arguments, from az's command table: every argument whose "
                 "type is file_type or whose completer completes files/directories, with all its "
-                "option strings. Consumed by src/lib/azure/policy.ts. Regenerated on an az pin move "
-                "(decision DR4)."
+                "option strings. Consumed by src/lib/azure/policy.ts. Regenerated on an az pin move."
             ),
             "az_version": core.__version__,
             "python_version": platform.python_version(),

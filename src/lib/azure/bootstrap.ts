@@ -22,7 +22,7 @@ import type { AzRunner, AzRunOptions, AzRunResult } from "./types";
 
 export const LOCALSTACK_CLOUD = "LocalStack";
 
-/** B.5's config values, set in one call. */
+/** The CLI config values, set in one call. */
 export const CLI_CONFIG = [
   "core.instance_discovery=false",
   "core.collect_telemetry=false",

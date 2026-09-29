@@ -33,8 +33,8 @@ const DOCKER_SOCKET_CONTAINER_PATH = "/var/run/docker.sock";
 
 /**
  * Settings of the Azure client tool. They configure this server, not the emulator.
- * Listed by name (not by prefix), so that emulator settings a user passes as
- * `LOCALSTACK_AZURE_*` still reach the container.
+ * Listed by name (not by prefix), so that other `LOCALSTACK_AZURE_*` values still reach the
+ * container; the emulator's own `LS_AZURE_*` settings are forwarded as they are.
  */
 export const AZURE_CLIENT_ENV_KEYS = [
   "LOCALSTACK_AZURE_PORT",
@@ -94,8 +94,13 @@ const FORWARDED_CONFIG_ENV_NAMES = new Set([
   "APP_INSPECTOR",
   "DNS_ADDRESS",
   "MAIN_DOCKER_NETWORK",
+  // The Azure emulator's settings that have no LS_AZURE_ prefix.
+  "MSSQL_ACCEPT_EULA",
+  "FRONT_DOOR_CLASSIC_ALLOW_CREATE",
+  "CDN_CLASSIC_ALLOW_CREATE",
 ]);
-const FORWARDED_CONFIG_ENV_PREFIXES = ["LAMBDA_", "CFN_", "SNOWFLAKE_", "SF_"];
+// LS_AZURE_ is the Azure emulator's own settings (LS_AZURE_ENFORCE_RBAC, LS_AZURE_PORTAL, ...).
+const FORWARDED_CONFIG_ENV_PREFIXES = ["LAMBDA_", "CFN_", "SNOWFLAKE_", "SF_", "LS_AZURE_"];
 
 /** Same detector list the localstack CLI uses to tag agent-driven starts. */
 const AI_AGENT_DETECTORS: Array<[string, string[]]> = [
@@ -455,6 +460,35 @@ function resolvePorts(input: ContainerSpecInput): ResolvedPorts {
   return { bindings, containerGatewayListen, servicePortStart, servicePortEnd };
 }
 
+/** Step (a) of buildEnv: a curated unprefixed config var. */
+function isForwardedConfigName(key: string): boolean {
+  return (
+    FORWARDED_CONFIG_ENV_NAMES.has(key) ||
+    FORWARDED_CONFIG_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))
+  );
+}
+
+/** Step (b) of buildEnv: a LOCALSTACK_* / PROVIDER_OVERRIDE_* var that is not client-only. */
+function isForwardedPrefixed(key: string): boolean {
+  return (
+    !CLIENT_ONLY_ENV_KEYS.has(key) &&
+    (key.startsWith("LOCALSTACK_") || key.startsWith("PROVIDER_OVERRIDE_"))
+  );
+}
+
+/**
+ * Whether a start forwards the host's own value for `key` (the MCP server's `env` block),
+ * directly or as its `LOCALSTACK_` alias, which the container re-exports under the plain name.
+ */
+export function forwardsHostEnvKey(key: string, hostEnv: NodeJS.ProcessEnv): boolean {
+  const forwardsFromHost = (k: string) =>
+    hostEnv[k] !== undefined && (isForwardedConfigName(k) || isForwardedPrefixed(k));
+  return (
+    forwardsFromHost(key) ||
+    (!key.startsWith("LOCALSTACK_") && forwardsFromHost(`LOCALSTACK_${key}`))
+  );
+}
+
 function buildEnv(input: ContainerSpecInput, ports: ResolvedPorts, name: string): string[] {
   const { hostEnv, envVars = {} } = input;
   const env = new Map<string, string>();
@@ -462,18 +496,13 @@ function buildEnv(input: ContainerSpecInput, ports: ResolvedPorts, name: string)
   // (a) curated unprefixed config vars set on the host
   for (const [key, value] of Object.entries(hostEnv)) {
     if (value === undefined) continue;
-    const forwarded =
-      FORWARDED_CONFIG_ENV_NAMES.has(key) ||
-      FORWARDED_CONFIG_ENV_PREFIXES.some((prefix) => key.startsWith(prefix));
-    if (forwarded) env.set(key, value);
+    if (isForwardedConfigName(key)) env.set(key, value);
   }
 
   // (b) all LOCALSTACK_* / PROVIDER_OVERRIDE_* host vars minus client-only keys
   for (const [key, value] of Object.entries(hostEnv)) {
-    if (value === undefined || CLIENT_ONLY_ENV_KEYS.has(key)) continue;
-    if (key.startsWith("LOCALSTACK_") || key.startsWith("PROVIDER_OVERRIDE_")) {
-      env.set(key, value);
-    }
+    if (value === undefined) continue;
+    if (isForwardedPrefixed(key)) env.set(key, value);
   }
 
   // (c) explicit tool envVars win over anything host-derived

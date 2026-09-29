@@ -926,3 +926,28 @@ describe("close", () => {
     expect(local.takeRecords(id)).toEqual({ ...NO_RECORDS, allowed: 1 });
   }, 20000);
 });
+
+describe("allowedPorts: only the emulator's ports", () => {
+  test("a local host on another port gets 403 and a host:port record; the allowed ports relay", async () => {
+    const other = await closedPort();
+    const g = await newGuard({ allowedPorts: new Set([echo.port, web.port]) });
+    const id = newCallId("ports");
+    g.envFor(id);
+    const tunnelRefused = await exchange(g.port, connectRequest(`localhost:${other}`, id));
+    expect(tunnelRefused.status).toBe(403);
+    expect(tunnelRefused.body).toBe(`blocked by egress guard: localhost:${other}`);
+    const httpRefused = await exchange(g.port, httpRequest(`http://127.0.0.1:${other}/admin`, id));
+    expect(httpRefused.status).toBe(403);
+    // The emulator's ports still relay, over CONNECT and plain HTTP.
+    const tunnel = await openTunnel(g.port, `localhost.localstack.cloud:${echo.port}`, id);
+    expect(await roundTrip(tunnel, "ping")).toBe("ping");
+    tunnel.destroy();
+    const get = await exchange(g.port, httpRequest(`http://localhost:${web.port}/echo`, id));
+    expect(get.status).toBe(200);
+    expect(g.takeRecords(id)).toEqual({
+      ...NO_RECORDS,
+      refused: [`localhost:${other}`, `127.0.0.1:${other}`],
+      allowed: 2,
+    });
+  });
+});

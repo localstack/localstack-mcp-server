@@ -266,7 +266,8 @@ describe("the failure classes", () => {
     expect(out).toContain(
       "Could not connect to the LocalStack Azure emulator at `azure.localhost.localstack.cloud:4599`: " +
         "nothing is listening. Start it with `localstack-management` (`action: start`, `service: azure`), " +
-        "or `lstk start --type azure`, then retry. If it runs on another port, set `LOCALSTACK_AZURE_PORT`."
+        "or `lstk start --type azure`, then retry. If it runs on another port, set `LOCALSTACK_PORT` " +
+        "(`LOCALSTACK_AZURE_PORT` only when it runs beside an AWS emulator)."
     );
     expect(out).toContain(GUARD_OFF_NOTE);
   });

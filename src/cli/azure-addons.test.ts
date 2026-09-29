@@ -88,6 +88,18 @@ describe("install-azure-addons", () => {
     expect(onlyBicep.deps.installBicep).toHaveBeenCalledTimes(1);
   });
 
+  test("--no-extensions installs Bicep without an Azure CLI: only the extensions need az", async () => {
+    const s = setup({
+      locate: () => {
+        throw new Error("no az");
+      },
+    });
+    expect(await runInstallAzureAddons(["--no-extensions"], s.io)).toBe(0);
+    expect(s.deps.installBicep).toHaveBeenCalledTimes(1);
+    expect(s.azCalls).toEqual([]);
+    expect(s.err).toEqual([]);
+  });
+
   test("a failed step exits 1 and says which one, with the installer's message", async () => {
     const s = setup({
       installBicep: jest.fn(async () => {

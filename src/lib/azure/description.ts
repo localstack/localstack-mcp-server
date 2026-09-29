@@ -1,7 +1,7 @@
 /**
  * The `localstack-azure-client` tool description. It is filled once at server start and
  * then static, so clients can cache the tool list. `tools/list` is served before any
- * bootstrap, so the subscription is a constant; DR2 watches the emulator's value.
+ * bootstrap, so the subscription is a constant.
  */
 
 export const AZURE_SUBSCRIPTION_ID = "00000000-0000-0000-0000-000000000000";
@@ -17,7 +17,7 @@ export function buildAzureClientDescription(ctx: {
   return [
     "Run an Azure CLI (az) command against the local LocalStack for Azure emulator and return its output.",
     "",
-    `- Runs against the local emulator only, never real Azure: the CLI is pre-configured with a "LocalStack" cloud and a dummy login, so all data and secrets are local test data. Subscription: ${AZURE_SUBSCRIPTION_ID}. Default location: westeurope.`,
+    `- Runs against the local emulator only, never real Azure: the CLI is pre-configured with a "LocalStack" cloud and a dummy login, so all data and secrets are local test data. Subscription: ${AZURE_SUBSCRIPTION_ID}. There is no default location: pass --location (for example westeurope) wherever a command needs one.`,
     "- Give ONE command without the leading `az`. No pipes, redirects, chaining, $(...), backticks or newlines outside quotes. Quote values with spaces, JSON or JMESPath: --query \"[?name=='a'].id | [0]\". Filter with --query and use -o tsv for single values.",
     "- Creates wait until the resource is ready; don't pass --no-wait unless asked. If your client stops waiting after about a minute, use --no-wait and then poll with show.",
     `- No dedicated command? Use \`rest\` with a RELATIVE URL, e.g. rest --method get --url "/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/rg1?api-version=2022-09-01".`,

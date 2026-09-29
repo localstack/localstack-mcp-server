@@ -85,6 +85,12 @@ export interface EgressProxyOptions {
   connect?: (port: number, host: string) => Socket;
   /** More names to relay, matched exactly (in any case) and sent to 127.0.0.1 without DNS. */
   extraAllowedHosts?: readonly string[];
+  /**
+   * The only ports relayed to (the emulator's: its gateway, 443 and its service range), so
+   * that az cannot reach other local services, such as Docker's API on localhost:2375.
+   * Unset: any port.
+   */
+  allowedPorts?: ReadonlySet<number>;
   /** Replaces HOUSEKEEPING_HOSTS. */
   housekeepingHosts?: readonly string[];
   /**
@@ -254,12 +260,14 @@ class EgressGuard implements EgressProxy {
   private readonly connectUpstream: (port: number, host: string) => Socket;
   private readonly extraHosts = new Set<string>();
   private readonly housekeeping: ReadonlySet<string>;
+  private readonly allowedPorts?: ReadonlySet<number>;
   private readonly writeLog?: (line: string) => void;
   private listeningPort = 0;
   private closing?: Promise<void>;
 
   constructor(options: EgressProxyOptions) {
     this.connectUpstream = options.connect ?? defaultConnect;
+    this.allowedPorts = options.allowedPorts;
     this.writeLog = options.log;
     for (const name of options.extraAllowedHosts ?? []) {
       const host = canonicalHost(name);
@@ -369,9 +377,10 @@ class EgressGuard implements EgressProxy {
         return;
       }
       const address = this.targetFor(target.host);
-      if (address === undefined) {
-        this.refuse(callId, target.host);
-        this.reply(socket, 403, `blocked by egress guard: ${target.host}`);
+      const refused = this.refusedTarget(target, address);
+      if (address === undefined || refused !== undefined) {
+        this.refuse(callId, refused ?? target.host);
+        this.reply(socket, 403, `blocked by egress guard: ${refused ?? target.host}`);
         return;
       }
       this.tunnel(socket, head, callId, target, address);
@@ -397,9 +406,10 @@ class EgressGuard implements EgressProxy {
         return;
       }
       const address = this.targetFor(target.host);
-      if (address === undefined) {
-        this.refuse(callId, target.host);
-        this.respond(res, 403, `blocked by egress guard: ${target.host}`);
+      const refused = this.refusedTarget(target, address);
+      if (address === undefined || refused !== undefined) {
+        this.refuse(callId, refused ?? target.host);
+        this.respond(res, 403, `blocked by egress guard: ${refused ?? target.host}`);
         return;
       }
       this.forward(req, res, callId, target, address);
@@ -554,6 +564,13 @@ class EgressGuard implements EgressProxy {
 
   private targetFor(host: string): string | undefined {
     return builtInTarget(host) ?? (this.extraHosts.has(host) ? "127.0.0.1" : undefined);
+  }
+
+  /** `host:port` when an allowed host is asked for a port outside the emulator's, else undefined. */
+  private refusedTarget(target: Target, address: string | undefined): string | undefined {
+    if (address === undefined || !this.allowedPorts || this.allowedPorts.has(target.port))
+      return undefined;
+    return `${target.host}:${target.port}`;
   }
 
   private refuse(callId: string, host: string): void {

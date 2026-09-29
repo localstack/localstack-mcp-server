@@ -208,6 +208,13 @@
           "name": "LOCALSTACK_AZ_BICEP_PATH"
         },
         {
+          "description": "Comma-separated server environment variables a .bicepparam may read with readEnvironmentVariable(). Nothing else reaches Bicep; the auth token and AZURE_*, ARM_*, BICEP_*, proxy and path variables are never passed.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "LOCALSTACK_AZ_BICEP_ENV"
+        },
+        {
           "description": "Per-command timeout of the Azure tool, 5-3600 (default 300).",
           "isRequired": false,
           "format": "string",

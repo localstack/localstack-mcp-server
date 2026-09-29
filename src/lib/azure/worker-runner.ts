@@ -90,6 +90,17 @@ export function writesCliState(argv: string[]): boolean {
 /** How long kill() waits for a killed worker's exit event before it gives up waiting. */
 const KILL_EXIT_WAIT_MS = 5_000;
 
+/** `ready`, or a rejection as soon as `signal` aborts: a cancel during a cold start. */
+function readyOrAborted(ready: Promise<void>, signal?: AbortSignal): Promise<void> {
+  if (!signal) return ready;
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) return reject(new Error("aborted"));
+    const onAbort = () => reject(new Error("aborted"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    ready.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
 class Worker {
   readonly child: ChildProcess;
   readonly ready: Promise<void>;
@@ -346,11 +357,24 @@ export class WorkerRunner implements AzRunner {
     const env = proxy ? proxy.envFor(callId) : {};
     const takeEgress = () => (proxy ? proxy.takeRecords(callId) : emptyEgressRecords());
 
-    let worker: Worker;
+    let worker: Worker | undefined;
     try {
       worker = await this.acquireWorker(o.cwd);
-      await worker.ready;
+      // A cancel during a cold start must not leave the command to run once the worker is up.
+      await readyOrAborted(worker.ready, o.signal);
+      if (o.signal?.aborted) throw new Error("aborted");
     } catch (error) {
+      if (o.signal?.aborted) {
+        if (worker) {
+          this.all.delete(worker);
+          void worker.kill(this.killOpts());
+        }
+        return this.result({
+          aborted: true,
+          durationMs: Date.now() - started,
+          egress: takeEgress(),
+        });
+      }
       const message = error instanceof Error ? error.message : String(error);
       if (this.opts.fallback) {
         // This Python cannot run the worker: every later command runs as a subprocess.

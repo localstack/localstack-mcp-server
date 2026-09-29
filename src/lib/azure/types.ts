@@ -179,6 +179,11 @@ export interface PolicyOptions {
    */
   protectedDirs?: string[];
   platform?: NodeJS.Platform;
+  /**
+   * The emulator's ports (its gateway, 443 and its service range): a URL for a local host on
+   * any other port, such as Docker's API on localhost:2375, is refused. Unset: any port.
+   */
+  localPorts?: ReadonlySet<number>;
 }
 
 /** The class of a failure, as its first line names it. */
