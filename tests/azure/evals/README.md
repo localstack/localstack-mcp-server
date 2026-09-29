@@ -167,7 +167,7 @@ the claim verifiers read the oracle's transcript: one block per call, a mark lin
 - `defects.test.ts`: seven answer-reading edge cases (a negation such as "doesn't", a table
   instead of sentences, a host name with or without its port, and more): the naive reading gets
   a correct answer wrong, the verifier reads it right, and a wrong answer still fails.
-- `tasks.test.ts`: the catalogue (50 tasks, unique ids, the defect and crypto tasks present),
+- `tasks.test.ts`: the catalogue (50 tasks, unique ids, the pitfall and crypto tasks present),
   and every task's verifier replayed against answers recorded in live `--oracle` (must pass)
   and `--negative` (must fail) runs: `fixtures/recorded-verifications.json`.
 - `agent.test.ts`: the loop against a fake client (the request settings, the envelope never

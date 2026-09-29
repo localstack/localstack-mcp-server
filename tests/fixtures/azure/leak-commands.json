@@ -1,5 +1,5 @@
 {
-  "_comment": "Recorded `az rest` calls that agents sent with an absolute https://management.azure.com URL, deduplicated: real-Azure requests that only the egress guard stopped. The policy must rewrite each one to a relative URL (src/lib/azure/policy.leak.test.ts), and the CI-only live replay in tests/azure/egress.live.test.ts sends the GET and DELETE ones to the job's own emulator. The commands were scanned for secrets before they were recorded: the base64 PKCS#12 bundles that carried a private key (a self-signed test certificate) are replaced with REDACTED-PKCS12-WITH-PRIVATE-KEY (listed in redactions), and nothing else was changed.",
+  "_comment": "Recorded `az rest` calls that agents sent with an absolute https://management.azure.com URL, deduplicated: real-Azure requests that only the egress guard stopped. The policy must rewrite each one to a relative URL (src/lib/azure/policy.leak.test.ts), and the CI-only live replay in tests/azure/egress.live.test.ts sends the GET and DELETE ones to the job's own emulator. The commands were scanned for secrets before they were recorded: the base64 PKCS#12 bundles that carried a private key (a self-signed test certificate) are replaced with REDACTED-PKCS12-WITH-PRIVATE-KEY (listed in redactions), and the resource group names are normalised to rg-<name>-<hex>.",
   "calls": 182,
   "distinct": 154,
   "byMethod": {
@@ -86,217 +86,217 @@
       "id": "L009",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-app-env-pec-delete-p1a-4c4bf9/providers/Microsoft.App/managedEnvironments/env-pec-5778c69f/privateEndpointConnections?api-version=2024-10-02-preview\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-app-env-pec-delete-4c4bf9/providers/Microsoft.App/managedEnvironments/env-pec-5778c69f/privateEndpointConnections?api-version=2024-10-02-preview\""
     },
     {
       "id": "L010",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-app-env-pec-delete-p1a-3943b9/providers/Microsoft.App/managedEnvironments/env-pec-b9b0723a/privateEndpointConnections?api-version=2024-10-02-preview\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-app-env-pec-delete-3943b9/providers/Microsoft.App/managedEnvironments/env-pec-b9b0723a/privateEndpointConnections?api-version=2024-10-02-preview\""
     },
     {
       "id": "L011",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-app-env-pec-delete-p1a-dd1a7a/providers/Microsoft.App/managedEnvironments/env-pec-9b7d1daa/privateEndpointConnections?api-version=2024-10-02-preview\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-app-env-pec-delete-dd1a7a/providers/Microsoft.App/managedEnvironments/env-pec-9b7d1daa/privateEndpointConnections?api-version=2024-10-02-preview\""
     },
     {
       "id": "L012",
       "method": "DELETE",
       "calls": 1,
-      "command": "rest --method delete --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-app-env-pec-delete-p1a-3337e8/providers/Microsoft.App/managedEnvironments/env-pec-446dd76f/privateEndpointConnections/pe-446dd76f-552c78c2-1772-47a7-a2f6-029432d2b9d0?api-version=2024-10-02-preview\""
+      "command": "rest --method delete --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-app-env-pec-delete-3337e8/providers/Microsoft.App/managedEnvironments/env-pec-446dd76f/privateEndpointConnections/pe-446dd76f-552c78c2-1772-47a7-a2f6-029432d2b9d0?api-version=2024-10-02-preview\""
     },
     {
       "id": "L013",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-app-env-pec-delete-p1a-1187b9/providers/Microsoft.App/managedEnvironments/env-pec-a8013e78/privateEndpointConnections?api-version=2024-10-02-preview\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-app-env-pec-delete-1187b9/providers/Microsoft.App/managedEnvironments/env-pec-a8013e78/privateEndpointConnections?api-version=2024-10-02-preview\""
     },
     {
       "id": "L014",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-lock-delete-p1a-f42ab6/providers/Microsoft.Authorization/locks/lk-640daddc?api-version=2016-09-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-lock-delete-f42ab6/providers/Microsoft.Authorization/locks/lk-640daddc?api-version=2016-09-01\""
     },
     {
       "id": "L015",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-lock-delete-p1a-dcea6b/providers/Microsoft.Authorization/locks/lk-8ccd2de0?api-version=2016-09-01"
+      "command": "rest --method get --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-lock-delete-dcea6b/providers/Microsoft.Authorization/locks/lk-8ccd2de0?api-version=2016-09-01"
     },
     {
       "id": "L016",
       "method": "DELETE",
       "calls": 1,
-      "command": "rest --method delete --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-lock-delete-p1a-ac7afc/providers/Microsoft.Authorization/locks/lk-01fd6329?api-version=2016-09-01\""
+      "command": "rest --method delete --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-lock-delete-ac7afc/providers/Microsoft.Authorization/locks/lk-01fd6329?api-version=2016-09-01\""
     },
     {
       "id": "L017",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-lock-delete-p1a-ce21ac/providers/Microsoft.Authorization/locks/lk-4fc11b5d?api-version=2016-09-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-lock-delete-ce21ac/providers/Microsoft.Authorization/locks/lk-4fc11b5d?api-version=2016-09-01\""
     },
     {
       "id": "L018",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-lock-delete-p1a-e4ad7e/providers/Microsoft.Authorization/locks/lk-8797a103?api-version=2016-09-01"
+      "command": "rest --method get --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-lock-delete-e4ad7e/providers/Microsoft.Authorization/locks/lk-8797a103?api-version=2016-09-01"
     },
     {
       "id": "L019",
       "method": "DELETE",
       "calls": 1,
-      "command": "rest --method delete --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-lock-delete-p1a-a3ea64/providers/Microsoft.Authorization/locks/lk-775ea538?api-version=2016-09-01"
+      "command": "rest --method delete --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-lock-delete-a3ea64/providers/Microsoft.Authorization/locks/lk-775ea538?api-version=2016-09-01"
     },
     {
       "id": "L020",
       "method": "DELETE",
       "calls": 1,
-      "command": "rest --method delete --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-lock-delete-p1a-826ac1/providers/Microsoft.Authorization/locks/lk-0525af0e?api-version=2016-09-01\""
+      "command": "rest --method delete --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-lock-delete-826ac1/providers/Microsoft.Authorization/locks/lk-0525af0e?api-version=2016-09-01\""
     },
     {
       "id": "L021",
       "method": "DELETE",
       "calls": 1,
-      "command": "rest --method delete --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-lock-delete-p1a-ae6c63/providers/Microsoft.Authorization/locks/lk-83fc6c5a?api-version=2016-09-01"
+      "command": "rest --method delete --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-lock-delete-ae6c63/providers/Microsoft.Authorization/locks/lk-83fc6c5a?api-version=2016-09-01"
     },
     {
       "id": "L022",
       "method": "DELETE",
       "calls": 1,
-      "command": "rest --method delete --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-lock-delete-p1a-f6b701/providers/Microsoft.Authorization/locks/lk-61a755a5?api-version=2016-09-01\""
+      "command": "rest --method delete --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-lock-delete-f6b701/providers/Microsoft.Authorization/locks/lk-61a755a5?api-version=2016-09-01\""
     },
     {
       "id": "L023",
       "method": "DELETE",
       "calls": 1,
-      "command": "rest --method delete --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-lock-delete-p1a-eecb51/providers/Microsoft.Authorization/locks/lk-ed0465fc?api-version=2016-09-01"
+      "command": "rest --method delete --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-lock-delete-eecb51/providers/Microsoft.Authorization/locks/lk-ed0465fc?api-version=2016-09-01"
     },
     {
       "id": "L024",
       "method": "PATCH",
       "calls": 1,
-      "command": "rest --method patch --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-acr-disable-content-trust-p1a-32aff2/providers/Microsoft.ContainerRegistry/registries/acr34ef438e75?api-version=2023-07-01 --body \"{\\\"properties\\\":{\\\"policies\\\":{\\\"trustPolicy\\\":{\\\"type\\\":\\\"Notary\\\",\\\"status\\\":\\\"disabled\\\"}}}}\" -o json --query properties.policies"
+      "command": "rest --method patch --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acr-disable-content-trust-32aff2/providers/Microsoft.ContainerRegistry/registries/acr34ef438e75?api-version=2023-07-01 --body \"{\\\"properties\\\":{\\\"policies\\\":{\\\"trustPolicy\\\":{\\\"type\\\":\\\"Notary\\\",\\\"status\\\":\\\"disabled\\\"}}}}\" -o json --query properties.policies"
     },
     {
       "id": "L025",
       "method": "PATCH",
       "calls": 1,
-      "command": "rest --method patch --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-acr-disable-content-trust-p1a-b822b6/providers/Microsoft.ContainerRegistry/registries/acr3ce7266485?api-version=2023-07-01\" --body \"{\\\"properties\\\":{\\\"policies\\\":{\\\"trustPolicy\\\":{\\\"type\\\":\\\"Notary\\\",\\\"status\\\":\\\"disabled\\\"}}}}\" --query \"{sku:sku.name, trustPolicy:properties.policies.trustPolicy}\" --output json"
+      "command": "rest --method patch --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acr-disable-content-trust-b822b6/providers/Microsoft.ContainerRegistry/registries/acr3ce7266485?api-version=2023-07-01\" --body \"{\\\"properties\\\":{\\\"policies\\\":{\\\"trustPolicy\\\":{\\\"type\\\":\\\"Notary\\\",\\\"status\\\":\\\"disabled\\\"}}}}\" --query \"{sku:sku.name, trustPolicy:properties.policies.trustPolicy}\" --output json"
     },
     {
       "id": "L026",
       "method": "PATCH",
       "calls": 1,
-      "command": "rest --method patch --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-acr-disable-content-trust-p1a-9080d6/providers/Microsoft.ContainerRegistry/registries/acreb9e14b4ba?api-version=2023-07-01\" --body \"{\\\"properties\\\":{\\\"policies\\\":{\\\"trustPolicy\\\":{\\\"type\\\":\\\"Notary\\\",\\\"status\\\":\\\"disabled\\\"}}}}\" --query properties.policies.trustPolicy"
+      "command": "rest --method patch --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acr-disable-content-trust-9080d6/providers/Microsoft.ContainerRegistry/registries/acreb9e14b4ba?api-version=2023-07-01\" --body \"{\\\"properties\\\":{\\\"policies\\\":{\\\"trustPolicy\\\":{\\\"type\\\":\\\"Notary\\\",\\\"status\\\":\\\"disabled\\\"}}}}\" --query properties.policies.trustPolicy"
     },
     {
       "id": "L027",
       "method": "PATCH",
       "calls": 1,
-      "command": "rest --method patch --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-acr-disable-content-trust-p1a-01a785/providers/Microsoft.ContainerRegistry/registries/acr14ce034790?api-version=2023-07-01 --body \"{\\\"properties\\\":{\\\"policies\\\":{\\\"trustPolicy\\\":{\\\"type\\\":\\\"Notary\\\",\\\"status\\\":\\\"disabled\\\"}}}}\" --query properties.policies.trustPolicy --output json"
+      "command": "rest --method patch --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acr-disable-content-trust-01a785/providers/Microsoft.ContainerRegistry/registries/acr14ce034790?api-version=2023-07-01 --body \"{\\\"properties\\\":{\\\"policies\\\":{\\\"trustPolicy\\\":{\\\"type\\\":\\\"Notary\\\",\\\"status\\\":\\\"disabled\\\"}}}}\" --query properties.policies.trustPolicy --output json"
     },
     {
       "id": "L028",
       "method": "PATCH",
       "calls": 1,
-      "command": "rest --method patch --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-acr-disable-content-trust-p1a-88ad86/providers/Microsoft.ContainerRegistry/registries/acr06f3889ba9?api-version=2023-07-01\" --body \"{\\\"properties\\\":{\\\"policies\\\":{\\\"trustPolicy\\\":{\\\"type\\\":\\\"Notary\\\",\\\"status\\\":\\\"disabled\\\"}}}}\" --query properties.policies -o json"
+      "command": "rest --method patch --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acr-disable-content-trust-88ad86/providers/Microsoft.ContainerRegistry/registries/acr06f3889ba9?api-version=2023-07-01\" --body \"{\\\"properties\\\":{\\\"policies\\\":{\\\"trustPolicy\\\":{\\\"type\\\":\\\"Notary\\\",\\\"status\\\":\\\"disabled\\\"}}}}\" --query properties.policies -o json"
     },
     {
       "id": "L029",
       "method": "PATCH",
       "calls": 1,
-      "command": "rest --method patch --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-acr-disable-content-trust-p1a-29dd95/providers/Microsoft.ContainerRegistry/registries/acref739dcad8?api-version=2023-07-01\" --body \"{\\\"properties\\\":{\\\"policies\\\":{\\\"trustPolicy\\\":{\\\"type\\\":\\\"Notary\\\",\\\"status\\\":\\\"disabled\\\"}}}}\" --query \"{sku:sku.name,trust:properties.policies.trustPolicy,state:properties.provisioningState}\" -o json"
+      "command": "rest --method patch --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acr-disable-content-trust-29dd95/providers/Microsoft.ContainerRegistry/registries/acref739dcad8?api-version=2023-07-01\" --body \"{\\\"properties\\\":{\\\"policies\\\":{\\\"trustPolicy\\\":{\\\"type\\\":\\\"Notary\\\",\\\"status\\\":\\\"disabled\\\"}}}}\" --query \"{sku:sku.name,trust:properties.policies.trustPolicy,state:properties.provisioningState}\" -o json"
     },
     {
       "id": "L030",
       "method": "PATCH",
       "calls": 1,
-      "command": "rest --method patch --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-acr-disable-content-trust-p1a-e0eefc/providers/Microsoft.ContainerRegistry/registries/acr1875e0d73e?api-version=2023-07-01 --body \"{\\\"properties\\\":{\\\"policies\\\":{\\\"trustPolicy\\\":{\\\"status\\\":\\\"disabled\\\",\\\"type\\\":\\\"Notary\\\"}}}}\" --query properties.policies -o json"
+      "command": "rest --method patch --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acr-disable-content-trust-e0eefc/providers/Microsoft.ContainerRegistry/registries/acr1875e0d73e?api-version=2023-07-01 --body \"{\\\"properties\\\":{\\\"policies\\\":{\\\"trustPolicy\\\":{\\\"status\\\":\\\"disabled\\\",\\\"type\\\":\\\"Notary\\\"}}}}\" --query properties.policies -o json"
     },
     {
       "id": "L031",
       "method": "PATCH",
       "calls": 1,
-      "command": "rest --method patch --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-acr-disable-content-trust-p1a-d8d777/providers/Microsoft.ContainerRegistry/registries/acr556a42ca1e?api-version=2023-07-01\" --body \"{\\\"properties\\\":{\\\"policies\\\":{\\\"trustPolicy\\\":{\\\"status\\\":\\\"disabled\\\",\\\"type\\\":\\\"Notary\\\"}}}}\" --query properties.policies -o json"
+      "command": "rest --method patch --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acr-disable-content-trust-d8d777/providers/Microsoft.ContainerRegistry/registries/acr556a42ca1e?api-version=2023-07-01\" --body \"{\\\"properties\\\":{\\\"policies\\\":{\\\"trustPolicy\\\":{\\\"status\\\":\\\"disabled\\\",\\\"type\\\":\\\"Notary\\\"}}}}\" --query properties.policies -o json"
     },
     {
       "id": "L032",
       "method": "PATCH",
       "calls": 1,
-      "command": "rest --method patch --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-acr-disable-content-trust-p1a-6a9aa7/providers/Microsoft.ContainerRegistry/registries/acra424054678?api-version=2023-07-01\" --body \"{\\\"properties\\\":{\\\"policies\\\":{\\\"trustPolicy\\\":{\\\"type\\\":\\\"Notary\\\",\\\"status\\\":\\\"disabled\\\"}}}}\" --query \"{sku:sku.name, trustPolicy:properties.policies.trustPolicy, state:properties.provisioningState}\" -o json"
+      "command": "rest --method patch --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acr-disable-content-trust-6a9aa7/providers/Microsoft.ContainerRegistry/registries/acra424054678?api-version=2023-07-01\" --body \"{\\\"properties\\\":{\\\"policies\\\":{\\\"trustPolicy\\\":{\\\"type\\\":\\\"Notary\\\",\\\"status\\\":\\\"disabled\\\"}}}}\" --query \"{sku:sku.name, trustPolicy:properties.policies.trustPolicy, state:properties.provisioningState}\" -o json"
     },
     {
       "id": "L033",
       "method": "PATCH",
       "calls": 1,
-      "command": "rest --method patch --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-acr-disable-content-trust-p1a-2ec29e/providers/Microsoft.ContainerRegistry/registries/acr054d60704a?api-version=2023-07-01\" --body \"{\\\"properties\\\":{\\\"policies\\\":{\\\"trustPolicy\\\":{\\\"type\\\":\\\"Notary\\\",\\\"status\\\":\\\"disabled\\\"}}}}\" -o json"
+      "command": "rest --method patch --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acr-disable-content-trust-2ec29e/providers/Microsoft.ContainerRegistry/registries/acr054d60704a?api-version=2023-07-01\" --body \"{\\\"properties\\\":{\\\"policies\\\":{\\\"trustPolicy\\\":{\\\"type\\\":\\\"Notary\\\",\\\"status\\\":\\\"disabled\\\"}}}}\" -o json"
     },
     {
       "id": "L034",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-insights-dce-associations-p1a-f2f829/providers/Microsoft.Insights/dataCollectionEndpoints/dcec99c31ee03/associations?api-version=2022-06-01\" -o json"
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-insights-dce-associations-f2f829/providers/Microsoft.Insights/dataCollectionEndpoints/dcec99c31ee03/associations?api-version=2022-06-01\" -o json"
     },
     {
       "id": "L035",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-insights-dce-associations-p1a-ec33a5/providers/Microsoft.Insights/dataCollectionEndpoints/dcef823ad6f6c/associations?api-version=2022-06-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-insights-dce-associations-ec33a5/providers/Microsoft.Insights/dataCollectionEndpoints/dcef823ad6f6c/associations?api-version=2022-06-01\""
     },
     {
       "id": "L036",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-insights-dce-associations-p1a-9ff220/providers/Microsoft.Insights/dataCollectionEndpoints/dcee6dc8b98d4/associations?api-version=2022-06-01\" -o json"
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-insights-dce-associations-9ff220/providers/Microsoft.Insights/dataCollectionEndpoints/dcee6dc8b98d4/associations?api-version=2022-06-01\" -o json"
     },
     {
       "id": "L037",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-insights-workbook-revision-p1a-6fcece/providers/Microsoft.Insights/workbooks/664bcebf-373e-432a-84d8-3f3c833addd0/revisions/664bcebf-373e-432a-84d8-3f3c833addd0?api-version=2022-04-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-insights-workbook-revision-6fcece/providers/Microsoft.Insights/workbooks/664bcebf-373e-432a-84d8-3f3c833addd0/revisions/664bcebf-373e-432a-84d8-3f3c833addd0?api-version=2022-04-01\""
     },
     {
       "id": "L038",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-insights-workbook-revision-p1a-1948e2/providers/Microsoft.Insights/workbooks/ddd6671a-c8b2-4e80-b8b5-f61f1c9704b0/revisions/ddd6671a-c8b2-4e80-b8b5-f61f1c9704b0?api-version=2023-06-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-insights-workbook-revision-1948e2/providers/Microsoft.Insights/workbooks/ddd6671a-c8b2-4e80-b8b5-f61f1c9704b0/revisions/ddd6671a-c8b2-4e80-b8b5-f61f1c9704b0?api-version=2023-06-01\""
     },
     {
       "id": "L039",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-insights-workbook-revision-p1a-a9af73/providers/Microsoft.Insights/workbooks/dc37f01b-541c-46c6-a827-bf851474e841/revisions/dc37f01b-541c-46c6-a827-bf851474e841?api-version=2023-06-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-insights-workbook-revision-a9af73/providers/Microsoft.Insights/workbooks/dc37f01b-541c-46c6-a827-bf851474e841/revisions/dc37f01b-541c-46c6-a827-bf851474e841?api-version=2023-06-01\""
     },
     {
       "id": "L040",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-insights-workbook-revision-p1a-f38441/providers/Microsoft.Insights/workbooks/ec935a15-5fa4-48d5-b322-7790b6828ffb/revisions/ec935a15-5fa4-48d5-b322-7790b6828ffb?api-version=2022-04-01\" --output json"
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-insights-workbook-revision-f38441/providers/Microsoft.Insights/workbooks/ec935a15-5fa4-48d5-b322-7790b6828ffb/revisions/ec935a15-5fa4-48d5-b322-7790b6828ffb?api-version=2022-04-01\" --output json"
     },
     {
       "id": "L041",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-insights-workbook-revision-p1a-6b517b/providers/Microsoft.Insights/workbooks/a95450bb-784f-4844-8ec2-8ef086b1440d/revisions/a95450bb-784f-4844-8ec2-8ef086b1440d?api-version=2023-06-01\" -o json"
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-insights-workbook-revision-6b517b/providers/Microsoft.Insights/workbooks/a95450bb-784f-4844-8ec2-8ef086b1440d/revisions/a95450bb-784f-4844-8ec2-8ef086b1440d?api-version=2023-06-01\" -o json"
     },
     {
       "id": "L042",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-insights-workbook-revision-p1a-96b796/providers/Microsoft.Insights/workbooks/5906bc10-2732-44a5-bdaa-4dd2ad4e504b/revisions/5906bc10-2732-44a5-bdaa-4dd2ad4e504b?api-version=2023-06-01\" -o json"
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-insights-workbook-revision-96b796/providers/Microsoft.Insights/workbooks/5906bc10-2732-44a5-bdaa-4dd2ad4e504b/revisions/5906bc10-2732-44a5-bdaa-4dd2ad4e504b?api-version=2023-06-01\" -o json"
     },
     {
       "id": "L043",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-insights-workbook-revisions-p1a-fc0f9c/providers/Microsoft.Insights/workbooks/de6d4d00-9554-4610-ae90-6e9b5fb12b44/revisions?api-version=2022-04-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-insights-workbook-revisions-fc0f9c/providers/Microsoft.Insights/workbooks/de6d4d00-9554-4610-ae90-6e9b5fb12b44/revisions?api-version=2022-04-01\""
     },
     {
       "id": "L044",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-insights-workbook-revisions-p1a-643ae3/providers/Microsoft.Insights/workbooks/b9510d03-9d49-4373-b034-6ba183706df9/revisions?api-version=2023-06-01\" -o json"
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-insights-workbook-revisions-643ae3/providers/Microsoft.Insights/workbooks/b9510d03-9d49-4373-b034-6ba183706df9/revisions?api-version=2023-06-01\" -o json"
     },
     {
       "id": "L045",
@@ -308,7 +308,7 @@
       "id": "L046",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-afd-waf-metrics-p1a-c04bb8/providers/Microsoft.Cdn/profiles/afdpccbd2b24ba/getWafLogAnalyticsMetrics?api-version=2024-02-01&metrics=clientRequestCount&dateTimeBegin=2026-01-01T00:00:00Z&dateTimeEnd=2026-01-08T00:00:00Z&granularity=P1D\" -o json"
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-afd-waf-metrics-c04bb8/providers/Microsoft.Cdn/profiles/afdpccbd2b24ba/getWafLogAnalyticsMetrics?api-version=2024-02-01&metrics=clientRequestCount&dateTimeBegin=2026-01-01T00:00:00Z&dateTimeEnd=2026-01-08T00:00:00Z&granularity=P1D\" -o json"
     },
     {
       "id": "L047",
@@ -434,61 +434,61 @@
       "id": "L067",
       "method": "PUT",
       "calls": 1,
-      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-sql-encryption-protector-p1a-185212/providers/Microsoft.Sql/servers/sqltdeb90d71/encryptionProtector/current?api-version=2021-11-01\" --body \"{\\\"properties\\\":{\\\"serverKeyType\\\":\\\"AzureKeyVault\\\",\\\"serverKeyName\\\":\\\"kvtdead38c5_tde_c896ffb2f6434d1ba5af288c40caf31b\\\"}}\""
+      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-sql-encryption-protector-185212/providers/Microsoft.Sql/servers/sqltdeb90d71/encryptionProtector/current?api-version=2021-11-01\" --body \"{\\\"properties\\\":{\\\"serverKeyType\\\":\\\"AzureKeyVault\\\",\\\"serverKeyName\\\":\\\"kvtdead38c5_tde_c896ffb2f6434d1ba5af288c40caf31b\\\"}}\""
     },
     {
       "id": "L068",
       "method": "PUT",
       "calls": 1,
-      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-sql-encryption-protector-p1a-c9828c/providers/Microsoft.Sql/servers/sqltde63f00d/encryptionProtector/current?api-version=2021-11-01\" --body \"{\\\"properties\\\":{\\\"serverKeyType\\\":\\\"AzureKeyVault\\\",\\\"serverKeyName\\\":\\\"kvtdefb9154_tde_bfe58537ac374a08b9b7a3a0a9b7a65a\\\"}}\" -o json"
+      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-sql-encryption-protector-c9828c/providers/Microsoft.Sql/servers/sqltde63f00d/encryptionProtector/current?api-version=2021-11-01\" --body \"{\\\"properties\\\":{\\\"serverKeyType\\\":\\\"AzureKeyVault\\\",\\\"serverKeyName\\\":\\\"kvtdefb9154_tde_bfe58537ac374a08b9b7a3a0a9b7a65a\\\"}}\" -o json"
     },
     {
       "id": "L069",
       "method": "PUT",
       "calls": 1,
-      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-sql-encryption-protector-p1a-f1331c/providers/Microsoft.Sql/servers/sqltdee6b985/encryptionProtector/current?api-version=2021-11-01\" --body \"{\\\"properties\\\":{\\\"serverKeyType\\\":\\\"AzureKeyVault\\\",\\\"serverKeyName\\\":\\\"kvtdeadcd4f_tde_e0719dddaf1d4fd5ac6fee6d3bcaae0b\\\"}}\""
+      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-sql-encryption-protector-f1331c/providers/Microsoft.Sql/servers/sqltdee6b985/encryptionProtector/current?api-version=2021-11-01\" --body \"{\\\"properties\\\":{\\\"serverKeyType\\\":\\\"AzureKeyVault\\\",\\\"serverKeyName\\\":\\\"kvtdeadcd4f_tde_e0719dddaf1d4fd5ac6fee6d3bcaae0b\\\"}}\""
     },
     {
       "id": "L070",
       "method": "PUT",
       "calls": 1,
-      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-sql-encryption-protector-p1a-1bfee6/providers/Microsoft.Sql/servers/sqltdee00f55/encryptionProtector/current?api-version=2021-11-01\" --body \"{\\\"properties\\\":{\\\"serverKeyType\\\":\\\"AzureKeyVault\\\",\\\"serverKeyName\\\":\\\"kvtde9d94c7_tde_6291453bc1754a6494a847f7e1c8e66c\\\",\\\"autoRotationEnabled\\\":false}}\""
+      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-sql-encryption-protector-1bfee6/providers/Microsoft.Sql/servers/sqltdee00f55/encryptionProtector/current?api-version=2021-11-01\" --body \"{\\\"properties\\\":{\\\"serverKeyType\\\":\\\"AzureKeyVault\\\",\\\"serverKeyName\\\":\\\"kvtde9d94c7_tde_6291453bc1754a6494a847f7e1c8e66c\\\",\\\"autoRotationEnabled\\\":false}}\""
     },
     {
       "id": "L071",
       "method": "PUT",
       "calls": 1,
-      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-sql-encryption-protector-p1a-3988c6/providers/Microsoft.Sql/servers/sqltdec39725/encryptionProtector/current?api-version=2021-11-01\" --body \"{\\\"properties\\\":{\\\"serverKeyName\\\":\\\"kvtde7eb4ee_tde_bbf9638f366c415abf840de0f1493f76\\\",\\\"serverKeyType\\\":\\\"AzureKeyVault\\\",\\\"autoRotationEnabled\\\":false}}\""
+      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-sql-encryption-protector-3988c6/providers/Microsoft.Sql/servers/sqltdec39725/encryptionProtector/current?api-version=2021-11-01\" --body \"{\\\"properties\\\":{\\\"serverKeyName\\\":\\\"kvtde7eb4ee_tde_bbf9638f366c415abf840de0f1493f76\\\",\\\"serverKeyType\\\":\\\"AzureKeyVault\\\",\\\"autoRotationEnabled\\\":false}}\""
     },
     {
       "id": "L072",
       "method": "PUT",
       "calls": 1,
-      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-sql-encryption-protector-p1a-b6ed72/providers/Microsoft.Sql/servers/sqltdeb7f56d/encryptionProtector/current?api-version=2021-11-01\" --body \"{\\\"properties\\\":{\\\"serverKeyType\\\":\\\"AzureKeyVault\\\",\\\"serverKeyName\\\":\\\"kvtdea9272b_tde_9befb546d77e449280a73c394aa1ae7f\\\",\\\"autoRotationEnabled\\\":false}}\" -o json"
+      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-sql-encryption-protector-b6ed72/providers/Microsoft.Sql/servers/sqltdeb7f56d/encryptionProtector/current?api-version=2021-11-01\" --body \"{\\\"properties\\\":{\\\"serverKeyType\\\":\\\"AzureKeyVault\\\",\\\"serverKeyName\\\":\\\"kvtdea9272b_tde_9befb546d77e449280a73c394aa1ae7f\\\",\\\"autoRotationEnabled\\\":false}}\" -o json"
     },
     {
       "id": "L073",
       "method": "PUT",
       "calls": 1,
-      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-sql-encryption-protector-p1a-2f0d84/providers/Microsoft.Sql/servers/sqltde759839/encryptionProtector/current?api-version=2021-11-01\" --body \"{\\\"properties\\\":{\\\"serverKeyType\\\":\\\"AzureKeyVault\\\",\\\"serverKeyName\\\":\\\"kvtde2be1bb_tde_1db8b5afefde4a6ca097c604130c7b47\\\"}}\""
+      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-sql-encryption-protector-2f0d84/providers/Microsoft.Sql/servers/sqltde759839/encryptionProtector/current?api-version=2021-11-01\" --body \"{\\\"properties\\\":{\\\"serverKeyType\\\":\\\"AzureKeyVault\\\",\\\"serverKeyName\\\":\\\"kvtde2be1bb_tde_1db8b5afefde4a6ca097c604130c7b47\\\"}}\""
     },
     {
       "id": "L074",
       "method": "PUT",
       "calls": 1,
-      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-sql-encryption-protector-p1a-12cb83/providers/Microsoft.Sql/servers/sqltde188188/encryptionProtector/current?api-version=2021-11-01\" --body \"{\\\"properties\\\":{\\\"serverKeyType\\\":\\\"AzureKeyVault\\\",\\\"serverKeyName\\\":\\\"kvtdee51da0_tde_ddd3c87eb982423c9c879a6832e6c221\\\",\\\"autoRotationEnabled\\\":false}}\""
+      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-sql-encryption-protector-12cb83/providers/Microsoft.Sql/servers/sqltde188188/encryptionProtector/current?api-version=2021-11-01\" --body \"{\\\"properties\\\":{\\\"serverKeyType\\\":\\\"AzureKeyVault\\\",\\\"serverKeyName\\\":\\\"kvtdee51da0_tde_ddd3c87eb982423c9c879a6832e6c221\\\",\\\"autoRotationEnabled\\\":false}}\""
     },
     {
       "id": "L075",
       "method": "PUT",
       "calls": 1,
-      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-sql-encryption-protector-p1a-184700/providers/Microsoft.Sql/servers/sqltde3b0005/encryptionProtector/current?api-version=2021-11-01\" --body \"{\\\"properties\\\":{\\\"serverKeyType\\\":\\\"AzureKeyVault\\\",\\\"serverKeyName\\\":\\\"kvtde0c17e0_tde_b70ce6774385401192147e9451c8a40b\\\"}}\""
+      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-sql-encryption-protector-184700/providers/Microsoft.Sql/servers/sqltde3b0005/encryptionProtector/current?api-version=2021-11-01\" --body \"{\\\"properties\\\":{\\\"serverKeyType\\\":\\\"AzureKeyVault\\\",\\\"serverKeyName\\\":\\\"kvtde0c17e0_tde_b70ce6774385401192147e9451c8a40b\\\"}}\""
     },
     {
       "id": "L076",
       "method": "PUT",
       "calls": 1,
-      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-sql-encryption-protector-p1a-e28322/providers/Microsoft.Sql/servers/sqltde7da518/encryptionProtector/current?api-version=2021-11-01\" --body \"{\\\"properties\\\":{\\\"serverKeyType\\\":\\\"AzureKeyVault\\\",\\\"serverKeyName\\\":\\\"kvtde59367c_tde_eb7a5cb216144829b40c74a5dc2b94ba\\\"}}\""
+      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-sql-encryption-protector-e28322/providers/Microsoft.Sql/servers/sqltde7da518/encryptionProtector/current?api-version=2021-11-01\" --body \"{\\\"properties\\\":{\\\"serverKeyType\\\":\\\"AzureKeyVault\\\",\\\"serverKeyName\\\":\\\"kvtde59367c_tde_eb7a5cb216144829b40c74a5dc2b94ba\\\"}}\""
     },
     {
       "id": "L077",
@@ -554,7 +554,7 @@
       "id": "L087",
       "method": "PATCH",
       "calls": 1,
-      "command": "rest --method patch --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-tb-resource-graph-tags-p1a-1ccb39/providers/Microsoft.KeyVault/vaults/tbkvae1a035?api-version=2023-07-01 --body \"{\\\"tags\\\":{\\\"costcenter\\\":\\\"cc-eea562\\\"}}\" --query tags"
+      "command": "rest --method patch --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-tb-resource-graph-tags-1ccb39/providers/Microsoft.KeyVault/vaults/tbkvae1a035?api-version=2023-07-01 --body \"{\\\"tags\\\":{\\\"costcenter\\\":\\\"cc-eea562\\\"}}\" --query tags"
     },
     {
       "id": "L088",
@@ -566,19 +566,19 @@
       "id": "L089",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-td-preconfigured-endpoints-p1a-b3b07b/providers/Microsoft.Network/NetworkExperimentProfiles/nep23f4c047/PreconfiguredEndpoints?api-version=2019-11-01\" -o json"
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-td-preconfigured-endpoints-b3b07b/providers/Microsoft.Network/NetworkExperimentProfiles/nep23f4c047/PreconfiguredEndpoints?api-version=2019-11-01\" -o json"
     },
     {
       "id": "L090",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-td-preconfigured-endpoints-p1a-ccfa65/providers/Microsoft.Network/NetworkExperimentProfiles/nep89ec5d50/PreconfiguredEndpoints?api-version=2019-11-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-td-preconfigured-endpoints-ccfa65/providers/Microsoft.Network/NetworkExperimentProfiles/nep89ec5d50/PreconfiguredEndpoints?api-version=2019-11-01\""
     },
     {
       "id": "L091",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-td-preconfigured-endpoints-p1a-165960/providers/Microsoft.Network/NetworkExperimentProfiles/nepdfec957f/PreconfiguredEndpoints?api-version=2019-11-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-td-preconfigured-endpoints-165960/providers/Microsoft.Network/NetworkExperimentProfiles/nepdfec957f/PreconfiguredEndpoints?api-version=2019-11-01\""
     },
     {
       "id": "L092",
@@ -602,85 +602,85 @@
       "id": "L095",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-td-aca-env-diagnostics-p1a-0a0583/providers/Microsoft.App/managedEnvironments/env-f4db88ec/detectorProperties/rootApi?api-version=2024-03-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-td-aca-env-diagnostics-0a0583/providers/Microsoft.App/managedEnvironments/env-f4db88ec/detectorProperties/rootApi?api-version=2024-03-01\""
     },
     {
       "id": "L096",
       "method": "GET",
       "calls": 2,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-td-aca-env-diagnostics-p1a-aa867a/providers/Microsoft.App/managedEnvironments/env-d17efce4/detectorProperties/rootApi?api-version=2024-03-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-td-aca-env-diagnostics-aa867a/providers/Microsoft.App/managedEnvironments/env-d17efce4/detectorProperties/rootApi?api-version=2024-03-01\""
     },
     {
       "id": "L097",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-td-aca-env-diagnostics-p1a-0d0148/providers/Microsoft.App/managedEnvironments/env-655273ae/detectorProperties/rootApi?api-version=2024-03-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-td-aca-env-diagnostics-0d0148/providers/Microsoft.App/managedEnvironments/env-655273ae/detectorProperties/rootApi?api-version=2024-03-01\""
     },
     {
       "id": "L098",
       "method": "PATCH",
       "calls": 1,
-      "command": "rest --method patch --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-td-session-pool-update-p1a-5be7a2/providers/Microsoft.App/sessionPools/sp-832cf2c7?api-version=2024-03-01 --body \"{\\\"properties\\\":{\\\"scaleConfiguration\\\":{\\\"maxConcurrentSessions\\\":33}}}\" -o json"
+      "command": "rest --method patch --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-td-session-pool-update-5be7a2/providers/Microsoft.App/sessionPools/sp-832cf2c7?api-version=2024-03-01 --body \"{\\\"properties\\\":{\\\"scaleConfiguration\\\":{\\\"maxConcurrentSessions\\\":33}}}\" -o json"
     },
     {
       "id": "L099",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-td-session-pool-update-p1a-5edf9e/providers/Microsoft.App/sessionPools/sp-f05f9c1f?api-version=2024-03-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-td-session-pool-update-5edf9e/providers/Microsoft.App/sessionPools/sp-f05f9c1f?api-version=2024-03-01\""
     },
     {
       "id": "L100",
       "method": "PATCH",
       "calls": 1,
-      "command": "rest --method patch --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-td-session-pool-update-p1a-80a28a/providers/Microsoft.App/sessionPools/sp-ae30a474?api-version=2024-03-01\" --body \"{\\\"properties\\\":{\\\"scaleConfiguration\\\":{\\\"maxConcurrentSessions\\\":40}}}\" -o json"
+      "command": "rest --method patch --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-td-session-pool-update-80a28a/providers/Microsoft.App/sessionPools/sp-ae30a474?api-version=2024-03-01\" --body \"{\\\"properties\\\":{\\\"scaleConfiguration\\\":{\\\"maxConcurrentSessions\\\":40}}}\" -o json"
     },
     {
       "id": "L101",
       "method": "POST",
       "calls": 1,
-      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-td-afd-hostname-check-p1a-42cbe3/providers/Microsoft.Cdn/profiles/afdp337d084251/checkHostNameAvailability?api-version=2024-02-01\" --body \"{\\\"hostName\\\": \\\"shop-2ffcb9.contoso.com\\\"}\" -o json"
+      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-td-afd-hostname-check-42cbe3/providers/Microsoft.Cdn/profiles/afdp337d084251/checkHostNameAvailability?api-version=2024-02-01\" --body \"{\\\"hostName\\\": \\\"shop-2ffcb9.contoso.com\\\"}\" -o json"
     },
     {
       "id": "L102",
       "method": "POST",
       "calls": 1,
-      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-td-afd-hostname-check-p1a-42cbe3/providers/Microsoft.Cdn/profiles/afdp337d084251/checkHostNameAvailability?api-version=2024-02-01\" --body \"{\\\"hostName\\\": \\\"store-fe7582.contoso.com\\\"}\" -o json"
+      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-td-afd-hostname-check-42cbe3/providers/Microsoft.Cdn/profiles/afdp337d084251/checkHostNameAvailability?api-version=2024-02-01\" --body \"{\\\"hostName\\\": \\\"store-fe7582.contoso.com\\\"}\" -o json"
     },
     {
       "id": "L103",
       "method": "POST",
       "calls": 1,
-      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-td-afd-hostname-check-p1a-c49045/providers/Microsoft.Cdn/profiles/afdpdb37350bc3/checkHostNameAvailability?api-version=2024-02-01\" --body \"{\\\"hostName\\\":\\\"shop-561a29.contoso.com\\\"}\""
+      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-td-afd-hostname-check-c49045/providers/Microsoft.Cdn/profiles/afdpdb37350bc3/checkHostNameAvailability?api-version=2024-02-01\" --body \"{\\\"hostName\\\":\\\"shop-561a29.contoso.com\\\"}\""
     },
     {
       "id": "L104",
       "method": "POST",
       "calls": 1,
-      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-td-afd-hostname-check-p1a-c49045/providers/Microsoft.Cdn/profiles/afdpdb37350bc3/checkHostNameAvailability?api-version=2024-02-01\" --body \"{\\\"hostName\\\":\\\"store-6ed940.contoso.com\\\"}\""
+      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-td-afd-hostname-check-c49045/providers/Microsoft.Cdn/profiles/afdpdb37350bc3/checkHostNameAvailability?api-version=2024-02-01\" --body \"{\\\"hostName\\\":\\\"store-6ed940.contoso.com\\\"}\""
     },
     {
       "id": "L105",
       "method": "POST",
       "calls": 1,
-      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-td-afd-hostname-check-p1a-a5c939/providers/Microsoft.Cdn/profiles/afdpd352cae9e7/checkHostNameAvailability?api-version=2024-02-01\" --body \"{\\\"hostName\\\": \\\"shop-2d1c45.contoso.com\\\"}\""
+      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-td-afd-hostname-check-a5c939/providers/Microsoft.Cdn/profiles/afdpd352cae9e7/checkHostNameAvailability?api-version=2024-02-01\" --body \"{\\\"hostName\\\": \\\"shop-2d1c45.contoso.com\\\"}\""
     },
     {
       "id": "L106",
       "method": "POST",
       "calls": 1,
-      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-td-afd-hostname-check-p1a-a5c939/providers/Microsoft.Cdn/profiles/afdpd352cae9e7/checkHostNameAvailability?api-version=2024-02-01\" --body \"{\\\"hostName\\\": \\\"store-9ea134.contoso.com\\\"}\""
+      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-td-afd-hostname-check-a5c939/providers/Microsoft.Cdn/profiles/afdpd352cae9e7/checkHostNameAvailability?api-version=2024-02-01\" --body \"{\\\"hostName\\\": \\\"store-9ea134.contoso.com\\\"}\""
     },
     {
       "id": "L107",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-td-mysql-backup-get-p1a-c3a690/providers/Microsoft.DBforMySQL/flexibleServers/my-30a7d662f1/backups?api-version=2023-12-30\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-td-mysql-backup-get-c3a690/providers/Microsoft.DBforMySQL/flexibleServers/my-30a7d662f1/backups?api-version=2023-12-30\""
     },
     {
       "id": "L108",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-td-mysql-backup-get-p1a-c3a690/providers/Microsoft.DBforMySQL/flexibleServers/my-30a7d662f1/backupsV2?api-version=2023-12-30\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-td-mysql-backup-get-c3a690/providers/Microsoft.DBforMySQL/flexibleServers/my-30a7d662f1/backupsV2?api-version=2023-12-30\""
     },
     {
       "id": "L109",
@@ -698,19 +698,19 @@
       "id": "L111",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-td-sql-server-alert-policy-p1a-259834/providers/Microsoft.Sql/servers/sqlpol125929/securityAlertPolicies/Default?api-version=2021-11-01"
+      "command": "rest --method get --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-td-sql-server-alert-policy-259834/providers/Microsoft.Sql/servers/sqlpol125929/securityAlertPolicies/Default?api-version=2021-11-01"
     },
     {
       "id": "L112",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-td-sql-server-alert-policy-p1a-e90fdb/providers/Microsoft.Sql/servers/sqlpol2a33c4/securityAlertPolicies/Default?api-version=2021-11-01"
+      "command": "rest --method get --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-td-sql-server-alert-policy-e90fdb/providers/Microsoft.Sql/servers/sqlpol2a33c4/securityAlertPolicies/Default?api-version=2021-11-01"
     },
     {
       "id": "L113",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-td-sql-server-alert-policy-p1a-f56c2a/providers/Microsoft.Sql/servers/sqlpola4b81f/securityAlertPolicies/Default?api-version=2021-11-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-td-sql-server-alert-policy-f56c2a/providers/Microsoft.Sql/servers/sqlpola4b81f/securityAlertPolicies/Default?api-version=2021-11-01\""
     },
     {
       "id": "L114",
@@ -734,229 +734,229 @@
       "id": "L117",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-group-user-check-p1a-2dc570/providers/Microsoft.ApiManagement/service/apimb7db7f/groups/devs4c23b0/users?api-version=2022-08-01"
+      "command": "rest --method get --url https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-group-user-check-2dc570/providers/Microsoft.ApiManagement/service/apimb7db7f/groups/devs4c23b0/users?api-version=2022-08-01"
     },
     {
       "id": "L118",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-group-user-check-p1a-2132e5/providers/Microsoft.ApiManagement/service/apim9639b0/groups/devs87185d/users?api-version=2022-08-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-group-user-check-2132e5/providers/Microsoft.ApiManagement/service/apim9639b0/groups/devs87185d/users?api-version=2022-08-01\""
     },
     {
       "id": "L119",
       "method": "GET",
       "calls": 2,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-group-user-check-p1a-938738/providers/Microsoft.ApiManagement/service/apimdf4f45/groups/devs5ed061/users?api-version=2022-08-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-group-user-check-938738/providers/Microsoft.ApiManagement/service/apimdf4f45/groups/devs5ed061/users?api-version=2022-08-01\""
     },
     {
       "id": "L120",
       "method": "GET",
       "calls": 2,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-workspace-product-update-p1a-b82cdd/providers/Microsoft.ApiManagement/service/apima83f93/workspaces/worksp0d9694/products/produca2a04a?api-version=2023-09-01-preview\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-workspace-product-update-b82cdd/providers/Microsoft.ApiManagement/service/apima83f93/workspaces/worksp0d9694/products/produca2a04a?api-version=2023-09-01-preview\""
     },
     {
       "id": "L121",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-workspace-product-update-p1a-8160b8/providers/Microsoft.ApiManagement/service/apimddda2e/workspaces/workspb5cecb/products/produc4a7768?api-version=2023-09-01-preview\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-workspace-product-update-8160b8/providers/Microsoft.ApiManagement/service/apimddda2e/workspaces/workspb5cecb/products/produc4a7768?api-version=2023-09-01-preview\""
     },
     {
       "id": "L122",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-workspace-product-update-p1a-86a22c/providers/Microsoft.ApiManagement/service/apim2e3c2a/workspaces/worksp458fa6/products/produc98042d?api-version=2023-09-01-preview\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-workspace-product-update-86a22c/providers/Microsoft.ApiManagement/service/apim2e3c2a/workspaces/worksp458fa6/products/produc98042d?api-version=2023-09-01-preview\""
     },
     {
       "id": "L123",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-workspace-group-update-p1a-281352/providers/Microsoft.ApiManagement/service/apimaf0c68/workspaces/worksp2c6d98/groups/groupc47a15?api-version=2023-09-01-preview\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-workspace-group-update-281352/providers/Microsoft.ApiManagement/service/apimaf0c68/workspaces/worksp2c6d98/groups/groupc47a15?api-version=2023-09-01-preview\""
     },
     {
       "id": "L124",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-workspace-group-update-p1a-058ba2/providers/Microsoft.ApiManagement/service/apim33cf9e/workspaces/worksp4f083b/groups/group8126ed?api-version=2023-09-01-preview\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-workspace-group-update-058ba2/providers/Microsoft.ApiManagement/service/apim33cf9e/workspaces/worksp4f083b/groups/group8126ed?api-version=2023-09-01-preview\""
     },
     {
       "id": "L125",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-workspace-group-update-p1a-273fec/providers/Microsoft.ApiManagement/service/apim5d602c/workspaces/worksp89734a/groups/group646e1f?api-version=2023-09-01-preview\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-workspace-group-update-273fec/providers/Microsoft.ApiManagement/service/apim5d602c/workspaces/worksp89734a/groups/group646e1f?api-version=2023-09-01-preview\""
     },
     {
       "id": "L126",
       "method": "GET",
       "calls": 2,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-workspace-loggers-p1a-611541/providers/Microsoft.ApiManagement/service/apim435c48/workspaces/worksp8836b5/loggers?api-version=2023-09-01-preview\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-workspace-loggers-611541/providers/Microsoft.ApiManagement/service/apim435c48/workspaces/worksp8836b5/loggers?api-version=2023-09-01-preview\""
     },
     {
       "id": "L127",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-workspace-loggers-p1a-771348/providers/Microsoft.ApiManagement/service/apima6bfa5/workspaces/workspb281b4/loggers?api-version=2023-09-01-preview\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-workspace-loggers-771348/providers/Microsoft.ApiManagement/service/apima6bfa5/workspaces/workspb281b4/loggers?api-version=2023-09-01-preview\""
     },
     {
       "id": "L128",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-workspace-loggers-p1a-3bec98/providers/Microsoft.ApiManagement/service/apimcd0d97/workspaces/worksp8ea438/loggers?api-version=2023-09-01-preview\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-workspace-loggers-3bec98/providers/Microsoft.ApiManagement/service/apimcd0d97/workspaces/worksp8ea438/loggers?api-version=2023-09-01-preview\""
     },
     {
       "id": "L129",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-tenant-access-p1a-aecc7e/providers/Microsoft.ApiManagement/service/apimed6b19/tenant/access?api-version=2022-08-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-tenant-access-aecc7e/providers/Microsoft.ApiManagement/service/apimed6b19/tenant/access?api-version=2022-08-01\""
     },
     {
       "id": "L130",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-tenant-access-p1a-ee0fca/providers/Microsoft.ApiManagement/service/apim581169/tenant/access?api-version=2022-08-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-tenant-access-ee0fca/providers/Microsoft.ApiManagement/service/apim581169/tenant/access?api-version=2022-08-01\""
     },
     {
       "id": "L131",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-tenant-access-p1a-a9659e/providers/Microsoft.ApiManagement/service/apim60d78f/tenant/access?api-version=2022-08-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-tenant-access-a9659e/providers/Microsoft.ApiManagement/service/apim60d78f/tenant/access?api-version=2022-08-01\""
     },
     {
       "id": "L132",
       "method": "POST",
       "calls": 2,
-      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-git-regenerate-primary-p1a-f741af/providers/Microsoft.ApiManagement/service/apime00c35/tenant/gitAccess/listSecrets?api-version=2022-08-01\""
+      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-git-regenerate-primary-f741af/providers/Microsoft.ApiManagement/service/apime00c35/tenant/gitAccess/listSecrets?api-version=2022-08-01\""
     },
     {
       "id": "L133",
       "method": "POST",
       "calls": 1,
-      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-git-regenerate-primary-p1a-6a0c70/providers/Microsoft.ApiManagement/service/apimd687ab/tenant/gitAccess/listSecrets?api-version=2022-08-01\""
+      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-git-regenerate-primary-6a0c70/providers/Microsoft.ApiManagement/service/apimd687ab/tenant/gitAccess/listSecrets?api-version=2022-08-01\""
     },
     {
       "id": "L134",
       "method": "POST",
       "calls": 1,
-      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-git-regenerate-primary-p1a-ef719d/providers/Microsoft.ApiManagement/service/apim0fe6d0/tenant/gitAccess/listSecrets?api-version=2022-08-01\""
+      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-git-regenerate-primary-ef719d/providers/Microsoft.ApiManagement/service/apim0fe6d0/tenant/gitAccess/listSecrets?api-version=2022-08-01\""
     },
     {
       "id": "L135",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-operation-policy-p1a-f92fc3/providers/Microsoft.ApiManagement/service/apimce3ad1/apis/ordersac0233/operations/getorder38beca/policies/policy?api-version=2022-08-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-operation-policy-f92fc3/providers/Microsoft.ApiManagement/service/apimce3ad1/apis/ordersac0233/operations/getorder38beca/policies/policy?api-version=2022-08-01\""
     },
     {
       "id": "L136",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-operation-policy-p1a-87e8ff/providers/Microsoft.ApiManagement/service/apimbda42d/apis/ordersfa88cc/operations/getorder1a58af/policies/policy?api-version=2022-08-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-operation-policy-87e8ff/providers/Microsoft.ApiManagement/service/apimbda42d/apis/ordersfa88cc/operations/getorder1a58af/policies/policy?api-version=2022-08-01\""
     },
     {
       "id": "L137",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-operation-policy-p1a-3d65c1/providers/Microsoft.ApiManagement/service/apim3f2a90/apis/ordersb0bb84/operations/getorder0dd671/policies/policy?api-version=2022-08-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-operation-policy-3d65c1/providers/Microsoft.ApiManagement/service/apim3f2a90/apis/ordersb0bb84/operations/getorder0dd671/policies/policy?api-version=2022-08-01\""
     },
     {
       "id": "L138",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-tag-assign-api-p1a-2bc26e/providers/Microsoft.ApiManagement/service/apimd32b41/tags?api-version=2022-08-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-tag-assign-api-2bc26e/providers/Microsoft.ApiManagement/service/apimd32b41/tags?api-version=2022-08-01\""
     },
     {
       "id": "L139",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-tag-assign-api-p1a-41db9a/providers/Microsoft.ApiManagement/service/apim9ae658/tags?api-version=2022-08-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-tag-assign-api-41db9a/providers/Microsoft.ApiManagement/service/apim9ae658/tags?api-version=2022-08-01\""
     },
     {
       "id": "L140",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-tag-assign-api-p1a-27c66e/providers/Microsoft.ApiManagement/service/apimeb3540/tags?api-version=2022-08-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-tag-assign-api-27c66e/providers/Microsoft.ApiManagement/service/apimeb3540/tags?api-version=2022-08-01\""
     },
     {
       "id": "L141",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-tag-detach-product-p1a-03e0bb/providers/Microsoft.ApiManagement/service/apim21ef58/products/producb6b501/tags?api-version=2022-08-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-tag-detach-product-03e0bb/providers/Microsoft.ApiManagement/service/apim21ef58/products/producb6b501/tags?api-version=2022-08-01\""
     },
     {
       "id": "L142",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-tag-detach-product-p1a-c12370/providers/Microsoft.ApiManagement/service/apim776ade/products/produc9924a1/tags?api-version=2022-08-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-tag-detach-product-c12370/providers/Microsoft.ApiManagement/service/apim776ade/products/produc9924a1/tags?api-version=2022-08-01\""
     },
     {
       "id": "L143",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-tag-detach-product-p1a-452913/providers/Microsoft.ApiManagement/service/apimeeb520/products/produc571108/tags?api-version=2022-08-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-tag-detach-product-452913/providers/Microsoft.ApiManagement/service/apimeeb520/products/produc571108/tags?api-version=2022-08-01\""
     },
     {
       "id": "L144",
       "method": "GET",
       "calls": 2,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-api-tag-descriptions-p1a-43a29a/providers/Microsoft.ApiManagement/service/apimaf7b81/apis/api8e79e2/tagDescriptions?api-version=2022-08-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-api-tag-descriptions-43a29a/providers/Microsoft.ApiManagement/service/apimaf7b81/apis/api8e79e2/tagDescriptions?api-version=2022-08-01\""
     },
     {
       "id": "L145",
       "method": "GET",
       "calls": 1,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-api-tag-descriptions-p1a-3ec800/providers/Microsoft.ApiManagement/service/apimc8fbd6/apis/api4b388a/tagDescriptions?api-version=2022-08-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-api-tag-descriptions-3ec800/providers/Microsoft.ApiManagement/service/apimc8fbd6/apis/api4b388a/tagDescriptions?api-version=2022-08-01\""
     },
     {
       "id": "L146",
       "method": "GET",
       "calls": 2,
-      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-api-tag-descriptions-p1a-9e5c0a/providers/Microsoft.ApiManagement/service/apim526a79/apis/apif669e5/tagDescriptions?api-version=2022-08-01\""
+      "command": "rest --method get --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-api-tag-descriptions-9e5c0a/providers/Microsoft.ApiManagement/service/apim526a79/apis/apif669e5/tagDescriptions?api-version=2022-08-01\""
     },
     {
       "id": "L147",
       "method": "PUT",
       "calls": 1,
-      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-graphql-resolver-p1a-89d353/providers/Microsoft.ApiManagement/service/apimdef23d/apis/api41f672/resolvers/orders-resolver-346815?api-version=2022-08-01\" --body \"{\\\"properties\\\":{\\\"displayName\\\":\\\"orders-resolver-346815\\\",\\\"path\\\":\\\"Query/orders171fd2\\\",\\\"description\\\":\\\"Resolver for Query.orders171fd2\\\"}}\" -o json"
+      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-graphql-resolver-89d353/providers/Microsoft.ApiManagement/service/apimdef23d/apis/api41f672/resolvers/orders-resolver-346815?api-version=2022-08-01\" --body \"{\\\"properties\\\":{\\\"displayName\\\":\\\"orders-resolver-346815\\\",\\\"path\\\":\\\"Query/orders171fd2\\\",\\\"description\\\":\\\"Resolver for Query.orders171fd2\\\"}}\" -o json"
     },
     {
       "id": "L148",
       "method": "PUT",
       "calls": 1,
-      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-graphql-resolver-p1a-ba35f6/providers/Microsoft.ApiManagement/service/apim9281e4/apis/api1ff39e/resolvers/orders-resolver-8505e5?api-version=2022-08-01\" --body \"{\\\"properties\\\":{\\\"displayName\\\":\\\"orders-resolver-8505e5\\\",\\\"path\\\":\\\"Query/ordersb65739\\\"}}\" -o json"
+      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-graphql-resolver-ba35f6/providers/Microsoft.ApiManagement/service/apim9281e4/apis/api1ff39e/resolvers/orders-resolver-8505e5?api-version=2022-08-01\" --body \"{\\\"properties\\\":{\\\"displayName\\\":\\\"orders-resolver-8505e5\\\",\\\"path\\\":\\\"Query/ordersb65739\\\"}}\" -o json"
     },
     {
       "id": "L149",
       "method": "PUT",
       "calls": 1,
-      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-graphql-resolver-p1a-1c3318/providers/Microsoft.ApiManagement/service/apim2df586/apis/apib576ee/resolvers/orders-resolver-1fea70?api-version=2022-08-01\" --headers \"Content-Type=application/json\" --body \"{\\\"properties\\\":{\\\"displayName\\\":\\\"orders-resolver-1fea70\\\",\\\"path\\\":\\\"Query/ordersbfb041\\\"}}\""
+      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-graphql-resolver-1c3318/providers/Microsoft.ApiManagement/service/apim2df586/apis/apib576ee/resolvers/orders-resolver-1fea70?api-version=2022-08-01\" --headers \"Content-Type=application/json\" --body \"{\\\"properties\\\":{\\\"displayName\\\":\\\"orders-resolver-1fea70\\\",\\\"path\\\":\\\"Query/ordersbfb041\\\"}}\""
     },
     {
       "id": "L150",
       "method": "PUT",
       "calls": 1,
-      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-certificate-create-p1a-c959f9/providers/Microsoft.ApiManagement/service/apim3bd8de/certificates/tls54a1c7?api-version=2022-08-01\" --body \"{\\\"properties\\\":{\\\"data\\\":\\\"REDACTED-PKCS12-WITH-PRIVATE-KEY\\\",\\\"password\\\":\\\"\\\"}}\""
+      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-certificate-create-c959f9/providers/Microsoft.ApiManagement/service/apim3bd8de/certificates/tls54a1c7?api-version=2022-08-01\" --body \"{\\\"properties\\\":{\\\"data\\\":\\\"REDACTED-PKCS12-WITH-PRIVATE-KEY\\\",\\\"password\\\":\\\"\\\"}}\""
     },
     {
       "id": "L151",
       "method": "PUT",
       "calls": 1,
-      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-certificate-create-p1a-356e5b/providers/Microsoft.ApiManagement/service/apimf72bad/certificates/tls3d2dc5?api-version=2022-08-01\" --headers Content-Type=application/json --body '{\"properties\":{\"data\":\"REDACTED-PKCS12-WITH-PRIVATE-KEY\",\"password\":\"\"}}'"
+      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-certificate-create-356e5b/providers/Microsoft.ApiManagement/service/apimf72bad/certificates/tls3d2dc5?api-version=2022-08-01\" --headers Content-Type=application/json --body '{\"properties\":{\"data\":\"REDACTED-PKCS12-WITH-PRIVATE-KEY\",\"password\":\"\"}}'"
     },
     {
       "id": "L152",
       "method": "PUT",
       "calls": 1,
-      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-certificate-create-p1a-8e9b5f/providers/Microsoft.ApiManagement/service/apime11d72/certificates/tls9aca80?api-version=2022-08-01\" --body \"{\\\"properties\\\":{\\\"data\\\":\\\"REDACTED-PKCS12-WITH-PRIVATE-KEY\\\",\\\"password\\\":\\\"\\\"}}\""
+      "command": "rest --method put --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-certificate-create-8e9b5f/providers/Microsoft.ApiManagement/service/apime11d72/certificates/tls9aca80?api-version=2022-08-01\" --body \"{\\\"properties\\\":{\\\"data\\\":\\\"REDACTED-PKCS12-WITH-PRIVATE-KEY\\\",\\\"password\\\":\\\"\\\"}}\""
     },
     {
       "id": "L153",
       "method": "POST",
       "calls": 1,
-      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-oidc-secret-p1a-94f7a8/providers/Microsoft.ApiManagement/service/apim37011a/openidConnectProviders/oidc54ef90/listSecrets?api-version=2022-08-01\""
+      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-oidc-secret-94f7a8/providers/Microsoft.ApiManagement/service/apim37011a/openidConnectProviders/oidc54ef90/listSecrets?api-version=2022-08-01\""
     },
     {
       "id": "L154",
       "method": "POST",
       "calls": 2,
-      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/bench-apim-oidc-secret-p1a-d4c202/providers/Microsoft.ApiManagement/service/apim945094/openidConnectProviders/oidcb381b0/listSecrets?api-version=2022-08-01\""
+      "command": "rest --method post --url \"https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-apim-oidc-secret-d4c202/providers/Microsoft.ApiManagement/service/apim945094/openidConnectProviders/oidcb381b0/listSecrets?api-version=2022-08-01\""
     }
   ]
 }

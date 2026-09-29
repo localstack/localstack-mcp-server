@@ -281,26 +281,7 @@ Long-running creates wait until the resource is ready. Claude Desktop stops wait
 
 File arguments (templates, uploads, downloads) must be inside the tool's working directory, which is the server's own working directory unless you set `LOCALSTACK_AZ_WORKDIR`. GUI clients such as Claude Desktop start the server in their own folder, so add `"LOCALSTACK_AZ_WORKDIR": "<your project folder>"` to the entry's `env` to work with local files.
 
-### Migrating from localstack-azure-mcp-server
-
-The Azure tool replaces the separate, Python-based `localstack-azure-mcp-server`. To move over:
-
-1. Remove the `localstack-azure` entry (the Python virtualenv command) from your MCP client's configuration.
-2. Add the `localstack` entry, if you do not have it already for AWS: run `npx -y @localstack/localstack-mcp-server init`. The Docker image already contains the Azure CLI, the extensions and Bicep.
-3. For npx setups, set up the Azure tool: install the Azure CLI 2.85 or newer, then run `npx -y @localstack/localstack-mcp-server install-azure-addons` (see [Setting up the Azure tool](#setting-up-the-azure-tool)).
-
-| In `localstack-azure-mcp-server`                                                  | Here                                                                                                                                                                                   |
-| --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The 26 typed Azure tools (about 1,300 actions)                                    | `localstack-azure-client` with the matching `az` command; for an operation `az` has no command for, `rest --method <verb> --url "/subscriptions/…"` (relative URLs go to the emulator) |
-| `deploy_template`                                                                 | `deployment group create --resource-group <rg> --template-file <file>` (ARM JSON or Bicep; `.bicepparam` files work too)                                                               |
-| `query_resource_graph`                                                            | `graph query -q "<KQL>"` (the `resource-graph` extension is one of the curated extensions)                                                                                             |
-| `check_emulator_status`, `check_localstack_status`, `manage_localstack_lifecycle` | `localstack-management` with `service: "azure"` (`status`, `start`, `stop`, `restart`)                                                                                                 |
-| `get_service_logs`                                                                | `localstack-logs-analysis` with `analysisType: "logs"` (the raw emulator log; the summary, errors and requests analyses parse AWS logs only)                                           |
-| `list_azure_services`                                                             | Not needed: when a command reaches an operation the emulator does not implement, the Azure tool's answer says so                                                                       |
-| `bootstrap_azure_cli`, `tear_down_azure_cli`, `manage_azure_account`              | Automatic: the Azure tool sets up its own Azure CLI profile on first use; `account show` works through it                                                                              |
-| `run_azlocal_command`                                                             | `localstack-azure-client` (no `azlocal` needed)                                                                                                                                        |
-
-The Azure tool is stricter than `run_azlocal_command` was: it refuses logins, cloud and config changes, extension installs, shell syntax, and file arguments outside `LOCALSTACK_AZ_WORKDIR` (see above).
+The other tools with the Azure emulator: `localstack-management` manages it (`service: "azure"`), and `localstack-logs-analysis` shows its raw log (`analysisType: "logs"`); the summary, errors and requests analyses read AWS logs only.
 
 ### Migration notes (CLI-free lifecycle)
 

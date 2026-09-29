@@ -6,7 +6,7 @@
  *
  *   compact       the server's description as listed (the shipped default)
  *   long          a longer description in sections (Context, Input, Output, Rules,
- *                 Examples), written for an earlier az tool and adapted to this one
+ *                 Examples)
  *   help-tool     compact, with --help replaced by a separate `az_help` tool
  *   no-test-data  compact without the "local test data" wording
  *
@@ -49,15 +49,10 @@ export const AZ_HELP_SCHEMA: Record<string, unknown> = {
 };
 
 /**
- * The long description, adapted to this tool. Three statements of the original would be
- * false here and are changed; everything else is the original text:
- *   1. Input: this tool takes one command per call (the original also took a list, with a
- *      batching example): the list sentence and its example are removed, and "parsed" is
- *      dropped from the output line (the tool returns the CLI's JSON text).
- *   2. `rest`: the original said an absolute management.azure.com URL "would leave it and
- *      is blocked"; this tool rewrites it onto the emulator, so the parenthesis is removed.
- *   3. Help: there is no `az_help` tool in this variant, so the last rule says to run the
- *      command with --help instead.
+ * The long description: the same rules as compact, in sections. It states what this tool
+ * does: one command per call, the CLI's JSON text as output, `rest` with a relative URL (an
+ * absolute management.azure.com URL is rewritten onto the emulator), and --help for a command
+ * the model is unsure of.
  */
 export const LONG_DESCRIPTION = [
   "Run Azure CLI (`az`) commands against the local LocalStack for Azure emulator and return their output.",

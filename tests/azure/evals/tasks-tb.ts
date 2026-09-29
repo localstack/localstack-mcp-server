@@ -171,7 +171,7 @@ export function tbTasks(v: typeof V): Task[] {
     // Verifier defect 3 fixed (verifiers.untaggedVerdicts: per line).
     verify: v.workflow(["untagged reported", v.untaggedReported(["u1", "u2"], ["t1", "t2"])]),
     setup: async (ctx) => {
-      // _audit_group: four resources, two with an owner tag and two without.
+      // Four resources, two with an owner tag and two without.
       names(ctx, { t1: "tbvnet-", t2: "tbnsg-", u1: "tbpip-", u2: "tbrt-" });
       const owner = { owner: `team-${ctx.hex(4)}` };
       const items: Array<[string, string, Record<string, unknown>]> = [

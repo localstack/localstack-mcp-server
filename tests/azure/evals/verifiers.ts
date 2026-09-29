@@ -4,8 +4,7 @@
  * Every verifier reads the outcome from the emulator at verification time, never from the
  * agent's report, through a `Query`: in a run that is a server session of the harness's
  * own (never the agent's), in the unit tests recorded answers with a fake clock. Seven
- * defects of the readers these verifiers started from are fixed here (defects.test.ts
- * shows each): see `affirmedRights` (1),
+ * answer-reading pitfalls are handled here (defects.test.ts shows each): see `affirmedRights` (1),
  * `validationVerdict` (2), `untaggedVerdicts` (3), `hostOf` (4), `hostVerdicts` (5),
  * `membershipVerdicts` (6) and `tenantAccessVerdict` (7).
  *
@@ -796,10 +795,10 @@ export function migrationVerdict(slot: string): Verify {
   };
 }
 
-// ── verifier defect 1: eventhub-hub-auth-rule-rights ──────────────────────────
-// The original negation pattern was \b(...|n't)\b: the boundary before "n't" never
-// matches inside "doesn't", so "grants only Send. It doesn't include Listen or Manage"
-// affirmed all three. Fixed reading: the answer's grant statement.
+// ── reading pitfall 1: eventhub-hub-auth-rule-rights ──────────────────────────
+// A negation pattern like \b(...|n't)\b never matches inside "doesn't" (there is no word
+// boundary before "n't"), so "grants only Send. It doesn't include Listen or Manage" would
+// affirm all three. This reader takes the answer's grant statement.
 
 const RIGHTS = ["listen", "send", "manage"] as const;
 const RIGHTS_NEG = /(?:\b(?:not|no|without|lacks?|lacking|excluding|except|neither|nor)\b|n't\b)/;
@@ -884,10 +883,9 @@ export function rightsClaim(path: string, api: string): Verify {
   };
 }
 
-// ── verifier defect 2: deployment-sub-validate ────────────────────────────────
-// validation_claim failed any answer containing "error(s)" or "fail" anywhere, so "The
-// template passed validation ... no errors" was wrong. Fixed: the
-// verdict comes from the answer's validity statement.
+// ── reading pitfall 2: deployment-sub-validate ────────────────────────────────
+// Failing any answer that contains "error(s)" or "fail" would fail "The template passed
+// validation ... no errors". The verdict comes from the answer's validity statement.
 
 const VALID_POS =
   /\bpass(?:ed|es)?\s+validation\b|\bvalidation\s+(?:passed|succeeded|was\s+successful)\b|\b(?:is|was)\s+valid\b|\bvalid(?:ates|ated)?\s+(?:successfully|cleanly|fine)\b|\bwould\s+deploy\s+cleanly\b|\bcan\s+be\s+deployed\b/i;
@@ -914,10 +912,9 @@ export function validationClaim(deploymentPath: string, api: string): Verify {
   };
 }
 
-// ── verifier defect 3: tb-tag-audit ───────────────────────────────────────────
-// untagged_reported read each name's stretch up to the next name, so a correct table
-// ("| tbpip-x | ... | ❌ **missing** (no tags) |") followed by summary lines read as mixed.
-// Fixed: per line.
+// ── reading pitfall 3: tb-tag-audit ───────────────────────────────────────────
+// Reading each name's stretch up to the next name reads a correct table ("| tbpip-x | ... |
+// ❌ **missing** (no tags) |") followed by summary lines as mixed. This reads per line.
 
 const TAG_NEG =
   /\u274c|\bmissing\b|\bno\s+(?:`?owner`?\s+)?tags?\b|\bno\s+`?owner\b|\buntagged\b|\bwithout\b/i;
@@ -986,9 +983,9 @@ export function untaggedReported(untagged: string[], tagged: string[]): Verify {
   };
 }
 
-// ── verifier defect 4: tb-mysql-firewall ──────────────────────────────────────
-// The step "host name reported" demanded the emulator's fullyQualifiedDomainName
-// verbatim, which carries a port (":4514"); a domain name has none. Fixed: the name with or without the port counts.
+// ── reading pitfall 4: tb-mysql-firewall ──────────────────────────────────────
+// The emulator's fullyQualifiedDomainName carries a port (":4514"); a domain name has none, so
+// the step "host name reported" counts the name with or without the port.
 
 /** The host of an FQDN or URL: no scheme, no trailing slash, no port; lower case. */
 export function hostOf(value: string): string {
@@ -1010,10 +1007,10 @@ export function hostStated(want: (q: Query, slots: Slots) => Promise<string>): V
   };
 }
 
-// ── verifier defect 5: td-afd-hostname-check (T-D; no E2 task uses it) ────────
-// The pilot's availability parser read no verdict from answers giving one per host in a
-// table or a sentence. Fixed: per line, the text after each host name
-// up to the next one; the first verdict word decides.
+// ── reading pitfall 5: Front Door host names (no E2 task uses it yet) ──────────
+// Answers give one verdict per host, in a table or a sentence, and the dots in host names
+// split sentences. This reads per line: the text after each host name up to the next one;
+// the first verdict word decides.
 
 const AVAIL_NEG =
   /\u274c|\bno\b|\btaken\b|\balready\b|\bnot\s+available\b|\bunavailable\b|\bcan(?:no|')t\b|\bcannot\b|\bfalse\b|\bin\s+use\b|\bexists?\b/i;
@@ -1066,10 +1063,10 @@ export function hostAvailability(takenSlot: string, freeSlot: string): Verify {
   };
 }
 
-// ── verifier defect 6: apim-group-user-check ──────────────────────────────────
-// The yes/no reader collected every verdict word in a name's stretch, so "alice: not a
-// member ... her account does exist" read as both. Fixed: per user, the
-// first verdict word after the name decides; lines about "whether" are skipped.
+// ── reading pitfall 6: apim-group-user-check ──────────────────────────────────
+// Collecting every verdict word in a name's stretch reads "alice: not a member ... her account
+// does exist" as both. Per user, the first verdict word after the name decides; lines about
+// "whether" are skipped.
 
 const MEMBER_NEG =
   /\u274c|\bnot\s+(?:a\s+)?member\b|\bnot\s+in\b|\bisn't\b|\bis\s+not\b|\bno\b|\bnon-member\b/i;
@@ -1119,9 +1116,9 @@ export function membershipStated(): Verify {
   };
 }
 
-// ── verifier defect 7: apim-tenant-access ─────────────────────────────────────
-// The same reader: "No. Direct management API access is turned off ... enabled: false"
-// read as also enabled. Fixed: the first verdict word decides.
+// ── reading pitfall 7: apim-tenant-access ─────────────────────────────────────
+// The same trap: "No. Direct management API access is turned off ... enabled: false" would
+// read as also enabled. The first verdict word decides.
 
 const ENABLED_NEG =
   /\bno\b|\bturned\s+off\b|\bdisabled\b|\bnot\s+enabled\b|\benabled[`*]*\s*[:=]\s*[`*]*false\b/i;

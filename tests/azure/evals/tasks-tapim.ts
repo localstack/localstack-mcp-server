@@ -11,7 +11,7 @@ import type { SetupContext, Task } from "./types";
 
 /**
  * A static self-signed PFX (CN=mcp-t2-cert.contoso.com, no password,
- * valid 2026-2036), from its tests/coverage_mapping.py. The emulator parses the material,
+ * valid 2026-2036). The emulator parses the material,
  * so it must be a genuine PKCS#12 archive.
  */
 export const STATIC_TEST_PFX_B64 =
@@ -68,7 +68,7 @@ export function tapimTasks(v: typeof V): Task[] {
     `rest --method ${method} --url ${SVC_ID}${path}?api-version=${APIM}` +
     (body ? ` --body '${body}'` : "");
 
-  /** _service: a Developer-tier service in the run's group, waited until ready. */
+  /** A Developer-tier service in the run's group, waited until ready. */
   async function service(ctx: SetupContext) {
     const svc = ctx.name("apim");
     Object.assign(ctx.slots, { service_name: svc, name: svc });
@@ -87,14 +87,14 @@ export function tapimTasks(v: typeof V): Task[] {
     await v.waitReady(ctx.q, path, APIM);
   }
 
-  /** _random: random values per slot; `{r}` is 6 random hex characters. */
+  /** Random values per slot; `{r}` is 6 random hex characters. */
   function random(ctx: SetupContext, values: Record<string, string>) {
     const r = ctx.hex(6);
     for (const [k, tpl] of Object.entries(values)) ctx.slots[k] = tpl.replace(/\{r\}/g, r);
   }
 
   /**
-   * _children: PUT child resources of the service in order (paths and string values may
+   * PUT child resources of the service in order (paths and string values may
    * name slots); `{rand:x}` picks a fresh random name for slot x (a prefix of up to six
    * characters from x, up to its first underscore, plus 6 hex characters).
    */
@@ -119,7 +119,7 @@ export function tapimTasks(v: typeof V): Task[] {
     }
   }
 
-  /** _api_operation: an API with one GET operation, and a random rate limit. */
+  /** An API with one GET operation, and a random rate limit. */
   async function apiOperation(ctx: SetupContext) {
     const api = ctx.name("orders");
     const op = ctx.name("getorder");

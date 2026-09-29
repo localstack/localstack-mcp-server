@@ -216,9 +216,7 @@ describe("the first line of every failure", () => {
   it("never names a host or a path, only the code and the class id", () => {
     const sdk = format(fixture("egress-refused-sdk"));
     expect(firstLineOf(sdk)).toBe("❌ **Command Failed** (exit 1, egress-refused)");
-    expect(sdk.indexOf("mcpplanc01zzzz.blob.core.windows.net")).toBeGreaterThan(
-      firstLineOf(sdk).length
-    );
+    expect(sdk.indexOf("mcpzzzz.blob.core.windows.net")).toBeGreaterThan(firstLineOf(sdk).length);
   });
 
   it("is `exit none` when the tool stopped az or never started it", () => {
@@ -320,7 +318,7 @@ describe("the failure classes", () => {
       const f = fixture(id);
       const c = classifyFailure(runOf(f), { guardOn: false, argv: f.argv });
       expect(c.classId).toBe("dns");
-      expect(c.details.host).toBe("mcpplan-nxdomain.invalid");
+      expect(c.details.host).toBe("mcp-nxdomain.invalid");
       expect(c.hint).toBe("`az` can only reach the LocalStack emulator from this tool.");
     }
     const out = format(fixture("dns-rest-traceback"));
@@ -332,7 +330,7 @@ describe("the failure classes", () => {
   it("dns: a LocalStack name that did not resolve gets the resolver advice", () => {
     // C8d-group-list-nxdomain with the emulator's own name in place of the .invalid host.
     const stderr = text(fixture("dns-native").stderr).replace(
-      /mcpplan-nxdomain\.invalid/g,
+      /mcp-nxdomain\.invalid/g,
       "azure.localhost.localstack.cloud"
     );
     const off = classifyFailure(run({ stderr }), { guardOn: false });
@@ -397,7 +395,7 @@ describe("the failure classes", () => {
         "Supported providers: http://127.0.0.1:4566/_localstack/coverage."
     );
     expect(classifyFailure(runOf(fixture("provider-rest")), { guardOn: true }).details).toEqual({
-      namespace: "Microsoft.McpPlanFake",
+      namespace: "Microsoft.McpFake",
     });
   });
 
@@ -545,7 +543,7 @@ describe("the failure classes", () => {
     const sdk = format(fixture("egress-refused-sdk"));
     expect(sdk).toBe(
       "❌ **Command Failed** (exit 1, egress-refused)\n\n" +
-        "Blocked a connection to `mcpplanc01zzzz.blob.core.windows.net`: this tool only lets `az` " +
+        "Blocked a connection to `mcpzzzz.blob.core.windows.net`: this tool only lets `az` " +
         "talk to the local emulator. Use a relative URL with `rest`, or a command that stays on the emulator."
     );
     const rest = format(fixture("egress-refused-rest"));
@@ -672,10 +670,10 @@ describe("the failure classes", () => {
 
   it("bicep-registry: BCP192 prints the proxy URL, which is redacted with its tag", () => {
     const f = fixture("bicep-registry-bcp192");
-    expect(text(f.stderr)).toContain("http://c08-0025:x@127.0.0.1:56739/");
+    expect(text(f.stderr)).toContain("http://call-0025:x@127.0.0.1:56739/");
     const out = format(f);
     expect(firstLineOf(out)).toBe("❌ **Command Failed** (exit 1, bicep-registry)");
-    expect(out).not.toContain("c08-0025");
+    expect(out).not.toContain("call-0025");
     expect(out).toContain("http://[redacted]@127.0.0.1:56739/");
     expect(out).toContain(
       "Bicep registry modules (`br:`, `br/public:`) cannot be restored: the tool only reaches the " +
@@ -693,7 +691,7 @@ describe("the failure classes", () => {
     const f = fixture("bicep-registry-bcp446");
     expect(classifyFailure(runOf(f), { guardOn: true })).toMatchObject({
       classId: "bicep-registry",
-      details: { reference: "mcpplanc08.invalid" },
+      details: { reference: "mcp.invalid" },
     });
     const ref = "br/public:avm/res/storage/storage-account:0.9.1";
     expect(bicepRegistryUnsupported(ref).content[0].text).toBe(
@@ -717,9 +715,7 @@ describe("the failure classes", () => {
     const f = fixture("prep-image-alias-warning");
     const out = format(f);
     expect(firstLineOf(out)).toBe("❌ **Command Failed** (exit 1, other)");
-    expect(out).toContain(
-      "ERROR: Proximity Placement Group 'mcpplan-c08-no-such-ppg' does not exist."
-    );
+    expect(out).toContain("ERROR: Proximity Placement Group 'mcp-no-such-ppg' does not exist.");
     expect(out.trim().endsWith("does not exist.")).toBe(true);
   });
 
@@ -821,7 +817,7 @@ describe("stderr preparation", () => {
 
 describe("redactProxyUrls", () => {
   it("removes the call tag from loopback proxy URLs", () => {
-    expect(redactProxyUrls("proxy 'http://c08-0025:x@127.0.0.1:56739/' failed")).toBe(
+    expect(redactProxyUrls("proxy 'http://call-0025:x@127.0.0.1:56739/' failed")).toBe(
       "proxy 'http://[redacted]@127.0.0.1:56739/' failed"
     );
     expect(redactProxyUrls("http://2f1c1a0e-8e4b-4c7e-9a7b-8b0c1d2e3f40:x@127.0.0.1:61234")).toBe(
@@ -1140,7 +1136,7 @@ describe("test envelope", () => {
     expect(envelope.exitCode).toBe(1);
     expect(envelope.truncated).toBe(true);
     expect(envelope.stderr).toContain("\r\n");
-    expect(envelope.stderr).not.toContain("c08-0025");
+    expect(envelope.stderr).not.toContain("call-0025");
     expect(envelope.stderr).toBe(redactProxyUrls(text(f.stderr)));
     expect(envelope.notes).toEqual([expect.stringContaining("more than the tool captures")]);
   });

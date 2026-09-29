@@ -71,7 +71,7 @@ export function taTasks(v: typeof V): Task[] {
 
   // ── fixture builders ──
 
-  /** _appcfg_args: a store, optionally a data-plane key-value and its lock. */
+  /** A store, optionally a data-plane key-value and its lock. */
   async function appcfgStore(ctx: SetupContext, opts: { kv?: boolean; lock?: boolean } = {}) {
     const s = ctx.hex(8);
     Object.assign(ctx.slots, {
@@ -91,7 +91,7 @@ export function taTasks(v: typeof V): Task[] {
     if (opts.lock) await v.azOk(ctx.q, `appconfig kv lock --name ${store_name} --key ${key} --yes`);
   }
 
-  /** _acr_args: a Basic registry and the names of its would-be children. */
+  /** A Basic registry and the names of its would-be children. */
   async function registry(ctx: SetupContext) {
     const s = ctx.hex(10);
     Object.assign(ctx.slots, {
@@ -104,8 +104,7 @@ export function taTasks(v: typeof V): Task[] {
   }
 
   /**
-   * _eh_args(fresh_namespace=True, with_hub_auth_rule=True): a Standard namespace in the
-   * run's group, polled until Get-able, with an event hub and an authorization rule on it.
+   * A Standard namespace in the run's group, polled until Get-able, with an event hub and an authorization rule on it.
    */
   async function ehNamespace(ctx: SetupContext) {
     const s = ctx.hex(8);
@@ -139,7 +138,7 @@ export function taTasks(v: typeof V): Task[] {
     );
   }
 
-  /** _kv_key_args: a vault and (optionally) an RSA key with its version. */
+  /** A vault and (optionally) an RSA key with its version. */
   async function vaultKey(ctx: SetupContext, opts: { key: boolean }) {
     const s = ctx.hex(10);
     Object.assign(ctx.slots, { vault_name: `kv${s}`, key_name: `k${s}` });
@@ -158,7 +157,7 @@ export function taTasks(v: typeof V): Task[] {
     ctx.slots.key_version = version;
   }
 
-  /** _sb_args: a namespace (polled), optionally a queue and a queue authorization rule. */
+  /** A namespace (polled), optionally a queue and a queue authorization rule. */
   async function sbNamespace(ctx: SetupContext, opts: { queue?: boolean; queueRule?: boolean }) {
     const s = ctx.hex(10);
     Object.assign(ctx.slots, {
@@ -654,7 +653,7 @@ export function taTasks(v: typeof V): Task[] {
     ],
     verify: v.accessPolicyGrants(VAULT, VAULT_API, "object_id", "secrets", ["get", "list"]),
     setup: async (ctx) => {
-      // _access_policy_vault: the access-policy model (the default vault uses RBAC), no policies yet.
+      // A vault with the access-policy model (the default vault uses RBAC), no policies yet.
       ctx.slots.vault_name = `kv${ctx.hex(10)}`;
       await v.putOk(
         ctx.q,
@@ -930,7 +929,7 @@ export function taTasks(v: typeof V): Task[] {
     ),
     setup: async (ctx) => {
       await sbNamespace(ctx, { queue: true });
-      // _max_delivery: re-PUT the queue with a random maxDeliveryCount.
+      // Re-PUT the queue with a random maxDeliveryCount.
       const count = ctx.pick([3, 5, 7, 12, 15]);
       const path = v.fill(SB_NS + "/queues/{queue_name}", ctx.slots);
       const body = await v.getOk(ctx.q, path, SB, "queue");
@@ -974,7 +973,7 @@ export function taTasks(v: typeof V): Task[] {
       "keys[keyName=key2].value"
     ),
     setup: async (ctx) => {
-      // _keyed_storage: a private account, waited until Succeeded (its Azurite starts in 10-30 s).
+      // A private account, waited until Succeeded (its Azurite starts in 10-30 s).
       ctx.slots.name = `sa${ctx.hex(8)}`;
       await v.azOk(
         ctx.q,
@@ -1047,7 +1046,7 @@ export function taTasks(v: typeof V): Task[] {
         ctx.q,
         `cdn profile create --name cdnp${s} --resource-group ${ctx.rg} --sku Standard_Microsoft`
       );
-      // _maybe_endpoint: half the runs give the profile an endpoint (it can migrate).
+      // Half the runs give the profile an endpoint (it can migrate).
       if (ctx.random() < 0.5) {
         const path = v.fill(PROFILE + "/endpoints/{endpoint_name}", ctx.slots);
         await v.putOk(

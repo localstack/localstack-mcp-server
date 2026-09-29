@@ -90,7 +90,7 @@ describe("the task catalogue", () => {
     }
   });
 
-  test("the tasks of the fixed verifier defects are all here", () => {
+  test("the tasks of the seven reading pitfalls are all here", () => {
     for (const id of [
       "eventhub-hub-auth-rule-rights",
       "deployment-sub-validate",

@@ -1,9 +1,8 @@
 /**
- * Regression tests for seven defects of the readers the E2 verifiers started from. For each
- * defect:
- *   1. the ORIGINAL reader (kept below, as it was) misreads a correct answer;
- *   2. the fixed E2 verifier reads the same answer correctly;
- *   3. a wrong answer still fails, so the fix did not just loosen the check.
+ * Seven answer-reading pitfalls of the E2 verifiers. For each:
+ *   1. a NAIVE reader (below) misreads a correct answer;
+ *   2. the E2 verifier reads the same answer correctly;
+ *   3. a wrong answer still fails, so the verifier is not just lenient.
  */
 import * as V from "./verifiers";
 import type { AzAnswer, Slots } from "./types";
@@ -25,11 +24,11 @@ const notFound = (): AzAnswer => ({
 const q = (calls: Array<[string, AzAnswer]>) =>
   V.replayQuery(calls.map(([command, answer]) => ({ command, answer })));
 
-// ── the original readers, verbatim in logic ──────────────────────────────────
+// ── naive readers, one per pitfall ───────────────────────────────────────────
 
-/** The original reader of defect 1: 30 characters back, and a negation pattern whose
+/** A naive reader for pitfall 1: 30 characters back, and a negation pattern whose
  * \b before "n't" can never match inside "doesn't". */
-function originalRightsAffirmed(text: string): Set<string> {
+function naiveRightsAffirmed(text: string): Set<string> {
   const low = text.toLowerCase();
   const affirmed = new Set<string>();
   for (const right of ["listen", "send", "manage"]) {
@@ -44,15 +43,15 @@ function originalRightsAffirmed(text: string): Set<string> {
   return affirmed;
 }
 
-/** The original reader of defect 2: any "error(s)" or "fail" anywhere fails. */
-function originalValidation(text: string): boolean {
+/** A naive reader for pitfall 2: any "error(s)" or "fail" anywhere fails. */
+function naiveValidation(text: string): boolean {
   const neg = /\binvalid\b|\bnot\s+valid\b|\bfail(?:ed|s)?\b|\berrors?\b/i;
   const pos = /\bvalid\b|\bpass(?:ed|es)?\b|\bsucceed(?:ed|s)?\b|\bsuccessful(?:ly)?\b/i;
   return pos.test(text) && !neg.test(text);
 }
 
-/** The original reader of defect 3: each name's stretch per sentence (verifiers.spans). */
-function originalUntagged(text: string, untagged: string[], tagged: string[]): boolean {
+/** A naive reader for pitfall 3: each name's stretch per sentence (verifiers.spans). */
+function naiveUntagged(text: string, untagged: string[], tagged: string[]): boolean {
   const neg = /\b(?:no|without|missing|lacks?|lacking|untagged|not\s+tagged|none)\b|❌/i;
   const pos = /\bhas\b|\bhave\b|\btagged\b|owner\s*[=:]|✅/i;
   const stated = V.statedBooleans(text, [...untagged, ...tagged], pos, neg);
@@ -64,14 +63,14 @@ function originalUntagged(text: string, untagged: string[], tagged: string[]): b
   );
 }
 
-/** The original reader of defect 4: the emulator's value verbatim, port included. */
-function originalEndpointStated(want: string, text: string): boolean {
+/** A naive reader for pitfall 4: the emulator's value verbatim, port included. */
+function naiveEndpointStated(want: string, text: string): boolean {
   const w = want.replace(/\/+$/, "");
   return w !== "" && text.toLowerCase().includes(w.toLowerCase());
 }
 
-/** The original reader of defect 5, as reused for Front Door host names. */
-function originalAvailability(text: string, truth: Record<string, boolean>): boolean {
+/** A naive reader for pitfall 5: Front Door host names. */
+function naiveAvailability(text: string, truth: Record<string, boolean>): boolean {
   const neg =
     /\bnot\s+(be\s+)?(available|free|usable)\b|\bunavailable\b|\btaken\b|\balready\b|alreadyexists|\bin\s+use\b|\bcan\s*(not|'t)\s+(be\s+)?use|name\s*available["']?\s*[:=]\s*false|❌/i;
   const pos =
@@ -83,8 +82,8 @@ function originalAvailability(text: string, truth: Record<string, boolean>): boo
   });
 }
 
-/** The original reader of defect 6: every stretch's verdict is collected. */
-function originalMembership(text: string, truth: Record<string, boolean>): boolean {
+/** A naive reader for pitfall 6: every stretch's verdict is collected. */
+function naiveMembership(text: string, truth: Record<string, boolean>): boolean {
   const neg =
     /\bnot\s+(?:a\s+)?member\b|\bisn'?t\s+(?:a\s+)?member\b|\bnot\s+in\s+(?:the\s+)?group\b|\bdoes\s*n[o']?t\s+belong\b|\bnot\s+part\s+of\b|\bnon-?member\b|❌/i;
   const pos = /\bmember\b|\bbelongs?\b|\bin\s+the\s+group\b|\bpart\s+of\b|✅/i;
@@ -95,8 +94,8 @@ function originalMembership(text: string, truth: Record<string, boolean>): boole
   });
 }
 
-/** The original reader of defect 7: the stretches about "direct"/"management". */
-function originalAccess(text: string, want: boolean): boolean {
+/** A naive reader for pitfall 7: the stretches about "direct"/"management". */
+function naiveAccess(text: string, want: boolean): boolean {
   const neg =
     /\bnot\s+(?:currently\s+)?(?:allowed|enabled|permitted|on)\b|\bdisallowed\b|\bdisabled\b|\bblocked\b|\bdenied\b|\bturned\s+off\b|\bswitched\s+off\b|\bis\s+off\b|\ballow\W{0,4}false\b|❌/i;
   const pos =
@@ -112,7 +111,7 @@ function originalAccess(text: string, want: boolean): boolean {
 
 // ── 1. eventhub-hub-auth-rule-rights ─────────────────────────────────────────
 
-describe('defect 1: eventhub-hub-auth-rule-rights (negation inside "doesn\'t")', () => {
+describe('pitfall 1: eventhub-hub-auth-rule-rights (negation inside "doesn\'t")', () => {
   const path =
     "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.EventHub/namespaces/{namespace_name}/eventhubs/{eventhub_name}/authorizationRules/{auth_rule_name}";
   const cmd = V.restCommand(
@@ -131,8 +130,8 @@ describe('defect 1: eventhub-hub-auth-rule-rights (negation inside "doesn\'t")',
 
   const SEND_ONLY =
     "The rule rule1 grants only one right: **Send**. It doesn't include Listen or Manage.";
-  test("the campaign's answer: the original reader affirmed all three rights", () => {
-    expect([...originalRightsAffirmed(SEND_ONLY)].sort()).toEqual(["listen", "manage", "send"]);
+  test("a recorded answer: the naive reader affirms all three rights", () => {
+    expect([...naiveRightsAffirmed(SEND_ONLY)].sort()).toEqual(["listen", "manage", "send"]);
   });
   test("the fixed reader affirms Send only, and the verifier passes", async () => {
     expect([...V.affirmedRights(SEND_ONLY)]).toEqual(["send"]);
@@ -141,8 +140,8 @@ describe('defect 1: eventhub-hub-auth-rule-rights (negation inside "doesn\'t")',
 
   const BULLETS =
     "The policy grants two rights:\n- **Listen**: receive events\n- **Send**: publish events\n\nIt cannot manage the hub.";
-  test("a bullet list after 'grants N rights:' (the original read Manage from 'cannot manage')", async () => {
-    expect([...originalRightsAffirmed(BULLETS)].sort()).toEqual(["listen", "manage", "send"]);
+  test("a bullet list after 'grants N rights:' (the naive reader reads Manage from 'cannot manage')", async () => {
+    expect([...naiveRightsAffirmed(BULLETS)].sort()).toEqual(["listen", "manage", "send"]);
     expect((await verify(rule(["Listen", "Send"]), slots, BULLETS)).passed).toBe(true);
   });
 
@@ -154,7 +153,7 @@ describe('defect 1: eventhub-hub-auth-rule-rights (negation inside "doesn\'t")',
 
 // ── 2. deployment-sub-validate ───────────────────────────────────────────────
 
-describe("defect 2: deployment-sub-validate (any 'error' or 'fail' failed the answer)", () => {
+describe("pitfall 2: deployment-sub-validate (any 'error' or 'fail' fails the answer)", () => {
   const path = "/subscriptions/{sub}/providers/Microsoft.Resources/deployments/{deployment_name}";
   const cmd = V.restCommand(
     "GET",
@@ -166,8 +165,8 @@ describe("defect 2: deployment-sub-validate (any 'error' or 'fail' failed the an
   const ANSWER =
     "The template passed validation at subscription scope (westeurope): no errors, and nothing was deployed.";
 
-  test("the original reader failed the correct answer", () => {
-    expect(originalValidation(ANSWER)).toBe(false);
+  test("the naive reader fails the correct answer", () => {
+    expect(naiveValidation(ANSWER)).toBe(false);
   });
   test("the fixed reader passes it (nothing was deployed)", async () => {
     expect(V.validationVerdict(ANSWER)).toBe(true);
@@ -193,7 +192,7 @@ describe("defect 2: deployment-sub-validate (any 'error' or 'fail' failed the an
 
 // ── 3. tb-tag-audit ──────────────────────────────────────────────────────────
 
-describe("defect 3: tb-tag-audit (stretches per sentence lost the table's verdicts)", () => {
+describe("pitfall 3: tb-tag-audit (stretches per sentence lose the table's verdicts)", () => {
   const names = { t1: "tbvnet-a1", t2: "tbnsg-b2", u1: "tbpip-c3", u2: "tbrt-d4" };
   const TABLE = [
     "| Name | Type | owner tag |",
@@ -207,8 +206,8 @@ describe("defect 3: tb-tag-audit (stretches per sentence lost the table's verdic
   ].join("\n");
   const verify = V.untaggedReported(["u1", "u2"], ["t1", "t2"]);
 
-  test("the original reader missed the table's ❌ rows", () => {
-    expect(originalUntagged(TABLE, [names.u1, names.u2], [names.t1, names.t2])).toBe(false);
+  test("the naive reader misses the table's ❌ rows", () => {
+    expect(naiveUntagged(TABLE, [names.u1, names.u2], [names.t1, names.t2])).toBe(false);
   });
   test("the fixed per-line reader passes it", async () => {
     expect(await verify(q([]), { ...names }, TABLE)).toEqual({
@@ -230,15 +229,15 @@ describe("defect 3: tb-tag-audit (stretches per sentence lost the table's verdic
 
 // ── 4. tb-mysql-firewall ─────────────────────────────────────────────────────
 
-describe("defect 4: tb-mysql-firewall (the FQDN demanded with the emulator's port)", () => {
+describe("pitfall 4: tb-mysql-firewall (the FQDN with or without the emulator's port)", () => {
   // The emulator's fullyQualifiedDomainName, as recorded on 2026-09-27 (a port included).
   const FQDN = "tbmy-fa57a1.mysql.database.localhost.localstack.cloud:4513";
   const verify = V.hostStated(async () => FQDN);
   const ANSWER =
     "The server's fully qualified domain name is tbmy-fa57a1.mysql.database.localhost.localstack.cloud.";
 
-  test("the original check failed a domain name without the port", () => {
-    expect(originalEndpointStated(FQDN, ANSWER)).toBe(false);
+  test("the naive check fails a domain name without the port", () => {
+    expect(naiveEndpointStated(FQDN, ANSWER)).toBe(false);
   });
   test("the fixed check accepts it with or without the port", async () => {
     expect(V.hostOf(FQDN)).toBe("tbmy-fa57a1.mysql.database.localhost.localstack.cloud");
@@ -252,9 +251,9 @@ describe("defect 4: tb-mysql-firewall (the FQDN demanded with the emulator's por
   });
 });
 
-// ── 5. Front Door host names (no E2 task yet; the fixed reader is in the library) ──
+// ── 5. Front Door host names (no E2 task yet; the reader is in the library) ─────
 
-describe("defect 5: td-afd-hostname-check (dots in host names split the sentences)", () => {
+describe("pitfall 5: Front Door host names (dots in host names split the sentences)", () => {
   const slots: Slots = { taken_host: "shop-x1.contoso.com", free_host: "store-y2.contoso.com" };
   const truth = { "shop-x1.contoso.com": false, "store-y2.contoso.com": true };
   const verify = V.hostAvailability("taken_host", "free_host");
@@ -262,9 +261,9 @@ describe("defect 5: td-afd-hostname-check (dots in host names split the sentence
     "| Host | Available |\n|---|---|\n| shop-x1.contoso.com | ❌ No | nameAvailable: false, already in use |\n| store-y2.contoso.com | ✅ Yes | free |";
   const SENTENCE = "store-y2.contoso.com is available, but shop-x1.contoso.com is already taken.";
 
-  test("the original reader found no verdict in a table or a sentence", () => {
-    expect(originalAvailability(TABLE, truth)).toBe(false);
-    expect(originalAvailability(SENTENCE, truth)).toBe(false);
+  test("the naive reader finds no verdict in a table or a sentence", () => {
+    expect(naiveAvailability(TABLE, truth)).toBe(false);
+    expect(naiveAvailability(SENTENCE, truth)).toBe(false);
   });
   test("the fixed reader: the first verdict word after each host decides", async () => {
     expect((await verify(q([]), slots, TABLE)).passed).toBe(true);
@@ -285,7 +284,7 @@ describe("defect 5: td-afd-hostname-check (dots in host names split the sentence
 
 // ── 6. apim-group-user-check ─────────────────────────────────────────────────
 
-describe("defect 6: apim-group-user-check (verdicts collected across stretches)", () => {
+describe("pitfall 6: apim-group-user-check (verdicts collected across stretches mix)", () => {
   const slots: Slots = { user1: "alice1a2", user2: "bob3c4", member: "alice1a2", group: "devs5e6" };
   const truth = { alice1a2: true, bob3c4: false };
   const ANSWER = [
@@ -295,8 +294,8 @@ describe("defect 6: apim-group-user-check (verdicts collected across stretches)"
   ].join("\n");
   const verify = V.membershipStated();
 
-  test("the original reader read bob3c4 as both (the 'whether' line affirmed him)", () => {
-    expect(originalMembership(ANSWER, truth)).toBe(false);
+  test("the naive reader reads bob3c4 as both (the 'whether' line affirms him)", () => {
+    expect(naiveMembership(ANSWER, truth)).toBe(false);
   });
   test("the fixed reader skips the 'whether' line; the first verdict word decides", async () => {
     expect((await verify(q([]), slots, ANSWER)).passed).toBe(true);
@@ -311,13 +310,13 @@ describe("defect 6: apim-group-user-check (verdicts collected across stretches)"
 
 // ── 7. apim-tenant-access ────────────────────────────────────────────────────
 
-describe('defect 7: apim-tenant-access ("enabled: false" read as enabled)', () => {
+describe('pitfall 7: apim-tenant-access ("enabled: false" is not enabled)', () => {
   const ANSWER =
     "No. Direct management API access is turned off.\n\n- Management API: `enabled: false`\n- Git access: enabled";
   const verify = V.accessStated();
 
-  test("the original reader read the answer as mixed", () => {
-    expect(originalAccess(ANSWER, false)).toBe(false);
+  test("the naive reader reads the answer as mixed", () => {
+    expect(naiveAccess(ANSWER, false)).toBe(false);
   });
   test("the fixed reader: the first verdict word decides", async () => {
     expect(V.tenantAccessVerdict(ANSWER)).toBe(false);

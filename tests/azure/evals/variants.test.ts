@@ -77,7 +77,7 @@ describe("variants", () => {
     expect(vt.helpTool).toBe(true);
   });
 
-  test("long: the long description, adapted in three places", () => {
+  test("long: the sectioned description says only what this tool does", () => {
     const d = VT.buildVariantTools("long", LISTED).azureDescription;
     expect(d).toBe(VT.LONG_DESCRIPTION);
     // what this tool does not do is gone
@@ -85,7 +85,7 @@ describe("variants", () => {
     expect(d).not.toMatch(/list of commands|Batch sequential steps/);
     expect(d).not.toContain("is blocked");
     expect(d).not.toContain("JSON output, parsed");
-    // the original text otherwise
+    // and it keeps the rules compact has
     expect(d).toContain("Do not run `az login`, `az logout` or `az cloud ...`");
     expect(d).toContain(
       "One CLI command per string: no pipes (|), redirects (>, <), chaining (&&, ||, ;)"
