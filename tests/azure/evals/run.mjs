@@ -22,8 +22,8 @@
 //   --verify-wait S           how long polling verifiers wait (default 90; 10 with --negative)
 //   --seed N                  seed of the variant order (default 20260924)
 //   --max-minutes M           start no new run after M minutes
-//   --jobs N                  concurrent runs, each with its own two servers (default $EVAL_JOBS,
-//                             else 3 when CI=true, else 1: keep 1 on a shared emulator)
+//   --jobs N                  concurrent runs, each with its own two servers (default $EVAL_JOBS
+//                             or 1: keep 1 on a shared emulator)
 //   --no-prewarm              skip the max_tokens:0 cache pre-warm per variant
 //   --oracle                  no model: run each task's reference commands, the verifier must pass
 //   --negative                no model: setup only, the verifier must fail
@@ -66,10 +66,9 @@ function parseArgs(argv) {
     verifyWait: undefined,
     seed: 20260924,
     maxMinutes: undefined,
-    // Concurrent runs, each with its own two server sessions. On a developer machine the
-    // emulator may be shared, so one; CI's per-job emulator takes three, which leaves the
-    // weekly E2 job room inside its 180 minutes.
-    jobs: Number(env.EVAL_JOBS || (env.CI === "true" ? 3 : 1)),
+    // Concurrent runs, each with its own two server sessions: one, since the emulator may be
+    // shared; raise it with --jobs on an emulator of your own.
+    jobs: Number(env.EVAL_JOBS || 1),
     prewarm: true,
     oracle: false,
     negative: false,

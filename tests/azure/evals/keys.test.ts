@@ -42,7 +42,7 @@ function messageOf(fn: () => unknown): string {
 }
 
 describe("loading the key", () => {
-  test("ANTHROPIC_API_KEY (the CI secret)", () => {
+  test("ANTHROPIC_API_KEY (an environment variable)", () => {
     expect(K.loadKey({ env: { ANTHROPIC_API_KEY: `  ${KEY}\n` } }, deps({}))).toEqual({
       key: KEY,
       source: "ANTHROPIC_API_KEY",

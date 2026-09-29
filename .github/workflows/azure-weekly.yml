@@ -1,9 +1,9 @@
 name: Azure weekly
 
 # The heavy Azure suites: the L2 matrix sharded x4, L3 in full with the
-# internal-network job, L4 over all samples, the drift gates DR1-DR8, the az version
-# matrix (DR3), and E2 when an API key exists. A summary job opens or updates a tracking
-# issue on failure.
+# internal-network job, L4 over all samples, the drift gates DR1-DR8 and the az version
+# matrix (DR3). A summary job opens or updates a tracking issue on failure. E2 calls a
+# model API, so it runs locally only (tests/azure/evals/README.md).
 on:
   schedule:
     - cron: "0 7 * * 1" # Mondays 07:00 UTC
@@ -20,7 +20,8 @@ env:
   AZ_VERSION: "2.90.0"
   AZ_MIN_VERSION: "2.85.0"
   SAMPLES_COMMIT: "5ae698478bd4810b619469959b73c61f326bc569"
-  LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+  # LOCALSTACK_AUTH_TOKEN is set per step: only on the emulator starts, the suites and the scans
+  # (a scan without it has nothing to look for, and would pass unscanned files).
   LOCALSTACK_AZ_PATH: /home/runner/az/bin/python3
   LOCALSTACK_AZ_BICEP_PATH: /home/runner/bicep-bin/bicep
   AZURE_CI_EMULATOR_CONTAINER: ls-azure-ci
@@ -42,9 +43,12 @@ jobs:
           az-version: ${{ env.AZ_VERSION }}
       - name: Start this shard's own emulator
         run: bash scripts/ci/azure-emulator-up.sh
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       - name: The full matrix, this shard's cases
         run: AZURE_LIVE=1 npx jest -c jest.azure-live.config.js --selectProjects matrix-full --runInBand
         env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
           AZURE_MATRIX_SHARD: ${{ matrix.shard }}/4
           AZURE_MATRIX_BACKING: "1"
           AZURE_OP_CATALOGUE_OUT: test-results/azure-op-catalogue-${{ matrix.shard }}.json
@@ -55,6 +59,8 @@ jobs:
         id: scan
         if: always()
         run: node scripts/ci/scan-for-secret.mjs emulator-logs test-results
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       - uses: actions/upload-artifact@v4
         if: always() && steps.scan.outcome == 'success'
         with:
@@ -98,9 +104,12 @@ jobs:
         with:
           az-version: ${{ env.AZ_VERSION }}
       - run: bash scripts/ci/azure-emulator-up.sh
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       - name: L3 in full, including the stop-between-calls case and the leak replay
         run: AZURE_LIVE=1 npx jest -c jest.azure-live.config.js --selectProjects egress --runInBand
         env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
           AZURE_EGRESS_CI: "1"
           AZURE_EGRESS_REPORT: test-results/egress-steps.jsonl
       - name: Emulator logs, then remove the job's emulator
@@ -112,6 +121,8 @@ jobs:
       - id: scan
         if: always()
         run: node scripts/ci/scan-for-secret.mjs --env LOCALSTACK_AUTH_TOKEN emulator-logs test-results
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       - uses: actions/upload-artifact@v4
         if: failure() && steps.scan.outcome == 'success'
         with:
@@ -140,6 +151,7 @@ jobs:
       - name: Dual-homed emulator, MCP server on an internal network only
         run: bash tests/azure/egress-internal/run.sh
         env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
           MCP_SERVER_IMAGE: localstack/localstack-mcp-server:ci
       # run.sh has already replaced any token in these files.
       - uses: actions/upload-artifact@v4
@@ -197,12 +209,17 @@ jobs:
           python -m venv "$RUNNER_TEMP/samples-py"
           "$RUNNER_TEMP/samples-py/bin/pip" install --quiet -r samples-repo/requirements-dev.txt
           echo "PYTHON_BIN=$RUNNER_TEMP/samples-py/bin/python" >> "$GITHUB_ENV"
-      - run: bash scripts/ci/azure-emulator-up.sh
+      # Before the emulator starts, so that "~/.azure unchanged" has a baseline even when the
+      # start fails.
       - name: "~/.azure fingerprint (before)"
         run: node tests/azure/tools/azure-home-fingerprint.mjs > "$RUNNER_TEMP/azure-home-before.json"
+      - run: bash scripts/ci/azure-emulator-up.sh
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       - name: Every sample's own deploy and test commands through the az shim
         run: AZURE_LIVE=1 npx jest -c jest.azure-live.config.js --selectProjects samples-all --runInBand
         env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
           AZURE_SAMPLES_DIR: ${{ github.workspace }}/samples-repo
           AZURE_SAMPLES_COMMIT: ${{ env.SAMPLES_COMMIT }}
           AZURE_SAMPLES_RESULTS_DIR: ${{ github.workspace }}/test-results/samples
@@ -219,6 +236,8 @@ jobs:
       - id: scan
         if: always()
         run: node scripts/ci/scan-for-secret.mjs --env LOCALSTACK_AUTH_TOKEN emulator-logs test-results
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       - uses: actions/upload-artifact@v4
         if: failure() && steps.scan.outcome == 'success'
         with:
@@ -240,9 +259,12 @@ jobs:
       - name: The samples repo's current commit (DR8)
         run: git clone --quiet --depth 1 https://github.com/localstack/localstack-azure-samples.git "$RUNNER_TEMP/samples-latest"
       - run: bash scripts/ci/azure-emulator-up.sh
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       - name: DR1-DR8
         run: AZURE_LIVE=1 npx jest -c jest.azure-live.config.js --selectProjects drift --runInBand
         env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
           AZURE_DR4: "1"
           AZURE_SAMPLES_DIR: ${{ runner.temp }}/samples-latest
       - name: DR4 — the generated file-argument table is current for the pinned az
@@ -261,6 +283,8 @@ jobs:
       - id: scan
         if: always()
         run: node scripts/ci/scan-for-secret.mjs emulator-logs test-results
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       - uses: actions/upload-artifact@v4
         if: always() && steps.scan.outcome == 'success'
         with:
@@ -285,52 +309,25 @@ jobs:
           az-version: ${{ matrix.az }}
           extensions: "false"
       - run: bash scripts/ci/azure-emulator-up.sh
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       - name: DR3 — the resolved version
         run: AZURE_LIVE=1 npx jest -c jest.azure-live.config.js --selectProjects drift -t "DR3" --runInBand
         env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
           AZ_EXPECTED_VERSION: ${{ matrix.az != 'latest' && matrix.az || '' }}
       # The emulator above is not the harness's own, so L1 runs its scenario on it and
       # skips its stop step (it stops only what it started).
       - name: L1 (scenario)
         run: node tests/docker/validate-image.mjs -- node dist/cli.js
         env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
           HARNESS_ONLY: azure
           HARNESS_TOKEN_REAL: "1"
 
-  evals:
-    name: E2 composition evals
-    runs-on: ubuntu-latest
-    timeout-minutes: 180
-    env:
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Skip without an API key
-        id: key
-        run: |
-          if [ -z "$ANTHROPIC_API_KEY" ]; then echo "no ANTHROPIC_API_KEY secret: E2 skipped"; echo "run=false" >> "$GITHUB_OUTPUT"; else echo "run=true" >> "$GITHUB_OUTPUT"; fi
-      - uses: ./.github/actions/azure-live-setup
-        if: steps.key.outputs.run == 'true'
-        with:
-          az-version: ${{ env.AZ_VERSION }}
-      - if: steps.key.outputs.run == 'true'
-        run: bash scripts/ci/azure-emulator-up.sh
-      - name: E2 at n=3 with the spend cap
-        if: steps.key.outputs.run == 'true'
-        run: node tests/azure/evals/run.mjs --runs 3 --max-usd "${AZURE_EVALS_MAX_USD:-20}" --out test-results/e2
-      - id: scan
-        if: always() && steps.key.outputs.run == 'true'
-        run: node scripts/ci/scan-for-secret.mjs test-results --env LOCALSTACK_AUTH_TOKEN,ANTHROPIC_API_KEY
-      - uses: actions/upload-artifact@v4
-        if: always() && steps.key.outputs.run == 'true' && steps.scan.outcome == 'success'
-        with:
-          name: azure-e2-results
-          path: test-results/e2/
-          retention-days: 30
-
   summary:
     name: Tracking issue on failure
-    needs: [matrix, egress, egress-internal-network, samples-all, drift, az-versions, evals]
+    needs: [matrix, egress, egress-internal-network, samples-all, drift, az-versions]
     if: failure()
     runs-on: ubuntu-latest
     permissions:
@@ -347,7 +344,7 @@ jobs:
         run: |
           title="Azure weekly suite failing"
           existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$title in:title" --json number --jq '.[0].number' --limit 100)
-          body="The Azure weekly run failed: $RUN_URL (jobs: matrix, egress, egress-internal-network, samples-all, drift, az-versions, evals). cc $OWNERS"
+          body="The Azure weekly run failed: $RUN_URL (jobs: matrix, egress, egress-internal-network, samples-all, drift, az-versions). cc $OWNERS"
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
           else

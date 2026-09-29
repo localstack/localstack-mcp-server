@@ -5,3 +5,5 @@
 tests/azure/samples-shim/az text eol=lf
 # cmd.exe shims keep CRLF everywhere (tests/azure/samples-shim/quote.test.ts checks it).
 *.cmd text eol=crlf
+# The L2 matrix files are checked for LF (tests/azure/matrix/schema.test.ts).
+tests/azure/matrix/*.yaml text eol=lf

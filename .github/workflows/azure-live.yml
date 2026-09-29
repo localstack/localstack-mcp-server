@@ -11,11 +11,15 @@ on:
       - "src/lib/cli/**"
       - "src/tools/localstack-azure-client.ts"
       - "src/tools/localstack-management.ts"
-      - "src/core/preflight.ts"
-      - "src/core/config.ts"
+      # The Azure tool imports core/ (analytics, the response builder); L1 runs dist/cli.js.
+      - "src/core/**"
+      - "src/cli/**"
       - "src/lib/docker/**"
       - "src/lib/localstack/**"
       - "tests/azure/**"
+      # Read by the live suites: the leak commands, the Bicep fixtures, L1's deployments.
+      - "tests/fixtures/azure/**"
+      - "data/sample-azure/**"
       - "tests/docker/validate-image.mjs"
       - "docker/azure-extensions.txt"
       - "scripts/install-azure-extensions.mjs"
@@ -63,11 +67,13 @@ jobs:
         with:
           az-version: ${{ env.AZ_VERSION }}
 
-      - name: Start the job's own emulator
-        run: bash scripts/ci/azure-emulator-up.sh
-
+      # Before the emulator starts, so that "~/.azure unchanged" has a baseline even when the
+      # start fails.
       - name: "~/.azure fingerprint (before)"
         run: node tests/azure/tools/azure-home-fingerprint.mjs > "$RUNNER_TEMP/azure-home-before.json"
+
+      - name: Start the job's own emulator
+        run: bash scripts/ci/azure-emulator-up.sh
 
       - name: L2 matrix subset
         run: AZURE_LIVE=1 npx jest -c jest.azure-live.config.js --selectProjects matrix-subset --runInBand
@@ -173,11 +179,13 @@ jobs:
           "$RUNNER_TEMP/samples-py/bin/pip" install --quiet azure-eventhub
           echo "PYTHON_BIN=$RUNNER_TEMP/samples-py/bin/python" >> "$GITHUB_ENV"
 
-      - name: Start the job's own emulator
-        run: bash scripts/ci/azure-emulator-up.sh
-
+      # Before the emulator starts, so that "~/.azure unchanged" has a baseline even when the
+      # start fails.
       - name: "~/.azure fingerprint (before)"
         run: node tests/azure/tools/azure-home-fingerprint.mjs > "$RUNNER_TEMP/azure-home-before.json"
+
+      - name: Start the job's own emulator
+        run: bash scripts/ci/azure-emulator-up.sh
 
       - name: L4 samples subset through the az shim
         run: AZURE_LIVE=1 npx jest -c jest.azure-live.config.js --selectProjects samples-subset --runInBand

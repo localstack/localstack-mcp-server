@@ -22,7 +22,7 @@ node tests/azure/evals/run.mjs --dry-run --variant compact,long,help-tool,no-tes
 node tests/azure/evals/run.mjs --oracle   --out test-results/e2-oracle
 node tests/azure/evals/run.mjs --negative --out test-results/e2-negative
 
-# The model run (the CI job's command line)
+# The model run (needs an API key: see "What a run needs")
 node tests/azure/evals/run.mjs --runs 3 --max-usd 20 --out test-results/e2
 ```
 
@@ -43,25 +43,25 @@ node tests/azure/evals/run.mjs --runs 3 --max-usd 20 --out test-results/e2
 
 ## Options
 
-| Option                                             | Default                                     | Meaning                                                                                                                                                                       |
-| -------------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--runs N`                                         | 1                                           | repetitions per task (and per variant)                                                                                                                                        |
-| `--max-usd X`                                      | `$AZURE_EVALS_MAX_USD` or 20                | the total cap: no new run once the spend (pre-warms included) reaches X, and a running loop stops before its next request; every turn counts at once, for concurrent runs too |
-| `--max-usd-per-run Y`                              | `$EVAL_MAX_USD_PER_RUN` or 1                | a run's agent loop stops (failure `spend_cap`) before a request once the run's own cost reaches Y                                                                             |
-| `--out DIR`                                        | `test-results/e2`                           | results directory                                                                                                                                                             |
-| `--tasks id,id` / `--tier T-A,T-B,T-APIM`          | all                                         | selection                                                                                                                                                                     |
-| `--model M`                                        | `$EVAL_MODEL` or `claude-opus-5-5`          | a model needs a price in `agent.ts` (`PRICES`), or the run refuses                                                                                                            |
-| `--effort E`                                       | `$EVAL_EFFORT` or `high`                    | `output_config.effort`                                                                                                                                                        |
-| `--variant v[,v]`                                  | `compact`                                   | see below; several variants interleave per task in a seeded order                                                                                                             |
-| `--all-tools`                                      | off                                         | offer every server tool, not only the Azure tool (`localstack-management` is withheld: it can stop the emulator)                                                              |
-| `--key-file PATH`                                  |                                             | the key file (else `ANTHROPIC_API_KEY_FILE`, else `ANTHROPIC_API_KEY`)                                                                                                        |
-| `--phrasing alt\|0\|1`                             | `alt`                                       | T-A has two phrasings: run _i_ uses phrasing _i_ mod 2, or a fixed one                                                                                                        |
-| `--verify-wait S`                                  | 90 (10 with `--negative`)                   | how long a polling verifier waits for a state                                                                                                                                 |
-| `--jobs N`                                         | `$EVAL_JOBS`, else 3 when `CI=true`, else 1 | concurrent runs, each with its own agent and harness server                                                                                                                   |
-| `--seed N`                                         | 20260924                                    | the variant order                                                                                                                                                             |
-| `--max-minutes M`                                  | none                                        | no new run after M minutes                                                                                                                                                    |
-| `--no-prewarm`                                     |                                             | skip the `max_tokens: 0` cache pre-warm per variant                                                                                                                           |
-| `--oracle` / `--negative` / `--dry-run` / `--list` |                                             | the no-spend modes                                                                                                                                                            |
+| Option                                             | Default                            | Meaning                                                                                                                                                                       |
+| -------------------------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--runs N`                                         | 1                                  | repetitions per task (and per variant)                                                                                                                                        |
+| `--max-usd X`                                      | `$AZURE_EVALS_MAX_USD` or 20       | the total cap: no new run once the spend (pre-warms included) reaches X, and a running loop stops before its next request; every turn counts at once, for concurrent runs too |
+| `--max-usd-per-run Y`                              | `$EVAL_MAX_USD_PER_RUN` or 1       | a run's agent loop stops (failure `spend_cap`) before a request once the run's own cost reaches Y                                                                             |
+| `--out DIR`                                        | `test-results/e2`                  | results directory                                                                                                                                                             |
+| `--tasks id,id` / `--tier T-A,T-B,T-APIM`          | all                                | selection                                                                                                                                                                     |
+| `--model M`                                        | `$EVAL_MODEL` or `claude-opus-5-5` | a model needs a price in `agent.ts` (`PRICES`), or the run refuses                                                                                                            |
+| `--effort E`                                       | `$EVAL_EFFORT` or `high`           | `output_config.effort`                                                                                                                                                        |
+| `--variant v[,v]`                                  | `compact`                          | see below; several variants interleave per task in a seeded order                                                                                                             |
+| `--all-tools`                                      | off                                | offer every server tool, not only the Azure tool (`localstack-management` is withheld: it can stop the emulator)                                                              |
+| `--key-file PATH`                                  |                                    | the key file (else `ANTHROPIC_API_KEY_FILE`, else `ANTHROPIC_API_KEY`)                                                                                                        |
+| `--phrasing alt\|0\|1`                             | `alt`                              | T-A has two phrasings: run _i_ uses phrasing _i_ mod 2, or a fixed one                                                                                                        |
+| `--verify-wait S`                                  | 90 (10 with `--negative`)          | how long a polling verifier waits for a state                                                                                                                                 |
+| `--jobs N`                                         | `$EVAL_JOBS` or 1                  | concurrent runs, each with its own agent and harness server                                                                                                                   |
+| `--seed N`                                         | 20260924                           | the variant order                                                                                                                                                             |
+| `--max-minutes M`                                  | none                               | no new run after M minutes                                                                                                                                                    |
+| `--no-prewarm`                                     |                                    | skip the `max_tokens: 0` cache pre-warm per variant                                                                                                                           |
+| `--oracle` / `--negative` / `--dry-run` / `--list` |                                    | the no-spend modes                                                                                                                                                            |
 
 Exit status: **0** passed (the gate for a model run; every expectation for `--oracle` and
 `--negative`) and the final cleanup check was clean; **1** not passed, or stopped early (spend
@@ -200,14 +200,10 @@ node tests/azure/evals/record-fixtures.mjs test-results/e2-oracle/runs.jsonl tes
 
 `record-fixtures.mjs` keeps, per task and mode, the latest record that met its expectation: its
 `verify_input` (slots and text) and `verifier.queries` (JSON stdout minified; connection-string
-key parts, which no verifier reads, redacted). All values are local emulator test data.
+key parts in the text, stdout and stderr, which no verifier reads, redacted). All values are
+local emulator test data.
 
 ## CI
 
-`azure-weekly.yml`, job `evals`: `node tests/azure/evals/run.mjs --runs 3 --max-usd
-"${AZURE_EVALS_MAX_USD:-20}" --out test-results/e2`, after `yarn build`, the pinned `az` and
-the emulator. It needs the `ANTHROPIC_API_KEY` secret (the job skips itself without one), an
-Azure-entitled `LOCALSTACK_AUTH_TOKEN`, and an emulator started with
-`CDN_CLASSIC_ALLOW_CREATE=1`. With `CI=true` E2 runs three jobs at once (each with its own two
-servers), which keeps 150 runs inside the job's 180 minutes. The job's secret scan covers
-`test-results/` before the upload.
+CI never calls a model: model runs are local only. CI runs the offline tests above, with the
+unit suite.

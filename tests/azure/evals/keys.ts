@@ -1,6 +1,6 @@
 /**
  * The Anthropic API key for E2: it comes
- * from a CI secret (ANTHROPIC_API_KEY) or a private key file (--key-file or
+ * from ANTHROPIC_API_KEY or a private key file (--key-file or
  * ANTHROPIC_API_KEY_FILE), goes straight into the SDK client, and is never printed, logged
  * or written. `scrubber` removes it from any error text before that text is recorded, and
  * `childEnv` keeps every ANTHROPIC_* variable away from the MCP servers (and their `az`).
@@ -23,8 +23,8 @@ export interface LoadedKey {
 }
 
 export const NO_KEY_MESSAGE =
-  "E2 needs an Anthropic API key to call the model, and none was found. Set ANTHROPIC_API_KEY " +
-  "(the CI secret), or pass --key-file <path> (or ANTHROPIC_API_KEY_FILE=<path>) naming a file that " +
+  "E2 needs an Anthropic API key to call the model, and none was found. Set ANTHROPIC_API_KEY, " +
+  "or pass --key-file <path> (or ANTHROPIC_API_KEY_FILE=<path>) naming a file that " +
   "holds only the key. The key is never printed or logged. Without a key, --oracle, --negative and " +
   "--dry-run still run: they call no model.";
 

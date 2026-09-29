@@ -40,10 +40,23 @@ docker run -d --name "$name" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   "$image" >/dev/null
 
-# Poll health, not `localstack wait` (it greps logs and misses the marker under DEBUG).
+# Poll health, not `localstack wait` (it greps logs and misses the marker under DEBUG). A
+# container that exits, such as on a licence failure, fails the step at once with its reason.
 healthy=0
 for _ in $(seq 1 150); do
   if curl -fs http://127.0.0.1:4566/_localstack/health >/dev/null 2>&1; then healthy=1; break; fi
+  state=$(docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$name" 2>/dev/null || echo "missing -")
+  case "$state" in
+    exited* | dead* | missing*)
+      docker logs "$name" >"$logs/emulator-start.log" 2>&1 || true
+      echo "the emulator stopped before it became healthy (status and exit code: $state); logs saved to $logs/ (scan them before upload)" >&2
+      grep -E '^(License activation failed|Reason: .)' "$logs/emulator-start.log" >&2 || true
+      if [ "${state#* }" = 55 ]; then
+        echo "exit code 55 is a licence failure: LOCALSTACK_AUTH_TOKEN must belong to an account with the LocalStack for Azure emulator enabled" >&2
+      fi
+      exit 1
+      ;;
+  esac
   sleep 2
 done
 if [ "$healthy" != 1 ]; then

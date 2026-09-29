@@ -122,8 +122,8 @@ docker run -d --name "$EMU" \
   "$EMU_IMAGE" > /dev/null
 EMU_STARTED=1
 
-# Health says the edition and whether the licence activated; HTTPS comes up seconds later
-#. The ARM name is pinned to 127.0.0.1, so no DNS is involved.
+# Health says the edition and whether the licence activated; HTTPS comes up seconds later.
+# The ARM name is pinned to 127.0.0.1, so no DNS is involved.
 emulator_ready() {
   local health
   health="$(curl -fsS -m 5 "http://127.0.0.1:$EMU_PORT/_localstack/health" 2> /dev/null)" || return 1
@@ -136,6 +136,16 @@ emulator_ready() {
 }
 deadline=$((SECONDS + READY_TIMEOUT))
 until emulator_ready; do
+  # An exited container never turns ready: stop at once, with its reason (exit code 55: the
+  # token's licence does not cover LocalStack for Azure).
+  state="$(docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$EMU" 2> /dev/null || echo "missing -")"
+  case "$state" in
+    exited* | dead* | missing*)
+      docker logs "$EMU" > "$OUT_DIR/emulator-start.log" 2>&1 || true
+      grep -E '^(License activation failed|Reason: .)' "$OUT_DIR/emulator-start.log" >&2 || true
+      die "FEASIBILITY: the emulator stopped before it became ready (status and exit code: $state; logs in $OUT_DIR/emulator-start.log)"
+      ;;
+  esac
   [ "$SECONDS" -lt "$deadline" ] \
     || die "FEASIBILITY: the emulator did not come up with an active licence within ${READY_TIMEOUT}s (last health in $OUT_DIR/health.json)"
   sleep 5
