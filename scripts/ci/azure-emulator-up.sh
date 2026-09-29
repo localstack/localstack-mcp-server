@@ -20,6 +20,12 @@ image="${LOCALSTACK_AZURE_IMAGE_NAME:-localstack/localstack-azure:latest}"
 oryx="${ORYX_BUILD_IMAGE:-mcr.microsoft.com/oryx/build:github-actions-debian-bookworm-20260415.1}"
 logs="${AZURE_EMULATOR_LOG_DIR:-emulator-logs}"
 mkdir -p "$logs"
+# The emulator shares files with the containers it starts for Function and Web Apps from its
+# state folder, which must be a bind mount: without one, the image's own anonymous volume is
+# used, and every app deployment fails with "Mount to /var/lib/localstack needs to be a bind
+# mount".
+volume="${AZURE_EMULATOR_VOLUME_DIR:-${RUNNER_TEMP:-/tmp}/$name-volume}"
+mkdir -p "$volume"
 
 docker pull --quiet "$image"
 # DNS_ADDRESS=0: with the internal DNS on, Cosmos hostnames resolved to the app
@@ -38,6 +44,7 @@ docker run -d --name "$name" \
   -e FRONT_DOOR_CLASSIC_ALLOW_CREATE=1 \
   -e CDN_CLASSIC_ALLOW_CREATE=1 \
   -e LS_AZURE_ORYX_BUILD_IMAGE_TO_USE="$oryx" \
+  -v "$volume:/var/lib/localstack" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   "$image" >/dev/null
 

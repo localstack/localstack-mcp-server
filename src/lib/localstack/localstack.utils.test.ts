@@ -274,6 +274,36 @@ describe("localstack.utils", () => {
       expect(client.createAndStartContainer).not.toHaveBeenCalled();
     });
 
+    test("an Azure start on a named volume says that app deployments need LOCALSTACK_VOLUME_DIR", async () => {
+      // The emulator shares files with the containers it starts for Function and Web Apps from
+      // its state folder, and refuses to unless that folder is a bind mount.
+      const ready = { isRunning: true, isReady: true, statusOutput: "healthy" };
+      const start = async (stack: "azure" | "aws", volumeOverride: any) => {
+        const { client } = mockDockerClient();
+        const getStatus = jest
+          .fn()
+          .mockResolvedValueOnce({ isRunning: false })
+          .mockResolvedValue(ready);
+        const result = await launchRuntime({
+          ...launchDefaults,
+          stack,
+          volumeOverride,
+          getStatus,
+          dockerClient: client,
+        });
+        return result.content[0].text;
+      };
+      const named = { type: "volume", name: "localstack-mcp" };
+      const bind = { type: "bind", source: "/host/localstack-volume" };
+      const onNamed = await start("azure", named);
+      expect(onNamed).toContain("started successfully");
+      expect(onNamed).toMatch(/Function App and Web App deployments need/);
+      expect(onNamed).toMatch(/LOCALSTACK_VOLUME_DIR/);
+      expect(onNamed).toMatch(/stop and start the emulator/);
+      expect(await start("azure", bind)).not.toMatch(/LOCALSTACK_VOLUME_DIR/);
+      expect(await start("aws", named)).not.toMatch(/LOCALSTACK_VOLUME_DIR/);
+    });
+
     test("starts the container and succeeds once the gateway becomes reachable", async () => {
       const { client } = mockDockerClient();
       const getStatus = jest

@@ -113,11 +113,17 @@ docker run --rm --network none --entrypoint /bin/sh "$MCP_IMAGE" -c 'command -v 
 docker network create --internal "$NET" > /dev/null
 NET_CREATED=1
 log "starting $EMU_IMAGE as $EMU"
+# Its state folder as a bind mount, as azure-emulator-up.sh gives it: the containers the
+# emulator starts for apps get their files from there. Not under $WORKDIR, whose cleanup could
+# not remove the root-owned files the emulator writes.
+EMU_VOLUME="${RUNNER_TEMP:-/tmp}/$EMU-volume"
+mkdir -p "$EMU_VOLUME"
 docker run -d --name "$EMU" \
   -p "127.0.0.1:$EMU_PORT:4566" \
   -e LOCALSTACK_AUTH_TOKEN \
   -e ACTIVATE_PRO=1 -e DNS_ADDRESS=0 -e DISABLE_EVENTS=1 -e "LS_LOG=${EGRESS_LS_LOG:-debug}" \
   -e MSSQL_ACCEPT_EULA=Y \
+  -v "$EMU_VOLUME:/var/lib/localstack" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   "$EMU_IMAGE" > /dev/null
 EMU_STARTED=1

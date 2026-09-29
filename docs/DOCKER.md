@@ -36,6 +36,12 @@ so no host directory needs to be mounted or path-mirrored. To keep state in a ho
 directory instead, set `-e LOCALSTACK_VOLUME_DIR=/absolute/host/path` (the path is
 interpreted by the **host** daemon).
 
+For the LocalStack for Azure emulator, set `LOCALSTACK_VOLUME_DIR` if you deploy Function Apps or
+Web Apps: the emulator runs them in containers of their own and shares their files from its state
+folder, which it can do only from a host directory. On the named volume, `az functionapp deploy`
+and `az webapp deploy` fail with an internal server error, and `localstack-management start`
+(service `azure`) says so.
+
 > **Upgrading from an older image?** Previous versions required a one-to-one cache
 > mount plus `XDG_CACHE_HOME`. Old configs keep working: when `XDG_CACHE_HOME` is
 > set, the server keeps using `$XDG_CACHE_HOME/localstack/volume` for state, so
