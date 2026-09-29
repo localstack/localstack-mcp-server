@@ -44,11 +44,11 @@ jobs:
       - name: Start this shard's own emulator
         run: bash scripts/ci/azure-emulator-up.sh
         env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       - name: The full matrix, this shard's cases
         run: AZURE_LIVE=1 npx jest -c jest.azure-live.config.js --selectProjects matrix-full --runInBand
         env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
           AZURE_MATRIX_SHARD: ${{ matrix.shard }}/4
           AZURE_MATRIX_BACKING: "1"
           AZURE_OP_CATALOGUE_OUT: test-results/azure-op-catalogue-${{ matrix.shard }}.json
@@ -60,7 +60,7 @@ jobs:
         if: always()
         run: node scripts/ci/scan-for-secret.mjs emulator-logs test-results
         env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       - uses: actions/upload-artifact@v4
         if: always() && steps.scan.outcome == 'success'
         with:
@@ -105,11 +105,11 @@ jobs:
           az-version: ${{ env.AZ_VERSION }}
       - run: bash scripts/ci/azure-emulator-up.sh
         env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       - name: L3 in full, including the stop-between-calls case and the leak replay
         run: AZURE_LIVE=1 npx jest -c jest.azure-live.config.js --selectProjects egress --runInBand
         env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
           AZURE_EGRESS_CI: "1"
           AZURE_EGRESS_REPORT: test-results/egress-steps.jsonl
       - name: Emulator logs, then remove the job's emulator
@@ -122,7 +122,7 @@ jobs:
         if: always()
         run: node scripts/ci/scan-for-secret.mjs --env LOCALSTACK_AUTH_TOKEN emulator-logs test-results
         env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       - uses: actions/upload-artifact@v4
         if: failure() && steps.scan.outcome == 'success'
         with:
@@ -151,7 +151,7 @@ jobs:
       - name: Dual-homed emulator, MCP server on an internal network only
         run: bash tests/azure/egress-internal/run.sh
         env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
           MCP_SERVER_IMAGE: localstack/localstack-mcp-server:ci
       # run.sh has already replaced any token in these files.
       - uses: actions/upload-artifact@v4
@@ -215,11 +215,11 @@ jobs:
         run: node tests/azure/tools/azure-home-fingerprint.mjs > "$RUNNER_TEMP/azure-home-before.json"
       - run: bash scripts/ci/azure-emulator-up.sh
         env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       - name: Every sample's own deploy and test commands through the az shim
         run: AZURE_LIVE=1 npx jest -c jest.azure-live.config.js --selectProjects samples-all --runInBand
         env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
           AZURE_SAMPLES_DIR: ${{ github.workspace }}/samples-repo
           AZURE_SAMPLES_COMMIT: ${{ env.SAMPLES_COMMIT }}
           AZURE_SAMPLES_RESULTS_DIR: ${{ github.workspace }}/test-results/samples
@@ -237,7 +237,7 @@ jobs:
         if: always()
         run: node scripts/ci/scan-for-secret.mjs --env LOCALSTACK_AUTH_TOKEN emulator-logs test-results
         env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       - uses: actions/upload-artifact@v4
         if: failure() && steps.scan.outcome == 'success'
         with:
@@ -260,11 +260,11 @@ jobs:
         run: git clone --quiet --depth 1 https://github.com/localstack/localstack-azure-samples.git "$RUNNER_TEMP/samples-latest"
       - run: bash scripts/ci/azure-emulator-up.sh
         env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       - name: DR1-DR8
         run: AZURE_LIVE=1 npx jest -c jest.azure-live.config.js --selectProjects drift --runInBand
         env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
           AZURE_DR4: "1"
           AZURE_SAMPLES_DIR: ${{ runner.temp }}/samples-latest
       - name: DR4 — the generated file-argument table is current for the pinned az
@@ -284,7 +284,7 @@ jobs:
         if: always()
         run: node scripts/ci/scan-for-secret.mjs emulator-logs test-results
         env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       - uses: actions/upload-artifact@v4
         if: always() && steps.scan.outcome == 'success'
         with:
@@ -310,18 +310,18 @@ jobs:
           extensions: "false"
       - run: bash scripts/ci/azure-emulator-up.sh
         env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       - name: DR3 — the resolved version
         run: AZURE_LIVE=1 npx jest -c jest.azure-live.config.js --selectProjects drift -t "DR3" --runInBand
         env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
           AZ_EXPECTED_VERSION: ${{ matrix.az != 'latest' && matrix.az || '' }}
       # The emulator above is not the harness's own, so L1 runs its scenario on it and
       # skips its stop step (it stops only what it started).
       - name: L1 (scenario)
         run: node tests/docker/validate-image.mjs -- node dist/cli.js
         env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
           HARNESS_ONLY: azure
           HARNESS_TOKEN_REAL: "1"
 

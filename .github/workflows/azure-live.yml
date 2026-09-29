@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
+      LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       # Job level, so every step (the installer included) uses the pinned az and Bicep,
       # never the runner's /usr/bin/az.
       LOCALSTACK_AZ_PATH: /home/runner/az/bin/python3
@@ -147,7 +147,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE }}
+      LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       LOCALSTACK_AZ_PATH: /home/runner/az/bin/python3
       LOCALSTACK_AZ_BICEP_PATH: /home/runner/bicep-bin/bicep
       AZURE_CI_EMULATOR_CONTAINER: ls-azure-samples
