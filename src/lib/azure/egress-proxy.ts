@@ -667,8 +667,7 @@ class EgressGuard implements EgressProxy {
 
 /**
  * Start the guard on 127.0.0.1 and a port the OS picks. It resolves only once the guard
- * listens: a child started earlier would spend 14 s per call on a proxy that is not there
- *.
+ * listens: a child started earlier would spend 14 s per call on a proxy that is not there.
  */
 export async function startEgressProxy(options: EgressProxyOptions = {}): Promise<EgressProxy> {
   const guard = new EgressGuard(options);

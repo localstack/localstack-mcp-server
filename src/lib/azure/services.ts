@@ -338,8 +338,8 @@ export async function azRunner(): Promise<HostRunner> {
 }
 
 /**
- * The runner for the agent's commands: the warm worker with LOCALSTACK_AZ_RUNNER=worker
- *, else the subprocess runner. A launcher run as-is names no Python to
+ * The runner for the agent's commands: the warm worker with LOCALSTACK_AZ_RUNNER=worker,
+ * else the subprocess runner. A launcher run as-is names no Python to
  * run the worker with, and a Python that cannot start it falls back to subprocesses.
  */
 async function commandRunner(host: HostRunner): Promise<AzRunner> {

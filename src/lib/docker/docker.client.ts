@@ -528,8 +528,8 @@ export class DockerApiClient {
 
   /**
    * The image's baked-in `Config.Env` (an array of `KEY=value`). Used on restart to tell a
-   * container's operator-set env (the flags to carry over) from the image's own defaults
-   *. Best-effort: returns [] if the image cannot be inspected, so the caller falls
+   * container's operator-set env (the flags to carry over) from the image's own defaults.
+   * Best-effort: returns [] if the image cannot be inspected, so the caller falls
    * back to its system-var backstop rather than failing the restart.
    */
   async imageConfigEnv(imageName: string, timeoutMs = 30000): Promise<string[]> {

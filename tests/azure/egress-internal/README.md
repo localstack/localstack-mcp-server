@@ -27,8 +27,8 @@ side-car once.
   and on a network created with `docker network create --internal`.
 - The MCP server's container is on the internal network **only**, with
   `LOCALSTACK_AZURE_FORWARD_TARGET` set to the emulator's address there. It needs no DNS: the
-  egress guard maps `localhost.localstack.cloud` and every name under it to 127.0.0.1 itself
- , and the loopback forwarder relays 127.0.0.1 to the emulator.
+  egress guard maps `localhost.localstack.cloud` and every name under it to 127.0.0.1 itself,
+  and the loopback forwarder relays 127.0.0.1 to the emulator.
 - The client (`tests/azure/tools/stdio-client.mjs`) runs on the runner and talks to the server
   over `docker run -i` stdio. The server gets no Docker socket.
 
@@ -98,7 +98,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60 # an image build with az takes about 9 minutes cold
     env:
-      LOCALSTACK_AUTH_TOKEN: "${{ secrets.LOCALSTACK_AUTH_TOKEN }}"
+      LOCALSTACK_AUTH_TOKEN: "${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE || secrets.LOCALSTACK_AUTH_TOKEN }}"
       EGRESS_INTERNAL_OUT: "${{ runner.temp }}/egress-internal"
     steps:
       - uses: actions/checkout@v4

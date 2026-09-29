@@ -84,17 +84,16 @@ jobs:
             --final "${IMAGE_NAME}:ci" \
             --record docker/image-size.json
 
-      # The whole scenario, Azure stage included: the server starts its own emulator
-      # (bound to 0.0.0.0, so the forwarder's host.docker.internal path reaches it).
-      - name: Integration test Docker runtime
+      # The whole scenario in two runs, each with its own token: AWS and Snowflake with
+      # LOCALSTACK_AUTH_TOKEN, then the Azure stage with LOCALSTACK_AUTH_TOKEN_AZURE (else
+      # LOCALSTACK_AUTH_TOKEN). The Azure stage starts its own emulator (bound to 0.0.0.0, so the
+      # forwarder's host.docker.internal path reaches it), and runs even when the first run fails.
+      - name: Integration test Docker runtime (AWS and Snowflake)
         if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
         env:
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
           HARNESS_TOKEN_REAL: ${{ secrets.LOCALSTACK_AUTH_TOKEN != '' && '1' || '0' }}
-          HARNESS_SKIP: cloudpods,ephemeral,replicator,chaos
-          HARNESS_AZURE_EXTENSIONS: "1"
-          HARNESS_AZURE_FORWARDER: "1"
-          HARNESS_AZURE_BICEP: "1"
+          HARNESS_SKIP: cloudpods,ephemeral,replicator,chaos,azure
         run: |
           npm ci --prefix data/sample-cdk
           node tests/docker/validate-image.mjs -- \
@@ -103,6 +102,25 @@ jobs:
               --add-host host.docker.internal:host-gateway \
               --add-host s3.host.docker.internal:host-gateway \
               --add-host snowflake.localhost.localstack.cloud:host-gateway \
+              -e LOCALSTACK_AUTH_TOKEN \
+              -e LOCALSTACK_HOSTNAME=host.docker.internal \
+              -v "$PWD/data:/work/data" \
+              ${{ env.IMAGE_NAME }}:ci
+
+      - name: Integration test Docker runtime (the Azure stage)
+        if: ${{ !cancelled() && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE || secrets.LOCALSTACK_AUTH_TOKEN }}
+          HARNESS_TOKEN_REAL: ${{ (secrets.LOCALSTACK_AUTH_TOKEN_AZURE || secrets.LOCALSTACK_AUTH_TOKEN) != '' && '1' || '0' }}
+          HARNESS_ONLY: azure
+          HARNESS_AZURE_EXTENSIONS: "1"
+          HARNESS_AZURE_FORWARDER: "1"
+          HARNESS_AZURE_BICEP: "1"
+        run: |
+          node tests/docker/validate-image.mjs -- \
+            docker run -i --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              --add-host host.docker.internal:host-gateway \
               -e LOCALSTACK_AUTH_TOKEN \
               -e LOCALSTACK_HOSTNAME=host.docker.internal \
               -e LOCALSTACK_AZ_TEST_ENVELOPE=1 \
@@ -120,7 +138,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+      LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN_AZURE || secrets.LOCALSTACK_AUTH_TOKEN }}
       AZURE_CI_EMULATOR_CONTAINER: ls-azure-l5
       AZURE_EMULATOR_LOG_DIR: emulator-logs
     steps:

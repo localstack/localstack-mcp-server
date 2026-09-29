@@ -6,7 +6,8 @@
 #   AZURE_CI_EMULATOR_CONTAINER  container name (default ls-azure-ci)
 #   LOCALSTACK_AZURE_IMAGE_NAME  image (default localstack/localstack-azure:latest)
 #   ORYX_BUILD_IMAGE             pinned Oryx build image
-#   LOCALSTACK_AUTH_TOKEN        an Azure-entitled token (never printed)
+#   LOCALSTACK_AUTH_TOKEN        an Azure-entitled token (never printed); the workflows set it
+#                                from the LOCALSTACK_AUTH_TOKEN_AZURE secret
 set -euo pipefail
 
 if [ "${CI:-}" != "true" ]; then
@@ -52,7 +53,7 @@ for _ in $(seq 1 150); do
       echo "the emulator stopped before it became healthy (status and exit code: $state); logs saved to $logs/ (scan them before upload)" >&2
       grep -E '^(License activation failed|Reason: .)' "$logs/emulator-start.log" >&2 || true
       if [ "${state#* }" = 55 ]; then
-        echo "exit code 55 is a licence failure: LOCALSTACK_AUTH_TOKEN must belong to an account with the LocalStack for Azure emulator enabled" >&2
+        echo "exit code 55 is a licence failure: LOCALSTACK_AUTH_TOKEN (in CI, the LOCALSTACK_AUTH_TOKEN_AZURE secret) must belong to an account with the LocalStack for Azure emulator enabled" >&2
       fi
       exit 1
       ;;
