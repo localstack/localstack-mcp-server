@@ -24,7 +24,7 @@ export class CliSyntaxError extends Error {
 }
 
 /**
- * Opt-in fixes found by check C06 ("variant P"). All default to false, so callers
+ * Opt-in fixes that the Azure client turns on. All default to false, so callers
  * that pass no options (the AWS client) keep their original behaviour exactly.
  */
 export interface CliArgsOptions {

@@ -74,7 +74,7 @@ export const metadata: ToolMetadata = {
 let warnedConfig: AzureConfig | undefined;
 
 /**
- * With the guard off, every response says so (Appendix D). The configuration's warnings (an
+ * With the guard off, every response says so. The configuration's warnings (an
  * invalid setting fell back to its default, the workdir contains the home directory) go into
  * the first response of each configuration: they were computed but shown nowhere.
  */
@@ -92,12 +92,12 @@ function withGuardNote(response: ToolTextResponse): ToolTextResponse {
   return { content: [{ ...first, text: `${first.text}\n\n${missing.join("\n")}` }, ...rest] };
 }
 
-/** `.bicepparam` needs Bicep 0.14.85 or newer (C08). */
+/** `.bicepparam` needs Bicep 0.14.85 or newer. */
 const usesBicepparam = (argv: string[]) =>
   argv.some((a) => /\.bicepparam$/i.test(a.replace(/^@/, "")));
 
 /**
- * Runs one `az` command against the LocalStack Azure emulator (plan task 2.12). The
+ * Runs one `az` command against the LocalStack Azure emulator. The
  * order is section 5.2's: the token, the config and the pure policy first, so a
  * refusal needs no emulator; `version` after the CLI probe only; in Docker the
  * loopback forwarder before the parallel group; Bicep checks before any spawn; the
@@ -124,7 +124,7 @@ export default async function localstackAzureClient(
     extensionFor: (tokens) => extensionFor(tokens, installedExtensionNames()),
   });
 
-  // Only value-free fields reach analytics (D6); exit code and class travel in the
+  // Only value-free fields reach analytics; exit code and class travel in the
   // failure text's first line, which withToolAnalytics records as error_message.
   return withToolAnalytics(TOOL, analyticsFields(command, policy), async () => {
     try {
@@ -147,7 +147,7 @@ export default async function localstackAzureClient(
     if (!policy.ok) return withGuardNote(ResponseBuilder.error(policy.title, policy.message));
 
     if (policy.local === "version") {
-      // `az version` would call Microsoft (C02): answered from the probe, no emulator.
+      // `az version` would call Microsoft: answered from the probe, no emulator.
       const cli = await requireAzureCli();
       if (cli) return cli;
       const az = await azCli();
@@ -170,7 +170,7 @@ export default async function localstackAzureClient(
     }
 
     // Before the parallel group: requireStack would otherwise read 127.0.0.1 before
-    // the forwarder is bound (review R02, N18).
+    // the forwarder is bound.
     if (config.inDocker) await ensureLoopbackForwarder();
     const preflightError = await runPreflights([
       requireStack("azure", TOOL, { baseUrl: config.healthBaseUrl }),
@@ -199,7 +199,7 @@ export default async function localstackAzureClient(
         );
       }
       // Answered before any spawn: on Windows a successful restore would write the
-      // real %USERPROFILE%\.bicep even with the private home (C08; review R02, N10).
+      // real %USERPROFILE%\.bicep even with the private home.
       const moduleRef = scanBicepModules(policy.argv, config.workdir);
       if (moduleRef) return withGuardNote(bicepRegistryUnsupported(moduleRef));
     }
@@ -231,7 +231,7 @@ export default async function localstackAzureClient(
    * Tests only (LOCALSTACK_AZ_TEST_ENVELOPE=1): the envelope also carries the emulator
    * session the profile was checked against, which shows a re-bootstrap after an emulator
    * restart, and in Docker the loopback forwarder's connection count, which L5 reads to
-   * prove the traffic went through it (review R02, N20).
+   * prove the traffic went through it.
    */
   async function withEnvelopeExtras(response: ToolTextResponse): Promise<ToolTextResponse> {
     if (!config.testEnvelope || response.content.length < 2) return response;

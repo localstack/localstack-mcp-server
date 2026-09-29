@@ -28,7 +28,7 @@ cases:
         Microsoft.ContainerRegistry Registries List,
         Microsoft.ContainerRegistry Registries CheckNameAvailability,
       ]
-    note: The benchmark's oracle (ta.py acr-login-server); samples acr show.
+    note: Samples acr show.
     setup:
       - group create --name {rg} --location {location}
       - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Basic
@@ -85,7 +85,7 @@ cases:
         Microsoft.ContainerRegistry Registries UpdatePolicies,
       ]
     note: >-
-      The benchmark's oracle (ta.py acr-disable-content-trust) posts updatePolicies with rest; this
+      The case posts updatePolicies with rest; this
       enables the trust policy (disabled is the default) and reads it back from the registry.
     setup:
       - group create --name {rg} --location {location}
@@ -147,7 +147,6 @@ cases:
         Microsoft.ContainerRegistry Webhooks ListEvents,
         Microsoft.ContainerRegistry Webhooks Delete,
       ]
-    note: The benchmark's oracle (ta.py acr-webhook-create).
     setup:
       - group create --name {rg} --location {location}
       - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Standard
@@ -176,7 +175,6 @@ cases:
         Microsoft.ContainerRegistry Replications Update,
         Microsoft.ContainerRegistry Replications Delete,
       ]
-    note: The benchmark's oracle (ta.py acr-replications-list).
     setup:
       - group create --name {rg} --location {location}
       - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Premium
@@ -326,7 +324,6 @@ cases:
         Microsoft.ContainerRegistry Registries GetPrivateLinkResource,
         Microsoft.ContainerRegistry PrivateEndpointConnections List,
       ]
-    note: The benchmark's oracle (ta.py acr-private-link-resources).
     setup:
       - group create --name {rg} --location {location}
       - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Premium
@@ -392,9 +389,8 @@ cases:
       ]
     backing: true
     note: >-
-      The benchmark's oracle (ta.py acr-schedule-run); /dev/null is ACR's empty context. The run id
-      comes from a rest scheduleRun: `acr run --no-wait` prints it only in a stderr warning, so its
-      capture was empty and the case passed against runs//listLogSasUrl. The encoded
+      /dev/null is ACR's empty context. The run id comes from a rest scheduleRun: `acr run
+      --no-wait` prints it only in a stderr warning, so a capture of its output is empty. The encoded
       task is "version: v1.1.0, steps: - cmd: echo hello from l2".
     setup:
       - group create --name {rg} --location {location}

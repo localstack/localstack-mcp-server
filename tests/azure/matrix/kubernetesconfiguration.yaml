@@ -1,8 +1,8 @@
 # Microsoft.KubernetesConfiguration: cluster extensions (extension k8s-extension) on an AKS
 # cluster, so every case is `backing: true` and heavy (a k3d cluster).
-# R.1: the typed server's five skips are known gaps: an extension needs a running cluster (the
-# create answers 409 ClusterNotRunning), and no AKS cluster reaches Running through ARM on the
-# current emulator (see containerservice.yaml aks-start-run-command).
+# An extension needs a running cluster (the create answers 409 ClusterNotRunning), and no AKS
+# cluster reaches Running through ARM on the current emulator (see containerservice.yaml
+# aks-start-run-command), so the extension operations are known gaps.
 provider: Microsoft.KubernetesConfiguration
 cases:
   - id: k8s-extension-list
@@ -32,7 +32,6 @@ cases:
         Microsoft.KubernetesConfiguration OperationStatus Get,
       ]
     backing: true
-    note: The benchmark's oracle (td.py td-k8s-extension-create, blocked).
     setup:
       - group create --name {rg} --location {location}
       - aks create --name {name:aks} --resource-group {rg} --node-count 1 --generate-ssh-keys --no-wait --yes
@@ -49,7 +48,7 @@ cases:
       - group delete --name {rg} --yes --no-wait
     known_gap:
       reason: >-
-        Typed server COVERAGE_SKIPS: every extension write needs a running cluster (the create handler
+        Every extension write needs a running cluster (the create handler
         raises ClusterNotRunning), and no AKS cluster reaches Running through ARM on the current
         emulator, so Create, and with it Get, Update, Delete and the operation status, cannot succeed
         (the case creates the extension).

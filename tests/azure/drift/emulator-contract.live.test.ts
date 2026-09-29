@@ -1,4 +1,4 @@
-// Drift gates DR1, DR2, DR5 and DR7 (plan task 4.5; research file 10's DR table): the
+// Drift gates DR1, DR2, DR5 and DR7: the
 // emulator surfaces the tool depends on, checked weekly and on emulator releases.
 import { existsSync, readFileSync } from "fs";
 import path from "path";
@@ -30,7 +30,7 @@ describeLive("DR1: /metadata/endpoints suffixes", () => {
       .sort();
     writeReport("dr1-metadata-endpoints", { suffixes: live.suffixes, watchList });
     // A change means: re-check the bootstrap's cloud registration, and put any new
-    // real-Azure suffix on L3's watch list (plan section 5.4).
+    // real-Azure suffix on L3's watch list.
     expect(live.suffixes).toEqual(snapshot.suffixes);
     expect(live.resourceManager.replace(/\/$/, "")).toBe(ENDPOINT);
   });

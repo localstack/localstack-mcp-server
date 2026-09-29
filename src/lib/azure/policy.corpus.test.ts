@@ -1,9 +1,9 @@
 /**
- * U2: the samples corpus through the shared tokenizer and the policy (plan task 2.7).
+ * The samples corpus through the shared tokenizer and the policy.
  *
  * Every `az` command in localstack-azure-samples (pinned commit) must tokenize to exactly the
  * bash-generated argv, and get the expected policy verdict: pass, except the seven sample steps
- * C08's rules refuse (review R02 N1), recorded with their rule ids. The fixture and the scripts
+ * the policy refuses, recorded with their rule ids. The fixture and the scripts
  * that regenerate it live in tests/fixtures/azure/corpus/ (see its README).
  */
 import { splitCliArgs } from "../cli/argv";
@@ -30,7 +30,7 @@ interface CorpusFixture {
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const fixture: CorpusFixture = require("../../../tests/fixtures/azure/corpus/samples-az-corpus.json");
 
-// The three "variant P" options the Azure client uses (check C06).
+// The three tokenizer options the Azure client uses.
 const AZURE_TOKENIZER = {
   quotedControlChars: true,
   keepEmptyQuoted: true,
@@ -45,7 +45,7 @@ const corpusOpts: PolicyOptions = {
   platform: "linux",
 };
 
-describe("U2 samples corpus", () => {
+describe("samples corpus", () => {
   test("the fixture has 736 distinct cases and 7 refused occurrences", () => {
     expect(fixture.cases.length).toBe(736);
     expect(fixture._metadata.distinct_count).toBe(736);
@@ -89,7 +89,7 @@ describe("U2 samples corpus", () => {
 
     expect(tokenizerMismatches.join("\n")).toBe("");
     expect(verdictMismatches.join("\n")).toBe("");
-    // Exactly the seven sample steps of N1 are refused, no more, no fewer.
+    // Exactly the seven known sample steps are refused, no more, no fewer.
     expect(refusedOccurrences).toBe(7);
   });
 

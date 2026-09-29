@@ -1,5 +1,5 @@
 // Dev and CI utility: fingerprint the user's real ~/.azure by METADATA only (relative
-// paths, sizes, mtimes), never opening a file (plan sections 7 and 11; review F33).
+// paths, sizes, mtimes), never opening a file.
 // The live suites take one fingerprint before and one after, and fail on any change.
 //
 //   node tests/azure/tools/azure-home-fingerprint.mjs > before.json

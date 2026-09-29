@@ -1,24 +1,17 @@
 {
   "description": [
-    "U3 fixtures for src/lib/azure/output.test.ts (plan task 2.9, Appendix G).",
-    "Each stream is a byte copy of a raw az stream from the research checks, stored base64 (gzip+base64 above 4 KB) so that git's line-ending conversion cannot touch the CRLFs: the repo has no .gitattributes, and Git for Windows defaults to core.autocrlf=true, which rewrites CRLF on commit and LF-only files on checkout.",
+    "Fixtures for src/lib/azure/output.test.ts: raw output streams of real az runs against the LocalStack Azure emulator.",
+    "Each stream is a byte copy, stored base64 (gzip+base64 above 4 KB) so that no line-ending conversion (core.autocrlf) can touch its CRLFs.",
     "sha256 and bytes are those of the decoded bytes; the test checks both.",
-    "C02 sources are raw files; C08 sources are strings in its JSONL records, which the harness decoded with StringDecoder('utf8'), stored here as their UTF-8 bytes.",
-    "Synthetic entries (synthetic: true) say in 'basis' what they were reconstructed from; they exist only where the check kept no raw stream.",
-    "classId is the class Appendix G's evaluation order gives with the guard state guardOn (null for a success); egress, when present, is the guard record the run would have had.",
-    "Source paths are relative to the research checks (not part of this repository). Decode one with: node -e \"const f=require('./tests/fixtures/azure/stderr/index.json').fixtures.find(x=>x.id==='<id>');const b=Buffer.from(f.stderr.data,'base64');process.stdout.write(f.stderr.encoding==='gzip+base64'?require('zlib').gunzipSync(b):b)\""
+    "Synthetic entries (synthetic: true) say in 'basis' what they were reconstructed from; they exist only where no raw stream was kept.",
+    "classId is the class classifyFailure gives with the guard state guardOn (null for a success); egress, when present, is the guard record the run would have had.",
+    "Decode one with: node -e \"const f=require('./tests/fixtures/azure/stderr/index.json').fixtures.find(x=>x.id==='<id>');const b=Buffer.from(f.stderr.data,'base64');process.stdout.write(f.stderr.encoding==='gzip+base64'?require('zlib').gunzipSync(b):b)\""
   ],
   "fixtures": [
     {
-      "id": "r01-login-group-list",
-      "row": 1,
+      "id": "login-group-list",
       "classId": "login",
       "guardOn": true,
-      "check": "C02",
-      "label": "L1-group-list-not-logged-in",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/L1-group-list-not-logged-in.stderr"
-      },
       "argv": [
         "group",
         "list"
@@ -33,15 +26,9 @@
       }
     },
     {
-      "id": "r02-conn-native-group-list",
-      "row": 2,
+      "id": "conn-native-group-list",
       "classId": "conn-refused",
       "guardOn": false,
-      "check": "C02",
-      "label": "C8c-group-list",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/C8c-group-list.stderr"
-      },
       "argv": [
         "group",
         "list",
@@ -58,15 +45,9 @@
       }
     },
     {
-      "id": "r02-conn-rest-traceback",
-      "row": 2,
+      "id": "conn-rest-traceback",
       "classId": "conn-refused",
       "guardOn": false,
-      "check": "C02",
-      "label": "C8c-rest-relative",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/C8c-rest-relative.stderr"
-      },
       "argv": [
         "rest",
         "--method",
@@ -84,15 +65,9 @@
       }
     },
     {
-      "id": "r02-conn-login",
-      "row": 2,
+      "id": "conn-login",
       "classId": "conn-refused",
       "guardOn": false,
-      "check": "C02",
-      "label": "C8b-login",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/C8b-login.stderr"
-      },
       "argv": [
         "login",
         "--service-principal",
@@ -114,15 +89,9 @@
       }
     },
     {
-      "id": "r03-dns-rest-traceback",
-      "row": 3,
+      "id": "dns-rest-traceback",
       "classId": "dns",
       "guardOn": false,
-      "check": "C02",
-      "label": "D1-rest-nxdomain",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/D1-rest-nxdomain.stderr"
-      },
       "argv": [
         "rest",
         "--method",
@@ -140,15 +109,9 @@
       }
     },
     {
-      "id": "r03-dns-native",
-      "row": 3,
+      "id": "dns-native",
       "classId": "dns",
       "guardOn": false,
-      "check": "C02",
-      "label": "C8d-group-list-nxdomain",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/C8d-group-list-nxdomain.stderr"
-      },
       "argv": [
         "group",
         "list",
@@ -165,15 +128,9 @@
       }
     },
     {
-      "id": "r04-discovery-register",
-      "row": 4,
+      "id": "discovery-register",
       "classId": "discovery",
       "guardOn": true,
-      "check": "C02",
-      "label": "C8a-register-with-discovery",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/C8a-register-with-discovery.stderr"
-      },
       "argv": [
         "cloud",
         "register",
@@ -193,15 +150,9 @@
       }
     },
     {
-      "id": "r05-not-implemented-native",
-      "row": 5,
+      "id": "not-implemented-native",
       "classId": "not-implemented",
       "guardOn": true,
-      "check": "C02",
-      "label": "N1-lock-list-native",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/N1-lock-list-native.stderr"
-      },
       "argv": [
         "lock",
         "list"
@@ -216,15 +167,9 @@
       }
     },
     {
-      "id": "r05-not-implemented-rest",
-      "row": 5,
+      "id": "not-implemented-rest",
       "classId": "not-implemented",
       "guardOn": true,
-      "check": "C02",
-      "label": "N1-lock-list-rest",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/N1-lock-list-rest.stderr"
-      },
       "argv": [
         "rest",
         "--method",
@@ -242,15 +187,9 @@
       }
     },
     {
-      "id": "r05-not-implemented-register",
-      "row": 5,
+      "id": "not-implemented-register",
       "classId": "not-implemented",
       "guardOn": true,
-      "check": "C02",
-      "label": "U3-native-unemulated-provider-mgmt-group",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/U3-native-unemulated-provider-mgmt-group.stderr"
-      },
       "argv": [
         "account",
         "management-group",
@@ -266,15 +205,9 @@
       }
     },
     {
-      "id": "r06-provider-native",
-      "row": 6,
+      "id": "provider-native",
       "classId": "provider",
       "guardOn": true,
-      "check": "C02",
-      "label": "U2-native-unemulated-provider-redis",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/U2-native-unemulated-provider-redis.stderr"
-      },
       "argv": [
         "redis",
         "list"
@@ -289,15 +222,9 @@
       }
     },
     {
-      "id": "r06-provider-rest",
-      "row": 6,
+      "id": "provider-rest",
       "classId": "provider",
       "guardOn": true,
-      "check": "C02",
-      "label": "U1-rest-fake-provider",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/U1-rest-fake-provider.stderr"
-      },
       "argv": [
         "rest",
         "--method",
@@ -315,15 +242,9 @@
       }
     },
     {
-      "id": "r07-no-route-bogus-type",
-      "row": 7,
+      "id": "no-route-bogus-type",
       "classId": "no-route",
       "guardOn": true,
-      "check": "C02",
-      "label": "U4-rest-known-provider-bogus-type",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/U4-rest-known-provider-bogus-type.stderr"
-      },
       "argv": [
         "rest",
         "--method",
@@ -341,15 +262,9 @@
       }
     },
     {
-      "id": "r07-no-route-wrong-method",
-      "row": 7,
+      "id": "no-route-wrong-method",
       "classId": "no-route",
       "guardOn": true,
-      "check": "C02",
-      "label": "M1-rest-put-on-list-route",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/M1-rest-put-on-list-route.stderr"
-      },
       "argv": [
         "rest",
         "--method",
@@ -369,15 +284,9 @@
       }
     },
     {
-      "id": "r07-no-route-unimplemented-post",
-      "row": 7,
+      "id": "no-route-unimplemented-post",
       "classId": "no-route",
       "guardOn": true,
-      "check": "C02",
-      "label": "N4-checkzonepeers-post-rest",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/N4-checkzonepeers-post-rest.stderr"
-      },
       "argv": [
         "rest",
         "--method",
@@ -397,15 +306,9 @@
       }
     },
     {
-      "id": "r08-extension-graph",
-      "row": 8,
+      "id": "extension-graph",
       "classId": "extension",
       "guardOn": true,
-      "check": "C02",
-      "label": "X1-graph-query",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/X1-graph-query.stderr"
-      },
       "argv": [
         "graph",
         "query",
@@ -422,15 +325,9 @@
       }
     },
     {
-      "id": "r08-extension-app-insights",
-      "row": 8,
+      "id": "extension-app-insights",
       "classId": "extension",
       "guardOn": true,
-      "check": "C02",
-      "label": "X6-app-insights-under-core-group",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/X6-app-insights-under-core-group.stderr"
-      },
       "argv": [
         "monitor",
         "app-insights",
@@ -451,15 +348,9 @@
       }
     },
     {
-      "id": "r08-extension-k8s-extension",
-      "row": 8,
+      "id": "extension-k8s-extension",
       "classId": "extension",
       "guardOn": true,
-      "check": "C02",
-      "label": "X7-k8s-extension-top-level",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/X7-k8s-extension-top-level.stderr"
-      },
       "argv": [
         "k8s-extension",
         "list",
@@ -480,15 +371,9 @@
       }
     },
     {
-      "id": "r09-unknown-command-typo",
-      "row": 9,
+      "id": "unknown-command-typo",
       "classId": "unknown-command",
       "guardOn": true,
-      "check": "C02",
-      "label": "V4-misspelled-command",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/V4-misspelled-command.stderr"
-      },
       "argv": [
         "group",
         "lst"
@@ -503,15 +388,9 @@
       }
     },
     {
-      "id": "r09-unknown-command-subcommand",
-      "row": 9,
+      "id": "unknown-command-subcommand",
       "classId": "unknown-command",
       "guardOn": true,
-      "check": "C02",
-      "label": "U9-native-storage-list-deleted",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/U9-native-storage-list-deleted.stderr"
-      },
       "argv": [
         "storage",
         "account",
@@ -527,15 +406,9 @@
       }
     },
     {
-      "id": "r10-argument-required",
-      "row": 10,
+      "id": "argument-required",
       "classId": "argument",
       "guardOn": true,
-      "check": "C02",
-      "label": "V1-storage-create-missing-args",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/V1-storage-create-missing-args.stderr"
-      },
       "argv": [
         "storage",
         "account",
@@ -553,15 +426,9 @@
       }
     },
     {
-      "id": "r10-argument-unrecognized",
-      "row": 10,
+      "id": "argument-unrecognized",
       "classId": "argument",
       "guardOn": true,
-      "check": "C02",
-      "label": "V2-group-list-bogus-flag",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/V2-group-list-bogus-flag.stderr"
-      },
       "argv": [
         "group",
         "list",
@@ -577,15 +444,9 @@
       }
     },
     {
-      "id": "r10-argument-required-location",
-      "row": 10,
+      "id": "argument-required-location",
       "classId": "argument",
       "guardOn": true,
-      "check": "C02",
-      "label": "V3-group-create-missing-location",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/V3-group-create-missing-location.stderr"
-      },
       "argv": [
         "group",
         "create",
@@ -602,15 +463,9 @@
       }
     },
     {
-      "id": "r10-argument-choice",
-      "row": 10,
+      "id": "argument-choice",
       "classId": "argument",
       "guardOn": true,
-      "check": "C02",
-      "label": "V5-bad-output-choice",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/V5-bad-output-choice.stderr"
-      },
       "argv": [
         "group",
         "list",
@@ -627,15 +482,9 @@
       }
     },
     {
-      "id": "r10-argument-jmespath",
-      "row": 10,
+      "id": "argument-jmespath",
       "classId": "argument",
       "guardOn": true,
-      "check": "C02",
-      "label": "V6-bad-jmespath",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/V6-bad-jmespath.stderr"
-      },
       "argv": [
         "group",
         "list",
@@ -652,15 +501,9 @@
       }
     },
     {
-      "id": "r11-not-found-group",
-      "row": 11,
+      "id": "not-found-group",
       "classId": "not-found",
       "guardOn": true,
-      "check": "C02",
-      "label": "R1-group-show-missing",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/R1-group-show-missing.stderr"
-      },
       "argv": [
         "group",
         "show",
@@ -677,15 +520,9 @@
       }
     },
     {
-      "id": "r11-not-found-storage",
-      "row": 11,
+      "id": "not-found-storage",
       "classId": "not-found",
       "guardOn": true,
-      "check": "C02",
-      "label": "R2-storage-account-show-missing",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/R2-storage-account-show-missing.stderr"
-      },
       "argv": [
         "storage",
         "account",
@@ -705,15 +542,9 @@
       }
     },
     {
-      "id": "r11-not-found-rest",
-      "row": 11,
+      "id": "not-found-rest",
       "classId": "not-found",
       "guardOn": true,
-      "check": "C02",
-      "label": "R3-rest-group-missing",
-      "source": {
-        "stderr": "checks/artifacts/C02-raw/R3-rest-group-missing.stderr"
-      },
       "argv": [
         "rest",
         "--method",
@@ -731,15 +562,9 @@
       }
     },
     {
-      "id": "r12-cli-error-traceback",
-      "row": 12,
+      "id": "cli-error-traceback",
       "classId": "cli-error",
       "guardOn": true,
-      "check": "C08",
-      "label": "C1.2 ad sp create-for-rbac --create-cert (PEM lands in HOME)",
-      "source": {
-        "stderr": "checks/artifacts/C08-raw/results.jsonl#112 (stderr)"
-      },
       "argv": [
         "ad",
         "sp",
@@ -762,15 +587,9 @@
       }
     },
     {
-      "id": "r13-emulator-error",
-      "row": 13,
+      "id": "emulator-error",
       "classId": "emulator-error",
       "guardOn": true,
-      "check": "C02",
-      "label": null,
-      "source": {
-        "stderr": "synthetic (C02)"
-      },
       "argv": [
         "storage",
         "account",
@@ -778,7 +597,7 @@
       ],
       "exitCode": 1,
       "synthetic": true,
-      "basis": "Not reproduced (C02 §11: nothing safe triggers a 500). The message is the emulator's gateway.py text; the shape copies the native ARM error of N1-lock-list-native.",
+      "basis": "Not reproduced: nothing safe triggers a 500. The message is the emulator's gateway.py text; the shape copies the native ARM error of not-implemented-native.",
       "stderr": {
         "bytes": 365,
         "sha256": "9ec24b974ae8801c0d2a1df15d8eed739e629c6853da1d1b93461170ae73ce8d",
@@ -787,15 +606,9 @@
       }
     },
     {
-      "id": "r14-needs-yes",
-      "row": 14,
+      "id": "needs-yes",
       "classId": "needs-yes",
       "guardOn": true,
-      "check": "C03",
-      "label": null,
-      "source": {
-        "stderr": "synthetic (C03)"
-      },
       "argv": [
         "group",
         "delete",
@@ -804,7 +617,7 @@
       ],
       "exitCode": 1,
       "synthetic": true,
-      "basis": "Reconstructed from C03's table (group delete without --yes, stdin ended at spawn): the two lines are C03's verbatim quote; the raw stream was not kept, the CRLFs are assumed.",
+      "basis": "Reconstructed from a run of group delete without --yes, with stdin ended at spawn: the two lines are quoted verbatim; the raw stream was not kept, so the CRLFs are assumed.",
       "stderr": {
         "bytes": 105,
         "sha256": "0cb7b324ea52bd4e385703d7e831a1bfb8ba5092a5c231501651219fe9517d07",
@@ -813,8 +626,7 @@
       }
     },
     {
-      "id": "r15-egress-refused-sdk",
-      "row": 15,
+      "id": "egress-refused-sdk",
       "classId": "egress-refused",
       "guardOn": true,
       "egress": {
@@ -824,11 +636,6 @@
         "upstream": [],
         "housekeeping": [],
         "allowed": 0
-      },
-      "check": "C01",
-      "label": null,
-      "source": {
-        "stderr": "synthetic (C01)"
       },
       "argv": [
         "storage",
@@ -845,7 +652,7 @@
       ],
       "exitCode": 1,
       "synthetic": true,
-      "basis": "Reconstructed from C01 §7b (SDK data-plane path, 86.5 s without fail-fast): the stderr line is C01's verbatim quote and names no host; the host comes from the guard's record.",
+      "basis": "Reconstructed from a run on the SDK data-plane path (86.5 s without fail-fast): the stderr line is quoted verbatim and names no host; the host comes from the guard's record.",
       "stderr": {
         "bytes": 91,
         "sha256": "8219cee5425c17214c2540788bf051ae0faf642148cf5dd6783e05f61e36c666",
@@ -854,8 +661,7 @@
       }
     },
     {
-      "id": "r15-egress-refused-rest",
-      "row": 15,
+      "id": "egress-refused-rest",
       "classId": "egress-refused",
       "guardOn": true,
       "egress": {
@@ -866,11 +672,6 @@
         "housekeeping": [],
         "allowed": 0
       },
-      "check": "C01",
-      "label": null,
-      "source": {
-        "stderr": "synthetic (C01)"
-      },
       "argv": [
         "rest",
         "--method",
@@ -880,7 +681,7 @@
       ],
       "exitCode": 1,
       "synthetic": true,
-      "basis": "Reconstructed from C01 §3h (az rest to an absolute management.azure.com URL): C01 quotes the first and last lines verbatim and elides the traceback frames, which are left out here.",
+      "basis": "Reconstructed from a run of az rest to an absolute management.azure.com URL: the first and last lines are quoted verbatim; the traceback frames between them were not kept and are left out.",
       "stderr": {
         "bytes": 1018,
         "sha256": "6d6005d354ba3f2136210840f0d11094156a4446adee70a6551868575379388d",
@@ -889,22 +690,16 @@
       }
     },
     {
-      "id": "r18-guard-down",
-      "row": 18,
+      "id": "guard-down",
       "classId": "guard-down",
       "guardOn": true,
-      "check": "C01",
-      "label": null,
-      "source": {
-        "stderr": "synthetic (C01)"
-      },
       "argv": [
         "group",
         "list"
       ],
       "exitCode": 1,
       "synthetic": true,
-      "basis": "Reconstructed from C01 §7a (HTTPS_PROXY pointing at a stopped guard, group list, exit 1 after 14 s): the line is C01's verbatim quote; the raw stream was not kept.",
+      "basis": "Reconstructed from a run of group list with HTTPS_PROXY pointing at a stopped guard (exit 1 after 14 s): the line is quoted verbatim; the raw stream was not kept.",
       "stderr": {
         "bytes": 239,
         "sha256": "7f9d63a5638fb7fbb7f8cd687f65f64fd795a3388082c4ea7866d8e2145f66a5",
@@ -913,15 +708,9 @@
       }
     },
     {
-      "id": "r19-bicep-missing-path-mode",
-      "row": 19,
+      "id": "bicep-missing-path-mode",
       "classId": "bicep-missing",
       "guardOn": true,
-      "check": "C08",
-      "label": "A1b.1 deployment group create main.bicep (proposed config, bicep missing)",
-      "source": {
-        "stderr": "checks/artifacts/C08-raw/results.jsonl#12 (stderr)"
-      },
       "argv": [
         "deployment",
         "group",
@@ -945,15 +734,9 @@
       }
     },
     {
-      "id": "r19-bicep-missing-version",
-      "row": 19,
+      "id": "bicep-missing-version",
       "classId": "bicep-missing",
       "guardOn": true,
-      "check": "C08",
-      "label": "A1.2 bicep version (no bicep, default config)",
-      "source": {
-        "stderr": "checks/artifacts/C08-raw/results.jsonl#7 (stderr)"
-      },
       "argv": [
         "bicep",
         "version"
@@ -968,8 +751,7 @@
       }
     },
     {
-      "id": "r19-bicep-missing-latest-lookup",
-      "row": 19,
+      "id": "bicep-missing-latest-lookup",
       "classId": "bicep-missing",
       "guardOn": true,
       "egress": {
@@ -979,11 +761,6 @@
           "aka.ms"
         ],
         "allowed": 0
-      },
-      "check": "C08",
-      "label": "A1.1 deployment group create main.bicep (no bicep, default config)",
-      "source": {
-        "stderr": "checks/artifacts/C08-raw/results.jsonl#6 (stderr)"
       },
       "argv": [
         "deployment",
@@ -1008,15 +785,9 @@
       }
     },
     {
-      "id": "r20-bicep-registry-bcp192",
-      "row": 20,
+      "id": "bicep-registry-bcp192",
       "classId": "bicep-registry",
       "guardOn": true,
-      "check": "C08",
-      "label": "A3net.2 bicep build with a br/public: (MCR) module",
-      "source": {
-        "stderr": "checks/artifacts/C08-raw/results.jsonl#24 (stderr)"
-      },
       "argv": [
         "bicep",
         "build",
@@ -1034,15 +805,9 @@
       }
     },
     {
-      "id": "r20-bicep-registry-bcp446",
-      "row": 20,
+      "id": "bicep-registry-bcp446",
       "classId": "bicep-registry",
       "guardOn": true,
-      "check": "C08",
-      "label": "A3net.1 bicep build with a br: module on a .invalid registry",
-      "source": {
-        "stderr": "checks/artifacts/C08-raw/results.jsonl#23 (stderr)"
-      },
       "argv": [
         "bicep",
         "build",
@@ -1060,15 +825,9 @@
       }
     },
     {
-      "id": "r20-bicep-registry-bcp192-direct",
-      "row": 20,
+      "id": "bicep-registry-bcp192-direct",
       "classId": "bicep-registry",
       "guardOn": true,
-      "check": "C08",
-      "label": "D7 build br:.invalid, trusted via env",
-      "source": {
-        "stderr": "checks/artifacts/C08-raw/results-direct.jsonl#6 (stderr)"
-      },
       "argv": [
         "build",
         "mod-invalid.bicep",
@@ -1085,15 +844,9 @@
       }
     },
     {
-      "id": "r21-azcopy",
-      "row": 21,
+      "id": "azcopy",
       "classId": "azcopy",
       "guardOn": true,
-      "check": "C08",
-      "label": "C1.1 storage blob sync (azcopy auto-install under the guard)",
-      "source": {
-        "stderr": "checks/artifacts/C08-raw/results.jsonl#111 (stderr)"
-      },
       "argv": [
         "storage",
         "blob",
@@ -1118,14 +871,8 @@
     },
     {
       "id": "prep-image-alias-warning",
-      "row": null,
       "classId": "other",
       "guardOn": true,
-      "check": "C08",
-      "label": "C2.2 vm create (westeurope) with display_region_identified=false",
-      "source": {
-        "stderr": "checks/artifacts/C08-raw/results.jsonl#129 (stderr)"
-      },
       "argv": [
         "vm",
         "create",
@@ -1154,15 +901,8 @@
     },
     {
       "id": "ok-warning-storage-create",
-      "row": null,
       "classId": null,
       "guardOn": true,
-      "check": "C08",
-      "label": "B1 storage account create",
-      "source": {
-        "stdout": "checks/artifacts/C08-raw/results.jsonl#42 (stdout)",
-        "stderr": "checks/artifacts/C08-raw/results.jsonl#42 (stderr)"
-      },
       "argv": [
         "storage",
         "account",
@@ -1197,15 +937,8 @@
     },
     {
       "id": "ok-update-check-warning",
-      "row": null,
       "classId": null,
       "guardOn": true,
-      "check": "C01",
-      "label": null,
-      "source": {
-        "stdout": "synthetic (C01)",
-        "stderr": "synthetic (C01)"
-      },
       "argv": [
         "group",
         "list",
@@ -1214,7 +947,7 @@
       ],
       "exitCode": 0,
       "synthetic": true,
-      "basis": "The update-check warning is C01 §3i's verbatim quote; the stdout is a byte copy of C02-raw/O1-group-list-json.stdout. They were never printed together.",
+      "basis": "The update-check warning is quoted verbatim from a recorded run; the stdout is a byte copy of ok-group-list's. They were never printed together.",
       "stdout": {
         "bytes": 336,
         "sha256": "b3d1217f849994b3c3aa586f8705599da3bf4e88bea7978e4b748227349eea86",
@@ -1230,15 +963,8 @@
     },
     {
       "id": "ok-group-list",
-      "row": null,
       "classId": null,
       "guardOn": true,
-      "check": "C02",
-      "label": "O1-group-list-json",
-      "source": {
-        "stdout": "checks/artifacts/C02-raw/O1-group-list-json.stdout",
-        "stderr": "checks/artifacts/C02-raw/O1-group-list-json.stderr"
-      },
       "argv": [
         "group",
         "list",
@@ -1262,7 +988,6 @@
     },
     {
       "id": "ok-list-locations-utf8",
-      "row": null,
       "classId": null,
       "guardOn": true,
       "argv": [
@@ -1271,12 +996,6 @@
         "-o",
         "json"
       ],
-      "check": "C02",
-      "label": "E2-msi-X-utf8",
-      "source": {
-        "stdout": "checks/artifacts/C02-raw/E2-msi-X-utf8.stdout",
-        "stderr": "checks/artifacts/C02-raw/E2-msi-X-utf8.stderr"
-      },
       "exitCode": 0,
       "synthetic": false,
       "stdout": {
@@ -1294,16 +1013,9 @@
     },
     {
       "id": "help-az",
-      "row": null,
       "classId": null,
       "guardOn": true,
       "isHelp": true,
-      "check": "C02",
-      "label": "H1-az-help",
-      "source": {
-        "stdout": "checks/artifacts/C02-raw/H1-az-help.stdout",
-        "stderr": "checks/artifacts/C02-raw/H1-az-help.stderr"
-      },
       "argv": [
         "--help"
       ],
@@ -1322,23 +1034,15 @@
         "data": "V0FSTklORzogWW91IGhhdmUgMiB1cGRhdGUocykgYXZhaWxhYmxlLiBDb25zaWRlciB1cGRhdGluZyB5b3VyIENMSSBpbnN0YWxsYXRpb24gd2l0aCAnYXogdXBncmFkZScNCldBUk5JTkc6IA0K"
       },
       "reflowed": {
-        "source": "checks/artifacts/C02-raw/H1-az-help.reflowed.txt (CRLF normalised to LF)",
         "chars": 6943,
         "sha256": "c7c3fcd06197cbcfcfcdc478078b4070fb0a6a955358fa1f3afea9ec7189a432"
       }
     },
     {
       "id": "help-vm-create",
-      "row": null,
       "classId": null,
       "guardOn": true,
       "isHelp": true,
-      "check": "C02",
-      "label": "H6-vm-create-help",
-      "source": {
-        "stdout": "checks/artifacts/C02-raw/H6-vm-create-help.stdout",
-        "stderr": "checks/artifacts/C02-raw/H6-vm-create-help.stderr"
-      },
       "argv": [
         "vm",
         "create",
@@ -1359,23 +1063,15 @@
         "data": ""
       },
       "reflowed": {
-        "source": "checks/artifacts/C02-raw/H6-vm-create-help.reflowed.txt (CRLF normalised to LF)",
         "chars": 28742,
         "sha256": "6a137d7ecdd8e3d65287aabb0c7dfe7953b07fc159a45558d18eb9a484b212e9"
       }
     },
     {
       "id": "help-aks-create",
-      "row": null,
       "classId": null,
       "guardOn": true,
       "isHelp": true,
-      "check": "C02",
-      "label": "H7-aks-create-help",
-      "source": {
-        "stdout": "checks/artifacts/C02-raw/H7-aks-create-help.stdout",
-        "stderr": "checks/artifacts/C02-raw/H7-aks-create-help.stderr"
-      },
       "argv": [
         "aks",
         "create",
@@ -1396,7 +1092,6 @@
         "data": ""
       },
       "reflowed": {
-        "source": "checks/artifacts/C02-raw/H7-aks-create-help.reflowed.txt (CRLF normalised to LF)",
         "chars": 43240,
         "sha256": "3970c8a4b534ef2e8753268337fc6dc33f67266d10828d80f188ab104a834da7"
       }

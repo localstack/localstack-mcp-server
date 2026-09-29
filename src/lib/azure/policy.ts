@@ -1,16 +1,13 @@
 /**
- * The Azure command policy (plan task 2.7): a pure decision over one `az` command string.
+ * The Azure command policy: a pure decision over one `az` command string.
  *
  * It never spawns anything and never reaches the network. It decides, before the emulator is
  * touched, whether a command may run, must be rewritten (a management.azure.com URL made
  * relative), is answered locally (`version`), or is refused with a stable rule id. The handler
- * (task 2.12) runs this first, so a refusal costs nothing.
+ * runs this first, so a refusal costs nothing.
  *
- * Design sources: plan section 5.2 (task 2.7 row), Appendix B.6 (policy data) and Appendix C
- * ("Not allowed"); check C06 (the samples corpus and its policy clashes), C08 (the local
- * side-effect inventory), and review R02 (F08 file-rule gaps, N1 sample refusals, N3
- * cognitiveservices). The tokenizer is the shared one in src/lib/cli/argv.ts, run with the
- * three "variant P" options C06 selected.
+ * The tokenizer is the shared one in src/lib/cli/argv.ts, run with the three options that make
+ * it accept every `az` command in the Azure samples (policy.corpus.test.ts).
  */
 
 import fs from "fs";
@@ -22,7 +19,7 @@ import type { PolicyOptions, PolicyResult } from "./types";
 /** The platform-specific path flavour (path.win32 / path.posix), so resolution is host-independent. */
 type PlatformPath = typeof path.win32;
 
-// The generated file-argument table (scripts/gen-az-file-args.py; review R02 F08). tsconfig has
+// The generated file-argument table (scripts/gen-az-file-args.py). tsconfig has
 // resolveJsonModule off, so it is loaded with require and typed here.
 interface FileArgsEntry {
   /** All option strings (long and short) az annotates as a file/directory for this command. */
@@ -41,8 +38,8 @@ const GENERATED_TABLE: FileArgsTable = require("./az-file-args.generated.json");
 
 /**
  * Path arguments az 2.87 does NOT annotate with `file_type` or a file/directory completer, so
- * the generated table misses them, yet they read or write a local path outside the workdir
- * (review R02 F08 names these). Only the LOCAL side of each is listed: for `download-batch`
+ * the generated table misses them, yet they read or write a local path outside the workdir.
+ * Only the LOCAL side of each is listed: for `download-batch`
  * `--destination` is local (the source is a remote container); for `upload-batch` `--source`
  * is local. DR4 note: recheck this list when the az pin moves, in case az adds the annotations.
  */
@@ -76,7 +73,7 @@ const EXTRA_FILE_ARGS: Record<string, { flags: string[]; greedy?: string[] }> = 
 };
 
 // ---------------------------------------------------------------------------
-// Policy data (Appendix B.6). Exported so tests and the cross-check can read the same source.
+// Policy data. Exported so tests and the cross-check can read the same source.
 // ---------------------------------------------------------------------------
 
 const deny = (
@@ -84,7 +81,7 @@ const deny = (
   ...prefixes: string[][]
 ): Array<{ match: string[]; reason: string }> => prefixes.map((match) => ({ match, reason }));
 
-/** Denied command groups and verbs (Appendix B.6, C08's inventory, review N3). Prefix matches. */
+/** Denied command groups and verbs. Prefix matches. */
 export const DENIED: Array<{ match: string[]; reason: string }> = [
   ...deny("the CLI is already logged in to the emulator with a dummy account", ["login"]),
   ...deny("this would break routing to the emulator", ["logout"], ["account", "clear"]),
@@ -110,7 +107,7 @@ export const DENIED: Array<{ match: string[]; reason: string }> = [
     ["bicep", "upgrade"],
     ["bicep", "uninstall"],
     ["bicep", "list-versions"],
-    ["aks", "install-cli"] // also runs `setx path`, rewriting the real user PATH (C08)
+    ["aks", "install-cli"] // also runs `setx path`, rewriting the real user PATH
   ),
   ...deny(
     "Bicep registry modules cannot be reached from the local emulator",
@@ -145,13 +142,13 @@ export const DENIED: Array<{ match: string[]; reason: string }> = [
     ["aks", "check-acr"],
     ["storage", "copy"],
     ["storage", "remove"],
-    ["storage", "blob", "sync"], // storage copy/remove/sync auto-install azcopy from aka.ms (C08)
+    ["storage", "blob", "sync"], // storage copy/remove/sync auto-install azcopy from aka.ms
     ["backup", "restore", "files", "mount-rp"],
     ["mysql", "flexible-server", "deploy"],
     ["postgres", "flexible-server", "deploy"]
   ),
-  // Denied outright until its local-source flag is wired from _params.py (review R02 N3). With a
-  // local source it makes az run `docker build`/`push` on the shared engine (C08).
+  // Denied outright until its local-source flag is wired from _params.py. With a
+  // local source it makes az run `docker build`/`push` on the shared engine.
   ...deny("this builds and pushes images on the shared Docker engine", [
     "cognitiveservices",
     "agent",
@@ -167,10 +164,10 @@ export const DENIED: Array<{ match: string[]; reason: string }> = [
   ),
 ];
 
-/** Verbs that survive a broader group denial (Appendix B.6). */
+/** Verbs that survive a broader group denial. */
 export const ALLOWED_EXCEPTIONS: string[][] = [["config", "get"]];
 
-/** Flags that are refused, globally or for a specific command (Appendix B.6, C08). */
+/** Flags that are refused, globally or for a specific command. */
 export const DENIED_FLAGS: Array<{ command?: string[]; flag: string; reason: string }> = [
   { flag: "--follow", reason: "it streams output until killed" },
   { flag: "--login-with-github", reason: "it opens a browser login" },
@@ -199,7 +196,7 @@ export const DENIED_FLAGS: Array<{ command?: string[]; flag: string; reason: str
   },
 ];
 
-/** Flags a command must carry, or it is refused (Appendix B.6). */
+/** Flags a command must carry, or it is refused. */
 export const REQUIRED_FLAGS: Array<{
   command: string[];
   flag: string;
@@ -216,7 +213,7 @@ export const REQUIRED_FLAGS: Array<{
 ];
 
 /**
- * Local hosts the URL rule and the egress guard both allow (Appendix B.6, F29): one
+ * Local hosts the URL rule and the egress guard both allow: one
  * shared check in local-hosts.ts. Re-exported here for the policy's own tests.
  */
 export { LOCAL_HOST };
@@ -224,7 +221,7 @@ export { LOCAL_HOST };
 /** The ARM host whose absolute URLs are rewritten to a relative path (matched case-insensitively). */
 const MANAGEMENT_HOST = "management.azure.com";
 
-/** URL-target flags whose value az turns into a request or a download (plan task 2.7, C08). */
+/** URL-target flags whose value az turns into a request or a download. */
 const REST_URL_FLAGS = new Set(["--url", "--uri", "-u"]); // only for the `rest` command
 const FETCH_URL_FLAGS = new Set(["--template-uri", "--multicontainer-config-file"]); // any command
 const PARAMETERS_FLAGS = new Set(["--parameters", "-p"]); // URL or file, depending on the value
@@ -235,7 +232,7 @@ const PARAMETERS_FLAGS = new Set(["--parameters", "-p"]); // URL or file, depend
 
 /**
  * Parse LOCALSTACK_AZ_DENYLIST_FILE: one command prefix per line, split on whitespace. Blank
- * lines and `#` comments are ignored (Appendix B.6). The result is passed to evaluateAzCommand
+ * lines and `#` comments are ignored. The result is passed to evaluateAzCommand
  * as opts.extraDenied, so the policy itself stays pure.
  */
 export function parseDenylistFile(text: string): string[][] {
@@ -272,7 +269,7 @@ function hasPrefix(argv: string[], prefix: string[]): boolean {
  * abbreviation for long flags (verified: `cloud list --out tsv` and `--que` both work). A token
  * `--<p>` with p.length >= 2 that is a strict prefix of a long flag counts as that flag; short
  * `-x` flags match only exactly. When a prefix could match several path/URL flags we still apply
- * the rule (argparse would reject it as ambiguous, so being stricter is safe). See plan task 2.7.
+ * the rule (argparse would reject it as ambiguous, so being stricter is safe).
  */
 function flagMatches(tokenFlag: string, fullFlag: string): boolean {
   if (tokenFlag === fullFlag) return true;
@@ -401,7 +398,7 @@ function classifyPath(rawValue: string, opts: PolicyOptions): PathVerdict {
     }
   }
 
-  // `~` means the tool's private home (task 2.3), as it does for az itself.
+  // `~` means the tool's private home, as it does for az itself.
   const isTilde = value === "~" || value.startsWith("~/") || value.startsWith("~\\");
   const expanded = isTilde ? opts.homeDir + value.slice(1) : value;
   const base = isTilde ? opts.homeDir : opts.workdir;
@@ -505,7 +502,7 @@ export function evaluateAzCommand(command: string, opts: PolicyOptions): PolicyR
   const azStrip = body.match(/^az(\s+|$)/);
   if (azStrip) body = body.slice(azStrip[0].length).trim();
 
-  // 2. Tokenize with the three C06 options; a syntax error stops here.
+  // 2. Tokenize with the three Azure options; a syntax error stops here.
   let argv: string[];
   try {
     argv = splitCliArgs(body, {
@@ -550,7 +547,7 @@ export function evaluateAzCommand(command: string, opts: PolicyOptions): PolicyR
     );
   }
 
-  // 5. Denied groups and verbs (Appendix B.6), honouring the `config get` exception.
+  // 5. Denied groups and verbs, honouring the `config get` exception.
   const denialCheck = checkDenied(argv, opts);
   if (denialCheck) return denialCheck;
 
@@ -747,7 +744,7 @@ function applyUrlRule(argv: string[], notes: string[]): UrlPassResult {
     }
   }
 
-  // acr build / acr run: a URL as the positional source is a request target too (C08).
+  // acr build / acr run: a URL as the positional source is a request target too.
   if (isAcrBuildRun) {
     for (const idx of positionalIndexes(out, 2)) {
       const value = out[idx];
@@ -785,7 +782,7 @@ function positionalIndexes(argv: string[], startAfter: number): number[] {
 function applyFileRule(argv: string[], opts: PolicyOptions, notes: string[]): PolicyResult | null {
   const { generic, greedy, params, positional } = commandFileFlags(argv);
 
-  // `~` is the tool's private home (task 2.3). When a `~` path does not exist there, say so: a
+  // `~` is the tool's private home. When a `~` path does not exist there, say so: a
   // user who meant their own ~/.ssh or ~/.azure would otherwise see only az's "No such file",
   // naming a path of ours. One note per command.
   let tildeNoted = false;
@@ -888,7 +885,7 @@ function applyFileRule(argv: string[], opts: PolicyOptions, notes: string[]): Po
     }
   }
 
-  // acr build / acr run: a local positional source must resolve inside the workdir (C08).
+  // acr build / acr run: a local positional source must resolve inside the workdir.
   if (positional && argv[0] === "acr" && (argv[1] === "build" || argv[1] === "run")) {
     for (const idx of positionalIndexes(argv, 2)) {
       const value = argv[idx];
@@ -968,11 +965,11 @@ function detectBicep(argv: string[]): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Analytics (task 2.13): value-free fields derived from the command and the verdict.
+// Analytics: value-free fields derived from the command and the verdict.
 // ---------------------------------------------------------------------------
 
 /**
- * Derive the value-free analytics fields (task 2.13). A secret value must never appear in any of
+ * Derive the value-free analytics fields. A secret value must never appear in any of
  * them: `command_path` is only the leading command words (values come after a flag or are
  * quoted), and `flag_names` cuts every flag at its first `=`.
  */
@@ -993,7 +990,7 @@ export function analyticsFields(
   // flag_names: the flag tokens, each cut at its first `=`. A value that itself starts with `-`
   // is indistinguishable from a flag, so the token right after a space-separated option is always
   // treated as that option's value and dropped. This can undercount store-true flags, but it
-  // guarantees no secret value is ever emitted (task 2.13; proven by the U11 property test).
+  // guarantees no secret value is ever emitted (a property test in policy.test.ts checks it).
   const flagNames: string[] = [];
   let expectValue = false;
   for (const token of argv) {
@@ -1031,7 +1028,7 @@ function policyOutcome(policy: PolicyResult): string {
 }
 
 // ---------------------------------------------------------------------------
-// Bicep module scan (handler-side I/O, plan handler step 6 / Appendix G row 20).
+// Bicep module scan (handler-side I/O, for `bicep-registry`).
 // ---------------------------------------------------------------------------
 
 // A registry reference is a single-quoted string after `module <name>`, `using` or `extends`
@@ -1043,7 +1040,7 @@ const REGISTRY_MODULE =
 /**
  * Read the `.bicep` inputs named in argv (inside the workdir only) and return the first registry
  * module reference (`br:`, `br/`, `ts:`) found, else undefined. Registry modules cannot be
- * restored against the emulator (C08), so the handler answers before spawning az. This does I/O;
+ * restored against the emulator, so the handler answers before spawning az. This does I/O;
  * the tokenizer-level policy (evaluateAzCommand) does not call it.
  */
 export function scanBicepModules(

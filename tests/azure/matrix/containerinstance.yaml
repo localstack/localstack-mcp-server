@@ -1,10 +1,9 @@
 # Microsoft.ContainerInstance: container groups. Every case runs a real container on the
-# emulator's Docker engine, so all are `backing: true` (nginx:latest, the benchmark's image).
+# emulator's Docker engine, so all are `backing: true` (nginx:latest).
 # `container exec` and `container attach` are refused by the policy (they open a shell or a
 # stream), so Attach and ExecuteCommand go through rest, which only returns the connection info.
-# R.1: the typed server skipped ExecuteCommand because its fixture sent the group name where the
-# emulator wants the inner container's name; az names the container after the group, so the
-# case below passes that name.
+# ExecuteCommand needs the inner container's name, not the group's; az names the container
+# after the group, so the case below passes that name.
 provider: Microsoft.ContainerInstance
 cases:
   - id: aci-create
@@ -36,7 +35,7 @@ cases:
         Microsoft.ContainerInstance Containers ListLogs,
       ]
     backing: true
-    note: The benchmark's oracle (ta.py aci-list); samples container list/logs.
+    note: Samples container list/logs.
     setup:
       - group create --name {rg} --location {location}
       - container create --name {name:aci} --resource-group {rg} --image nginx:latest --os-type Linux --ports 80
@@ -57,7 +56,7 @@ cases:
         Microsoft.ContainerInstance ContainerGroups Restart,
       ]
     backing: true
-    note: The benchmark's oracle (ta.py aci-stop); samples container stop/start/restart.
+    note: Samples container stop/start/restart.
     setup:
       - group create --name {rg} --location {location}
       - container create --name {name:aci} --resource-group {rg} --image nginx:latest --os-type Linux --ports 80
@@ -109,7 +108,7 @@ cases:
   - id: aci-delete
     operations: [Microsoft.ContainerInstance ContainerGroups Delete]
     backing: true
-    note: The benchmark's oracle (ta.py aci-delete); samples container delete.
+    note: Samples container delete.
     setup:
       - group create --name {rg} --location {location}
       - container create --name {name:aci} --resource-group {rg} --image nginx:latest --os-type Linux --ports 80

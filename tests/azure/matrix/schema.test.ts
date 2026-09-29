@@ -1,5 +1,5 @@
-// U16: the L2 matrix is validated in the unit suite, so a malformed case fails here, not in a
-// live run (plan section 5.4, "Tests of the test code"). No emulator is needed.
+// The L2 matrix is validated in the unit suite, so a malformed case fails here, not in a
+// live run. No emulator is needed.
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import os from "os";
 import path from "path";
@@ -32,11 +32,11 @@ const loaded = loadMatrix();
 const { cases } = loaded;
 
 /**
- * The typed server's 127 COVERAGE_SKIPS diagnoses (retirement task R.1), as coverage-list keys.
- * Each is carried by a matrix case: as a known gap, or as a passing case when the CLI path does
- * not share the typed server's limitation (see the YAML comments at each case).
+ * 127 operations the emulator has had gaps in, as coverage-list keys. Each is carried by a
+ * matrix case: as a known gap, or as a passing case where the operation works, so dropping one
+ * fails here.
  */
-const TYPED_SERVER_SKIPS = [
+const GAP_PRONE_OPERATIONS = [
   "Microsoft.AppConfiguration ConfigurationStores ListKeyValue",
   "Microsoft.AppConfiguration PrivateEndpointConnections CreateOrUpdate",
   "Microsoft.AppConfiguration PrivateEndpointConnections Get",
@@ -185,7 +185,7 @@ function dummyVars(c: MatrixCase): Vars {
   return vars;
 }
 
-describe("L2 matrix schema (U16)", () => {
+describe("L2 matrix schema", () => {
   test("every file parses and every case validates", () => {
     expect(loaded.problems).toEqual([]);
     expect(loaded.files.length).toBeGreaterThan(0);
@@ -393,14 +393,14 @@ describe("L2 matrix schema (U16)", () => {
     expect(bicepCases.some((c) => c.pr)).toBe(true);
   });
 
-  test("known gaps carry a reason, and every typed-server skip is carried (R.1)", () => {
+  test("known gaps carry a reason, and every gap-prone operation is carried", () => {
     for (const c of cases.filter((x) => x.known_gap)) {
       expect(c.known_gap!.reason.trim().length).toBeGreaterThan(10);
       expect(c.operations.length).toBeGreaterThan(0);
     }
-    expect(new Set(TYPED_SERVER_SKIPS).size).toBe(127);
+    expect(new Set(GAP_PRONE_OPERATIONS).size).toBe(127);
     const covered = new Set(cases.flatMap((c) => c.operations));
-    expect(TYPED_SERVER_SKIPS.filter((k) => !covered.has(k))).toEqual([]);
+    expect(GAP_PRONE_OPERATIONS.filter((k) => !covered.has(k))).toEqual([]);
   });
 
   test("the matrix files use LF line endings", () => {

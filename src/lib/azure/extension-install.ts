@@ -1,5 +1,5 @@
 /**
- * Installs the curated Azure CLI extensions (plan task 5.3, Appendix E). One installer for
+ * Installs the curated Azure CLI extensions. One installer for
  * `scripts/install-azure-extensions.mjs` (CI, developers) and the `install-azure-addons` command.
  *
  * Every pin runs `az extension add --name <n> --version <v> [--allow-preview true] --upgrade

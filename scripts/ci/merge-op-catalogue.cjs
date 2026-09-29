@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Merges the L2 matrix shards' operation catalogues into one (plan task 4.2; review F18;
- * R.2's portal gate reads the result). The rule of tests/azure/matrix/README.md: per
+ * Merges the L2 matrix shards' operation catalogues into one (the portal's inventory gate
+ * reads the result). The rule of tests/azure/matrix/README.md: per
  * operation key, concatenate the cases and keep the best result (pass > gap_fixed >
  * known_gap > fail > setup_failed > skipped).
  *

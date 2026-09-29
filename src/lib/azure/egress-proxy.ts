@@ -1,22 +1,22 @@
 /**
- * Containment layer 4 (plan task 2.8, Appendix B.7; checks C01 and C08): the loopback
- * proxy that every `az` child reaches the network through, via HTTPS_PROXY/HTTP_PROXY.
+ * The egress guard: the loopback proxy that every `az` child reaches the network through,
+ * via HTTPS_PROXY/HTTP_PROXY.
  *
  * - It relays only to the emulator: `localhost.localstack.cloud` and every name under it
  *   (the apex too, because the emulator's LRO `Location` headers point there), plus
  *   `localhost`, `127.0.0.1` and `::1`.
  * - It maps those names to 127.0.0.1 itself (::1 for a literal ::1), which is what
  *   LocalStack's public DNS answers anyway. No DNS lookup ever happens, so a hijacked or
- *   blocked answer changes nothing (review F04, Appendix G row 3).
+ *   blocked answer changes nothing.
  * - Every other host gets 403 and is recorded under the call that asked for it, found by
  *   the tag in the proxy URL's userinfo. The runner reads those records to fail fast and
- *   to name the blocked host, which az's own error does not do on SDK paths (C01).
+ *   to name the blocked host, which az's own error does not do on SDK paths.
  * - A request without a known tag gets 407. Python's requests sends the tag up front, but
- *   .NET children such as Bicep send it only after this challenge (C08). It also keeps
+ *   .NET children such as Bicep send it only after this challenge. It also keeps
  *   other local processes from using the guard as a relay.
  *
  * The guard runs inside the MCP server's process, so no socket error, throw or rejection
- * may escape into the event loop. C01's first proxy died on one reset after a 403.
+ * may escape into the event loop: a client that resets right after a 403 must not crash it.
  */
 
 import {
@@ -34,7 +34,7 @@ import { connect, isIP, isIPv6, type AddressInfo, type Socket } from "node:net";
 import type { Duplex } from "node:stream";
 import type { EgressEvent, EgressProxy, EgressRecords } from "./types";
 
-/** LocalStack's public zone: every name in it resolves to 127.0.0.1 (C01). */
+/** LocalStack's public zone: every name in it resolves to 127.0.0.1. */
 const EMULATOR_ZONE = "localhost.localstack.cloud";
 
 /**
@@ -42,10 +42,10 @@ const EMULATOR_ZONE = "localhost.localstack.cloud";
  * they are expected blocks, never the command's failure and never a fail-fast trigger.
  */
 export const HOUSEKEEPING_HOSTS: readonly string[] = [
-  "azcliprod.blob.core.windows.net", // az's update check (C01)
-  "app.aladdin.microsoft.com", // az 2.85's command recommender, until bootstrap turns it off (C01)
-  "aka.ms", // Bicep's public-module index, fetched on every build (C08)
-  "raw.githubusercontent.com", // the `vm create --image <alias>` list; az falls back to its copy (C08)
+  "azcliprod.blob.core.windows.net", // az's update check
+  "app.aladdin.microsoft.com", // az 2.85's command recommender, until bootstrap turns it off
+  "aka.ms", // Bicep's public-module index, fetched on every build
+  "raw.githubusercontent.com", // the `vm create --image <alias>` list; az falls back to its copy
   // `functionapp create` without --workspace downloads Application Insights' region map
   // (appservice/_create_util.py get_region_mapping). az catches the failure, warns, and still
   // creates the function app; as a fail-fast trigger it killed a successful create (L4, L2).
@@ -153,7 +153,7 @@ function builtInTarget(host: string): "127.0.0.1" | "::1" | undefined {
  * Whether the guard relays `host` (a name or an IP literal, bracketed or not): the
  * built-in list of `localhost.localstack.cloud` and every name under it, `localhost`,
  * `127.0.0.1` and `::1`. Case and a trailing dot do not matter. The policy's URL rule and
- * the endpoint check can share it (plan tasks 2.1 and 2.7).
+ * the endpoint check can share it.
  */
 export function isAllowedEgressHost(host: string): boolean {
   const canonical = canonicalHost(host);
@@ -354,7 +354,7 @@ class EgressGuard implements EgressProxy {
   private onConnect(req: IncomingMessage, socket: Duplex, head: Buffer): void {
     // First, before anything can throw: Node hands the raw socket over without an 'error'
     // listener, and a client that resets right after our answer (curl, requests) would
-    // take the whole process down with it (C01).
+    // take the whole process down with it.
     socket.on("error", (error) => this.log(`client socket error: ${errorCode(error)}`));
     try {
       const target = parseAuthority(req.url ?? "");
@@ -651,7 +651,7 @@ class EgressGuard implements EgressProxy {
 /**
  * Start the guard on 127.0.0.1 and a port the OS picks. It resolves only once the guard
  * listens: a child started earlier would spend 14 s per call on a proxy that is not there
- * (C01, Appendix G row 18).
+ *.
  */
 export async function startEgressProxy(options: EgressProxyOptions = {}): Promise<EgressProxy> {
   const guard = new EgressGuard(options);

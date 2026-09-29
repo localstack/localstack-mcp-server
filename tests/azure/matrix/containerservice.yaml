@@ -3,10 +3,6 @@
 # engine (about 3 minutes to start), so every cluster case is `backing: true` and among the
 # heaviest; fleet cases are too, to be safe on a shared engine.
 # `aks get-credentials` writes the kubeconfig into the tool's private home, never the real ~/.kube.
-# R.1: the typed server's ten skips were known gaps (agent-pool and maintenance-config reads after
-# create, Machines, Delete's LRO, Start, RunCommand). A full run on 2026-09-28 saw the pool reads,
-# the machine list and the delete pass, and found two new 500s (a pool's upgrade profile, the
-# `default` maintenance window); each still-failing operation has a known-gap case of its own.
 provider: Microsoft.ContainerService
 cases:
   - id: aks-catalogue
@@ -36,7 +32,7 @@ cases:
         Microsoft.ContainerService ManagedClusters ListClusterAdminCredentials,
       ]
     backing: true
-    note: The benchmark's oracle (ta.py aks-cluster-create); the kubeconfig lands in the private home.
+    note: The kubeconfig lands in the private home.
     setup:
       - group create --name {rg} --location {location}
       - aks create --name {name:aks} --resource-group {rg} --node-count 1 --generate-ssh-keys --no-wait --yes
@@ -63,7 +59,7 @@ cases:
         Microsoft.ContainerService AgentPools GetAvailableAgentPoolVersions,
       ]
     backing: true
-    note: The benchmark's oracle (ta.py aks-nodepool-add). GetUpgradeProfile is its own known gap below.
+    note: GetUpgradeProfile is its own known gap below.
     setup:
       - group create --name {rg} --location {location}
       - aks create --name {name:aks} --resource-group {rg} --node-count 1 --generate-ssh-keys --no-wait --yes
@@ -108,8 +104,7 @@ cases:
       [Microsoft.ContainerService AgentPools Get, Microsoft.ContainerService AgentPools Delete]
     backing: true
     note: >-
-      A known gap until a full run on 2026-09-28 (typed server: a pool added to an initialising cluster was not
-      visible to the next Get, and Delete answered 400); the matrix waits for the cluster first.
+      The matrix waits for the cluster before it adds the pool.
     setup:
       - group create --name {rg} --location {location}
       - aks create --name {name:aks} --resource-group {rg} --node-count 1 --generate-ssh-keys --no-wait --yes
@@ -133,7 +128,7 @@ cases:
       ]
     backing: true
     note: >-
-      The benchmark's oracle (ta.py aks-maintenance-configs). The auto-upgrade schedule (a
+      The auto-upgrade schedule (a
       maintenanceWindow), not `default` (timeInWeek), which is its own known gap below.
     setup:
       - group create --name {rg} --location {location}
@@ -181,9 +176,6 @@ cases:
         Microsoft.ContainerService MaintenanceConfigurations Delete,
       ]
     backing: true
-    note: >-
-      A known gap until a full run on 2026-09-28 (typed server: under load the Get right after CreateOrUpdate
-      missed the new configuration); with the auto-upgrade schedule it passed twice on az 2.90.
     setup:
       - group create --name {rg} --location {location}
       - aks create --name {name:aks} --resource-group {rg} --node-count 1 --generate-ssh-keys --no-wait --yes
@@ -214,7 +206,6 @@ cases:
         Microsoft.ContainerService Snapshots Delete,
       ]
     backing: true
-    note: The benchmark's oracles (ta.py aks-cluster-stop, td.py td-aks-snapshot-tags).
     setup:
       - group create --name {rg} --location {location}
       - aks create --name {name:aks} --resource-group {rg} --node-count 1 --generate-ssh-keys --no-wait --yes
@@ -243,7 +234,6 @@ cases:
         Microsoft.ContainerService ManagedClusters RunCommand,
       ]
     backing: true
-    note: The benchmark's oracle (td.py td-aks-start, blocked).
     setup:
       - group create --name {rg} --location {location}
       - aks create --name {name:aks} --resource-group {rg} --node-count 1 --generate-ssh-keys --no-wait --yes
@@ -262,7 +252,7 @@ cases:
       - group delete --name {rg} --yes --no-wait
     known_gap:
       reason: >-
-        Typed server COVERAGE_SKIPS: the ARM start route is synchronous and the cluster's power state
+        The ARM start route is synchronous and the cluster's power state
         never reaches Running, so Start does not complete and RunCommand is always refused with 400
         "PowerState=Stopped" (the case starts the cluster).
       date: 2026-09-27
@@ -315,8 +305,7 @@ cases:
     known_gap:
       reason: >-
         The list of a one-node pool's machines is empty (Azure lists one machine per
-        node), so Get has nothing to read. The list no longer raises AssertionError (typed server
-        COVERAGE_SKIPS); FUN-01's "gap_fixed" only saw that `value` exists.
+        node), so Get has nothing to read.
       date: 2026-09-28
 
   - id: aks-machines-create
@@ -339,7 +328,7 @@ cases:
       - group delete --name {rg} --yes --no-wait
     known_gap:
       reason: >-
-        Typed server COVERAGE_SKIPS: the AKS emulator has no scale-set-backed machines, and
+        The AKS emulator has no scale-set-backed machines, and
         CreateOrUpdate fails with HTTP 500 ConfigException "Invalid kube-config file".
       date: 2026-09-28
 
@@ -347,8 +336,7 @@ cases:
     operations: [Microsoft.ContainerService ManagedClusters Delete]
     backing: true
     note: >-
-      A known gap until a full run on 2026-09-28 (typed server: the delete LRO did not answer within its 90 s read
-      timeout); it took 154 s there, so the case allows 600 s.
+      The delete can take minutes, so the case allows 600 s.
     timeout: 600
     setup:
       - group create --name {rg} --location {location}
@@ -374,7 +362,7 @@ cases:
         Microsoft.ContainerService Fleets Delete,
       ]
     backing: true
-    note: The benchmark's oracle (td.py td-fleet-delete); extension fleet. A hubless fleet.
+    note: Extension fleet. A hubless fleet.
     setup:
       - group create --name {rg} --location {location}
       - fleet create --name {name:fleet} --resource-group {rg} --location {location}

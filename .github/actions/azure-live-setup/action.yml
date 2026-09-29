@@ -1,7 +1,7 @@
 name: Azure live setup
 description: >-
   Node, the build, the pinned azure-cli in its own venv, the curated extensions and the
-  pinned Bicep (plan section 8). The calling job sets LOCALSTACK_AZ_PATH and
+  pinned Bicep. The calling job sets LOCALSTACK_AZ_PATH and
   LOCALSTACK_AZ_BICEP_PATH to /home/runner/az/bin/python3 and /home/runner/bicep-bin/bicep.
 inputs:
   az-version:

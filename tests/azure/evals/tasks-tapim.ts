@@ -1,9 +1,8 @@
 /**
- * E2 tasks drawn from the benchmark's T-APIM tier (benchmark/harness/tapim.py): API
- * Management operations, one phrasing. Each run gets its own APIM service (created in about
- * a second, no backing container) in the run's group. Most operations have no dedicated
- * CLI command, so the benchmark's oracles use `az rest`; an XML policy body travels
- * JSON-escaped (\u003c, \u003e), as the benchmark sent it.
+ * The E2 tasks of tier T-APIM: API Management operations, one phrasing. Each run gets its
+ * own APIM service (created in about a second, no backing container) in the run's group.
+ * Most operations have no dedicated CLI command, so the oracles use `az rest`; an XML
+ * policy body travels JSON-escaped (\u003c, \u003e).
  *
  * The verifier library arrives as a parameter (see verifiers.ts).
  */
@@ -11,7 +10,7 @@ import type * as V from "./verifiers";
 import type { SetupContext, Task } from "./types";
 
 /**
- * The typed server's static self-signed PFX (CN=mcp-t2-cert.contoso.com, no password,
+ * A static self-signed PFX (CN=mcp-t2-cert.contoso.com, no password,
  * valid 2026-2036), from its tests/coverage_mapping.py. The emulator parses the material,
  * so it must be a genuine PKCS#12 archive.
  */
@@ -64,7 +63,7 @@ export function tapimTasks(v: typeof V): Task[] {
   const SVC_ID =
     "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{service_name}";
 
-  /** The benchmark's _rest: an `az rest` call on a path of the run's service. */
+  /** An `az rest` call on a path of the run's service. */
   const rest = (method: string, path: string, body?: string) =>
     `rest --method ${method} --url ${SVC_ID}${path}?api-version=${APIM}` +
     (body ? ` --body '${body}'` : "");
@@ -96,8 +95,8 @@ export function tapimTasks(v: typeof V): Task[] {
 
   /**
    * _children: PUT child resources of the service in order (paths and string values may
-   * name slots); `{rand:x}` picks a fresh random name for slot x (the benchmark's
-   * `_name(x.split("_")[0][:6])`).
+   * name slots); `{rand:x}` picks a fresh random name for slot x (a prefix of up to six
+   * characters from x, up to its first underscore, plus 6 hex characters).
    */
   async function children(ctx: SetupContext, items: Array<[string, unknown]>) {
     const fillRand = (s: string): string => {
@@ -152,7 +151,7 @@ export function tapimTasks(v: typeof V): Task[] {
   const POLICY =
     '<policies><inbound><base /><rate-limit calls="{calls}" renewal-period="60" /></inbound><backend><base />' +
     "</backend><outbound><base /></outbound><on-error><base /></on-error></policies>";
-  // The same XML with < > " written as JSON escapes, as the benchmark sent it.
+  // The same XML with < > " written as JSON escapes.
   const POLICY_JSON = POLICY.replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/"/g, '\\"');
 
   const tasks: Task[] = [];

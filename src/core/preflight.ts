@@ -28,7 +28,7 @@ const STACK_CLIENT_TOOLS: Record<LocalStackStack, string> = {
 };
 
 /**
- * Whether the Snowflake emulator's health `edition` tells it apart from AWS (plan Q21).
+ * Whether the Snowflake emulator's health `edition` tells it apart from AWS.
  * It does not: localstack/snowflake:latest reports `pro`, as AWS does (checked 2026-09-28).
  * So the Snowflake client's guard refuses only on clear evidence (a Snowflake image that
  * reports `pro` is never turned away), and requireStack names the stack from the image.
@@ -71,7 +71,7 @@ function detectContainerStack(): Promise<ContainerStack> {
 }
 
 /**
- * Refuse a tool that meets the wrong emulator (plan task 1.4, decision D9).
+ * Refuse a tool that meets the wrong emulator.
  *
  * The stack comes from the gateway's health `edition`, then from the running
  * container's image and labels. When it is still unknown, the check passes
@@ -180,7 +180,7 @@ export const requireLocalStackRunning = async (): Promise<ToolResponse | null> =
 };
 
 // ---------------------------------------------------------------------------
-// The Azure client (plan task 2.11). The handler runs them in the order of plan
+// The Azure client. The handler runs them in the order of plan
 // section 5.2: the config and the policy first (no emulator needed), then
 // requireStack("azure"), requireAzureEmulatorRunning() and requireAzureCli() as one
 // group, then the bootstrap.
@@ -204,7 +204,7 @@ export const requireAzureEmulatorRunning = async (): Promise<ToolResponse | null
     : ResponseBuilder.error("LocalStack Azure Emulator Not Ready", status.message);
 };
 
-/** Resolves and probes `az` once per process (C03: ~0.17 s); the minimum is 2.85. */
+/** Resolves and probes `az` once per process (~0.17 s); the minimum is 2.85. */
 export const requireAzureCli = async (): Promise<ToolResponse | null> => {
   try {
     await azCli();
@@ -224,7 +224,7 @@ export const requireAzureCli = async (): Promise<ToolResponse | null> => {
 };
 
 /**
- * Bootstraps the isolated CLI profile under its locks (plan task 2.6). A failed
+ * Bootstraps the isolated CLI profile under its locks. A failed
  * `az` step is an az failure, so the caller formats it with the error classes.
  */
 export const requireAzureCliConfigured = async (

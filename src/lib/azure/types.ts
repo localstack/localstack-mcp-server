@@ -1,10 +1,10 @@
 /**
- * Shared contracts of the Azure client modules (plan section 2, Appendix B).
+ * Shared contracts of the Azure client modules.
  * Every module in src/lib/azure/ builds against these types, so they can be
  * implemented and tested independently.
  */
 
-/** Resolved settings of the Azure client tool (Appendix D; built by getAzureConfig). */
+/** Resolved settings of the Azure client tool (built by getAzureConfig). */
 export interface AzureConfig {
   /** Gateway port of the Azure emulator (LOCALSTACK_AZURE_PORT, default LOCALSTACK_PORT, 4566). */
   port: number;
@@ -56,7 +56,7 @@ export interface AzureConfig {
   errors: string[];
 }
 
-/** How to start `az` (plan task 2.2, check C03). */
+/** How to start `az`. */
 export interface AzExecutable {
   /** The executable spawned: the CLI's Python, or a launcher run as-is. */
   file: string;
@@ -70,11 +70,11 @@ export interface AzExecutable {
   version?: string;
 }
 
-/** Records the egress guard keeps per call (plan task 2.8). */
+/** Records the egress guard keeps per call. */
 export interface EgressRecords {
-  /** Non-housekeeping hosts refused (Appendix G row 15). */
+  /** Non-housekeeping hosts refused. */
   refused: string[];
-  /** Allowed hosts whose upstream connection failed (row 2 with the guard on). */
+  /** Allowed hosts whose upstream connection failed (`conn-refused` with the guard on). */
   upstream: string[];
   /** Housekeeping hosts refused (never a failure). */
   housekeeping: string[];
@@ -87,7 +87,7 @@ export interface EgressEvent {
   host: string;
 }
 
-/** Containment layer 4: the CONNECT allow-list proxy (plan task 2.8, Appendix B.7). */
+/** Containment layer 4: the CONNECT allow-list proxy. */
 export interface EgressProxy {
   /** The loopback port the guard listens on. */
   readonly port: number;
@@ -102,7 +102,7 @@ export interface EgressProxy {
 
 export interface AzRunOptions {
   timeoutMs: number;
-  /** Always the workdir (plan review R02, N14). */
+  /** Always the workdir. */
   cwd: string;
   signal?: AbortSignal;
   /** Called about every 10 s while `az` runs. */
@@ -121,7 +121,7 @@ export interface AzRunResult {
   egress: EgressRecords;
   /** The spawn itself failed (ENOENT, EINVAL, ENAMETOOLONG, ...). */
   spawnError?: string;
-  /** Refused before spawning because the Windows command line would be too long (row 16). */
+  /** Refused before spawning because the Windows command line would be too long (`too-long`). */
   tooLong?: boolean;
   /** Killed early by the fail-fast rule after a refusal or an upstream failure. */
   failFast?: "refused" | "upstream";
@@ -131,7 +131,7 @@ export interface AzRunner {
   run(argv: string[], opts: AzRunOptions): Promise<AzRunResult>;
 }
 
-/** Outcome of the pure command policy (plan task 2.7). */
+/** Outcome of the pure command policy. */
 export type PolicyResult =
   | {
       ok: true;
@@ -181,7 +181,7 @@ export interface PolicyOptions {
   platform?: NodeJS.Platform;
 }
 
-/** The first line class of a failure (Appendix G class ids). */
+/** The class of a failure, as its first line names it. */
 export type AzFailureClass =
   | "login"
   | "conn-refused"

@@ -1,21 +1,20 @@
-# Curated Azure CLI extensions for the localstack-azure-client tool (plan Appendix E, decision D10).
+# Curated Azure CLI extensions for the localstack-azure-client tool.
 #
 # Format: one extension per line, "<name> <version> [preview]".
 #   "preview" marks a preview-only build, installed with --allow-preview true.
 #   Lines starting with '#' and blank lines are ignored. No trailing comments: the Docker build
 #   reads this file with `while read -r name version flag`.
 #
-# Which extensions: the 26 of the benchmark's extension_sets.json ("E"), measured against
-# azure-cli 2.90.0: an extension is curated when its commands reach emulator-served providers and
+# Which extensions: measured against azure-cli 2.90.0, an extension is curated when its commands reach emulator-served providers and
 # it overrides no core command. Excluded because they override core commands: aks-preview, authV2,
 # containerapp, cosmosdb-preview, keyvault-preview, storage-blob-preview, storage-preview.
 #
-# Versions: as check C05 installed them against azure-cli 2.90.0 (2026-09-27), except
+# Versions: as installed against azure-cli 2.90.0 (2026-09-27), except
 # application-insights, pinned to the stable 1.2.3 instead of the preview 2.0.0b2 that
 # --allow-preview picked.
 #
 # DR4 checks weekly that this set installs and loads with the pinned az, and reports newer
-# releases. Installed by scripts/install-azure-extensions.mjs (CI, the init wizard, developers)
+# releases. Installed by scripts/install-azure-extensions.mjs (CI, `install-azure-addons`, developers)
 # and by the Docker image build. src/lib/azure/extension-map.ts maps the extensions' command
 # groups; its test keeps the two lists in sync.
 

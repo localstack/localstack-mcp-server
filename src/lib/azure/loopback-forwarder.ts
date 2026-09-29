@@ -2,13 +2,12 @@ import net from "net";
 import { DockerApiClient } from "../docker/docker.client";
 
 /**
- * The loopback forwarder (plan task 5.2; check C05; review F19). Inside the Docker
+ * The loopback forwarder. Inside the Docker
  * image the emulator is not on the server's 127.0.0.1, yet everything else assumes it
  * is: the health checks, the egress guard (which maps the emulator's names to
  * 127.0.0.1 without DNS) and az's ARM endpoint. So, in Docker only, the server listens
  * on 127.0.0.1 on the emulator's ports and pipes each connection to the real emulator.
- * TLS stays end to end: bytes are relayed, never terminated (C05: 36 and 29
- * connections, 0 failures).
+ * TLS stays end to end: bytes are relayed, never terminated.
  */
 
 /** The emulator's external service ports when its bindings cannot be read (the server's own spec). */
@@ -24,7 +23,7 @@ export interface PortMirror {
 export interface Forwarder {
   readonly target: string;
   readonly ports: PortMirror[];
-  /** Connections relayed so far; L5 reads it to prove traffic went through (review R02, N20). */
+  /** Connections relayed so far; L5 reads it to prove traffic went through. */
   connections(): number;
   failures(): number;
   close(): Promise<void>;
@@ -219,7 +218,7 @@ export async function resetLoopbackForwarder(): Promise<void> {
 
 /**
  * Start the forwarder in Docker only, and only when 127.0.0.1:<port> does not already
- * answer (for example under `--network host`). Target order (C05):
+ * answer (for example under `--network host`). Target order:
  * LOCALSTACK_AZURE_FORWARD_TARGET, then host.docker.internal, then the emulator
  * container's IP through the Docker socket (this needs a shared network). When no
  * target answers, nothing listens and the health check reports the emulator as down.

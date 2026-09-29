@@ -1,4 +1,4 @@
-// The spawn smoke's Bicep fixture (plan section 8): no registry modules, so a build
+// The spawn smoke's Bicep fixture: no registry modules, so a build
 // needs nothing but the local Bicep binary.
 param location string = resourceGroup().location
 

@@ -13,7 +13,7 @@ import { AZURE_EXTENSION_PINS } from "../azure/extension-pins";
 import { locateAz, nodeResolveFs, type LocatedAz } from "../azure/resolve-az";
 
 /**
- * The steps of `install-azure-addons` (plan task 5.3): the curated Azure CLI extensions into
+ * The steps of `install-azure-addons`: the curated Azure CLI extensions into
  * the tool's extension dir, and the pinned Bicep CLI into ~/.localstack/azure/bin. The user runs
  * that command, as they install the Snowflake CLI for the Snowflake tool; the setup wizard never
  * installs a tool's CLI. The Docker image bundles both.

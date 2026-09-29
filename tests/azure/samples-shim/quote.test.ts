@@ -1,10 +1,10 @@
 /**
- * U16, the tests of the L4 test code (plan task 4.4): the `az` shim's quoting and its
+ * The tests of the L4 test code: the `az` shim's quoting and its
  * envelope round trip. Runs in plain `yarn test`; no emulator, no real az.
  *
- * - Quoting: every argv of the U2 samples corpus (and synthetic and random ones) goes
+ * - Quoting: every argv of the samples corpus (and synthetic and random ones) goes
  *   through the shim's quote function and back through the tool's tokenizer unchanged,
- *   and never uses the `'\''` idiom the tokenizer refuses (C06).
+ *   and never uses the `'\''` idiom the tokenizer refuses.
  * - Envelope: the shim writes the envelope's stdout to fd 1 and stderr plus notes to
  *   fd 2 byte for byte, and exits with az's code; checked in-process, through a real
  *   child process against a fake MCP server, and (where a usable bash exists) through
@@ -91,14 +91,14 @@ const SHIM_DIR = __dirname;
 const SHIM_JS = path.join(SHIM_DIR, "az-shim.cjs");
 const SHIM_BASH = path.join(SHIM_DIR, "az");
 
-// The tokenizer options the Azure tool uses (policy.ts step 2; check C06 variant P).
+// The tokenizer options the Azure tool uses (policy.ts step 2).
 const AZURE_OPTIONS = {
   quotedControlChars: true,
   keepEmptyQuoted: true,
   bashDoubleQuoteEscapes: true,
 } as const;
 
-// As in the U2 corpus test: a workdir the samples' relative file names resolve inside.
+// As in the samples corpus test (policy.corpus.test.ts): a workdir the samples' relative file names resolve inside.
 const corpusOpts: PolicyOptions = {
   workdir: "/work/samples",
   homeDir: "/work/.mcp/azure/home",
@@ -108,8 +108,8 @@ const corpusOpts: PolicyOptions = {
 const POSIX_IDIOM = "'\\''";
 
 // ---------------------------------------------------------------------------------------
-describe("U16 shim quoting: the samples corpus", () => {
-  test("the fixture has the 736 distinct commands of U2", () => {
+describe("shim quoting: the samples corpus", () => {
+  test("the fixture has the 736 distinct commands of the samples corpus", () => {
     expect(corpus.cases).toHaveLength(736);
   });
 
@@ -150,7 +150,7 @@ describe("U16 shim quoting: the samples corpus", () => {
   });
 });
 
-describe("U16 shim quoting: synthetic and random argv", () => {
+describe("shim quoting: synthetic and random argv", () => {
   const cases: Array<[string, string[]]> = [
     ["empty strings", ["keyvault", "secret", "set", "--value", "", "--name", ""]],
     ["only an empty string", [""]],
@@ -265,7 +265,7 @@ describe("U16 shim quoting: synthetic and random argv", () => {
 });
 
 // ---------------------------------------------------------------------------------------
-describe("U16 shim: argv from the bash half", () => {
+describe("shim: argv from the bash half", () => {
   const nul = (fields: string[]) => Buffer.from(fields.map((f) => `${f}\0`).join(""), "utf8");
 
   test("NUL-separated fields decode exactly, empty ones and newlines included", () => {
@@ -287,7 +287,7 @@ describe("U16 shim: argv from the bash half", () => {
   });
 });
 
-describe("U16 shim: the server's environment", () => {
+describe("shim: the server's environment", () => {
   test("POSIX: the shim dir leaves PATH; envelope, workdir and the recursion guard are set", () => {
     const env = shim.serverEnv(
       {
@@ -353,7 +353,7 @@ const envelopeResult = (envelope: Partial<Envelope>, text = "answer"): ToolResul
   ],
 });
 
-// The U16 case: a successful command that also printed a warning.
+// The round-trip case: a successful command that also printed a warning.
 const WARN_ENVELOPE: Partial<Envelope> = {
   exitCode: 0,
   stdout:
@@ -361,7 +361,7 @@ const WARN_ENVELOPE: Partial<Envelope> = {
   stderr: "WARNING: This command is in preview and under development.\n",
 };
 
-describe("U16 shim: from the envelope to fd 1, fd 2 and the exit code", () => {
+describe("shim: from the envelope to fd 1, fd 2 and the exit code", () => {
   test("success with a warning: stdout and stderr exactly, exit 0", () => {
     const plan = shim.planOutput(envelopeResult(WARN_ENVELOPE), ["group", "list"]);
     expect(plan.stdout).toBe(WARN_ENVELOPE.stdout);
@@ -480,7 +480,7 @@ describe("U16 shim: from the envelope to fd 1, fd 2 and the exit code", () => {
   });
 });
 
-describe("U16 shim: CI-only acr login rewrite (known gap, review R02 N1)", () => {
+describe("shim: CI-only acr login rewrite (known gap)", () => {
   test("the samples' form is rewritten to --expose-token with JSON output", () => {
     expect(
       shim.planAcrLoginRewrite(["acr", "login", "--name", "x_acr_name", "--only-show-errors"])
@@ -618,7 +618,7 @@ interface Run {
   stderr: Buffer;
 }
 
-describe("U16 shim: a real child process against a fake MCP server", () => {
+describe("shim: a real child process against a fake MCP server", () => {
   let dir: string;
   let fakeServer: string;
   let record: string;
@@ -952,7 +952,7 @@ test("the bash shim has LF line endings and a bash shebang", () => {
 // then fell through to AzurePowerShellCredential, whose Az module wrote three files into the
 // user's real %USERPROFILE%\.Azure (.NET ignores the step's private USERPROFILE).
 (process.platform === "win32" ? describe : describe.skip)(
-  "U16 shim on Windows: cmd.exe callers",
+  "shim on Windows: cmd.exe callers",
   () => {
     let dir: string;
     let fakeServer: string;
@@ -1088,7 +1088,7 @@ test("the Windows .cmd files have CRLF line endings (cmd.exe parses batch files 
   }
 });
 
-describe("U16 shim: Git Bash drive paths reach a Windows az as Windows paths", () => {
+describe("shim: Git Bash drive paths reach a Windows az as Windows paths", () => {
   // Git Bash turns `/c/...` into `C:/...` when it starts a native Windows program, but the bash
   // shim hands its argv NUL-separated (so ARM ids stay intact), so the shim redoes the one part a
   // Windows az needs: a single-letter drive root, alone or as a `--flag=` value.
@@ -1128,7 +1128,7 @@ describe("U16 shim: Git Bash drive paths reach a Windows az as Windows paths", (
   });
 });
 
-describe("U16 shim: a file elsewhere in the sample widens the workdir to the sample", () => {
+describe("shim: a file elsewhere in the sample widens the workdir to the sample", () => {
   // The tool runs az in its workdir and refuses files outside it. The shim makes the workdir the
   // directory the script called az from, so a script that `cd`s into a subfolder and then names a
   // sibling folder's file by absolute path was refused. A user's workdir is the whole project, so

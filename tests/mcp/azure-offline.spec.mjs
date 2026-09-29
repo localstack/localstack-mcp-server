@@ -1,6 +1,6 @@
 import { expect, test } from "@gleanwork/mcp-server-tester/fixtures/mcp";
 
-// P3 (plan task 2.16): the Azure tool's error paths with no emulator. The
+// The Azure tool's error paths with no emulator. The
 // azure-offline project gives the server a dummy token and a port where nothing
 // listens (playwright.config.mjs).
 

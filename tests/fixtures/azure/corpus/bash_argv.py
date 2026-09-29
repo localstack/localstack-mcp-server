@@ -1,4 +1,4 @@
-"""C06: independent argv oracle. Feed each extracted command to GNU bash's `printf '%s\\0'` BUILTIN.
+"""The independent argv oracle. Feed each extracted command to GNU bash's `printf '%s\\0'` BUILTIN.
 
 Safety: only commands that pass a static guard are sent (no backtick, no unescaped `$` outside
 single quotes, no unquoted ; & | < > ( ) or newline), so bash cannot expand or run anything; bash

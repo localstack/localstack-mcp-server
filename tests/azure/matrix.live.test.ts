@@ -1,13 +1,13 @@
-// L2: the per-provider command matrix (plan section 5.4, tasks 4.2 and 4.7).
+// L2: the per-provider command matrix.
 //
 //   AZURE_LIVE=1 npx jest -c jest.azure-live.config.js --selectProjects matrix-subset --runInBand
 //
 // The cases live in tests/azure/matrix/*.yaml, one file per emulator provider. Each case runs
 // setup -> command -> expect -> cleanup through the real tool handler (the harness's `az()`), and
-// reads az's stdout from the test envelope, never from the tool's prose (review R02, N2).
+// reads az's stdout from the test envelope, never from the tool's prose.
 //
 // This file also exports the matrix model (loader, validator, renderer, selection, sharding):
-// the U16 schema test (tests/azure/matrix/schema.test.ts) imports it, so the live tests below
+// the schema test (tests/azure/matrix/schema.test.ts) imports it, so the live tests below
 // register only when Jest runs this file itself.
 //
 // Knobs (tests/azure/matrix/README.md has the full list):
@@ -17,7 +17,7 @@
 //   AZURE_MATRIX_GAPS=run|skip run known gaps as expected failures (default) or skip them
 //   AZURE_MATRIX_ONLY=a,b      run only these case ids or file stems (local debugging)
 //   AZURE_MATRIX_RESULTS       JSONL of case results, appended as they land
-//   AZURE_OP_CATALOGUE_OUT     the per-operation catalogue for the portal (review F18)
+//   AZURE_OP_CATALOGUE_OUT     the per-operation catalogue for the portal
 import { execFile } from "child_process";
 import { randomUUID } from "crypto";
 import {
@@ -44,7 +44,7 @@ import {
 } from "./live/harness";
 
 // ---------------------------------------------------------------------------------------------
-// The matrix model (shared with the U16 schema test)
+// The matrix model (shared with the schema test)
 
 export const MATRIX_DIR = path.join(__dirname, "matrix");
 export const REPO_ROOT = path.resolve(__dirname, "..", "..");
@@ -91,7 +91,7 @@ export function fileForProvider(provider: string): string {
     .replace(/\./g, "-")}.yaml`;
 }
 
-/** The answer classes of Appendix G (src/lib/azure/types.ts AzFailureClass). */
+/** The answer classes (src/lib/azure/types.ts AzFailureClass). */
 export const CLASS_IDS = [
   "login",
   "conn-refused",
@@ -120,7 +120,7 @@ export const CLASS_IDS = [
   "other",
 ];
 
-/** Classes retried once, with the retry logged (plan section 7, flakiness). */
+/** Classes retried once, with the retry logged. */
 export const TRANSIENT_CLASSES = new Set(["conn-refused", "discovery", "emulator-error"]);
 
 /** Failures that polling cannot outwait: an `until` step stops at once on them. */
@@ -596,7 +596,7 @@ function validatePlaceholders(c: MatrixCase, where: string, out: string[]): void
   for (const s of strings) checkTemplate(s, "expect");
 }
 
-/** Safety lints: what a case creates, it cleans up (plan section 7, local safety). */
+/** Safety lints: what a case creates, it cleans up. */
 function validateCleanup(c: MatrixCase, where: string, out: string[]): void {
   const created = [...c.setup.map((s) => s.run), c.command].join("\n");
   const cleanup = c.cleanup.map((s) => s.run);
@@ -1522,7 +1522,7 @@ function registerLiveTests(): void {
         const runner =
           require("../../src/lib/azure/runner") as typeof import("../../src/lib/azure/runner");
         const marker = names.generic(runId(), "never");
-        // With the warm worker (FUN-08) the command runs inside a long-lived Python process: the
+        // With the warm worker the command runs inside a long-lived Python process: the
         // marker is in its stdin, not in any command line, and idle workers stay alive by design.
         // So there only the answer is checked here; worker-runner.test.ts covers the kill.
         const workerMode = process.env.LOCALSTACK_AZ_RUNNER === "worker";

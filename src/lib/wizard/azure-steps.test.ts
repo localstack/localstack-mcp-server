@@ -5,7 +5,7 @@ import type { RunAz } from "../azure/extension-install";
 import { AZURE_EXTENSION_PINS } from "../azure/extension-pins";
 import { installAzureExtensionsStep, installBicepStep, type AzureStepDeps } from "./azure-steps";
 
-// U12 (plan task 5.3): the wizard's Azure steps, with az and the download injected and a
+// The wizard's Azure steps, with az and the download injected and a
 // temporary home, so the real ~/.localstack and ~/.azure are never touched.
 
 describe("the wizard's Azure steps", () => {

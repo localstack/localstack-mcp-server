@@ -1,7 +1,7 @@
-// Shared helpers of the live Azure suites (plan section 5.4: L2, L3, L4, DR). The
+// Shared helpers of the live Azure suites (L2, L3, L4, DR). The
 // suites call the tool handler in-process, so they share this process's egress guard
 // and can read its records; az's exact stdout comes from the test envelope
-// (LOCALSTACK_AZ_TEST_ENVELOPE=1, review R02 N2), never from the tool's prose.
+// (LOCALSTACK_AZ_TEST_ENVELOPE=1), never from the tool's prose.
 import { mkdirSync, mkdtempSync } from "fs";
 import os from "os";
 import path from "path";
@@ -23,7 +23,7 @@ let liveEnv: LiveEnv | undefined;
 /**
  * Point the Azure tool at a private config dir and workdir before the tool module is
  * loaded (it reads its configuration once per process). The auth token only has to be
- * present (D5): the tool never sends it anywhere, so a dummy is used when none is set.
+ * present: the tool never sends it anywhere, so a dummy is used when none is set.
  */
 export function setupLiveEnv(): LiveEnv {
   if (liveEnv) return liveEnv;

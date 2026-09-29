@@ -195,7 +195,7 @@ export function stackFromImage(
 /**
  * Which stack a gateway's health `edition` names (undefined when unknown). Verified
  * values: `pro` and `bigdata-pro` (AWS), `azure-alpha` (Azure). The Snowflake value
- * is unconfirmed (plan Q21), so anything with "snowflake" in it counts.
+ * is unconfirmed, so anything with "snowflake" in it counts.
  */
 export function stackFromEdition(edition?: string): LocalStackStack | undefined {
   const value = (edition || "").trim().toLowerCase();

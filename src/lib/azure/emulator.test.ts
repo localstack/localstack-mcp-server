@@ -10,7 +10,7 @@ import {
   type EmulatorDeps,
 } from "./emulator";
 
-// U8, the emulator part (plan task 2.5). The network is mocked, apart from one real
+// The emulator status. The network is mocked, apart from one real
 // HTTPS readiness case on a local TLS server.
 
 const CONFIG = {

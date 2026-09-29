@@ -1,18 +1,18 @@
 /**
- * L3, egress (plan section 5.4; reviews F06, F17 and R02): every command of a light scenario runs
+ * L3, egress: every command of a light scenario runs
  * with the egress guard recording, and the suite fails if the guard refused any host that was
- * not expected. Housekeeping refusals (plan task 2.8) are reported and never fail the run, with
+ * not expected. Housekeeping refusals are reported and never fail the run, with
  * one exception: app.aladdin.microsoft.com. The bootstrap turns az's command recommender off
  * (`core.error_recommendation=off`), so any call there is a regression.
  *
  * Also here:
  * - the first command after a fresh bootstrap makes no azcliprod CONNECT and prints no
- *   `WARNING:` line (the versionCheck.json seed, task 2.6);
- * - CI only (AZURE_EGRESS_CI=1): the benchmark's GET and DELETE leak commands
+ *   `WARNING:` line (the versionCheck.json seed);
+ * - CI only (AZURE_EGRESS_CI=1): the GET and DELETE leak commands
  *   (tests/fixtures/azure/leak-commands.json) replayed on the job's own emulator, each with no
  *   refusal and at least one relayed CONNECT;
  * - CI only (AZURE_EGRESS_CI=1 and AZURE_CI_EMULATOR_CONTAINER): the job's own emulator is
- *   stopped between two calls, and the second gets Appendix G row 2 (or the tool's "emulator not
+ *   stopped between two calls, and the second gets the `conn-refused` answer (or the tool's "emulator not
  *   running" preflight answer) within about 5 s. The emulator is started again afterwards. This
  *   breaks any suite that runs at the same time, so CI runs this project on its own, last.
  *
@@ -67,11 +67,11 @@ const REWRITE_NOTE = "Rewrote the management.azure.com URL";
 /** The tool's health preflight; on a busy shared emulator it can miss its 3 s window. */
 const NOT_READY = "❌ **LocalStack Azure Emulator Not Ready**";
 const RETRY_DELAY_MS = 5_000;
-/** Appendix G row 2's answer must come within about 5 s of the stop (review F06). */
+/** The `conn-refused` answer must come within about 5 s of the stop. */
 const STOPPED_ANSWER_MS = 5_000;
 /** The emulator must answer again within this long after `docker start`. */
 const RESTART_WAIT_MS = 300_000;
-/** The owner's shared emulators: never stopped outside CI, whatever the variables say. */
+/** The shared emulators of a developer machine: never stopped outside CI, whatever the variables say. */
 const SHARED_EMULATOR_NAMES = new Set(["localstack-azure", "localstack-main", "localstack_main"]);
 
 const CI_EGRESS = process.env.AZURE_EGRESS_CI === "1";
@@ -84,7 +84,7 @@ const LEAK_COMMANDS: LeakCommand[] = (
     readFileSync(path.join(__dirname, "..", "fixtures", "azure", "leak-commands.json"), "utf8")
   ) as { commands: LeakCommand[] }
 ).commands;
-/** The others change state, so only these two methods are replayed (plan section 5.4). */
+/** The others change state, so only these two methods are replayed. */
 const REPLAYED = LEAK_COMMANDS.filter((c) => c.method === "GET" || c.method === "DELETE");
 
 const reportFile = process.env.AZURE_EGRESS_REPORT?.trim() || undefined;
@@ -111,7 +111,7 @@ describeLive("L3 egress: the guard's records over live commands", () => {
 
   /**
    * Run one command and keep the guard events it caused (calls run one at a time). A "not ready"
-   * preflight answer is retried once, as plan section 7 allows for the readiness window: nothing
+   * preflight answer is retried once, to allow for the readiness window: nothing
    * was spawned, so the retry sees the same state. Every retry is logged.
    */
   async function step(
@@ -246,7 +246,7 @@ describeLive("L3 egress: the guard's records over live commands", () => {
       expect(existsSync(path.join(env.configDir, MARKER_FILE))).toBe(true);
       expect(existsSync(path.join(env.configDir, VERSION_CHECK_FILE))).toBe(true);
       expect(s.events.filter((e) => e.host === UPDATE_CHECK_HOST)).toEqual([]);
-      // A malformed seed makes az log a WARNING on every command (plan task 2.6, review F21).
+      // A malformed seed makes az log a WARNING on every command.
       expect(s.call.envelope?.stderr ?? "").not.toMatch(/^WARNING:/m);
       expectRelayed(s);
     });
@@ -264,7 +264,7 @@ describeLive("L3 egress: the guard's records over live commands", () => {
       );
       expect(json<{ name: string }>(s.call).name).toBe(account);
       expectRelayed(s);
-      // Storage drops children created while the account is still being created (plan section 7).
+      // Storage drops children created while the account is still being created.
       let state = "";
       for (let i = 0; i < 60 && state !== "Succeeded"; i++) {
         if (i > 0) await new Promise((r) => setTimeout(r, 5_000));
@@ -373,7 +373,7 @@ describeLive("L3 egress: the guard's records over live commands", () => {
       expect(hostsOf(refusals)).toEqual([host]);
       expect(s.call.classId).toBe("egress-refused");
       expect(s.call.text).toContain(host);
-      // Fail fast: without it the storage SDK retries for about 87 s (C01).
+      // Fail fast: without it the storage SDK retries for about 87 s.
       expect(s.call.ms).toBeLessThan(30_000);
     });
 
@@ -385,7 +385,7 @@ describeLive("L3 egress: the guard's records over live commands", () => {
     });
   });
 
-  describeCi("CI only: the benchmark's GET and DELETE leak commands on the job's emulator", () => {
+  describeCi("CI only: the GET and DELETE leak commands on the job's emulator", () => {
     test("the fixture has GET and DELETE commands to replay", () => {
       expect(REPLAYED.length).toBeGreaterThan(0);
       expect(REPLAYED.every((c) => c.command.includes("https://management.azure.com"))).toBe(true);
@@ -394,7 +394,7 @@ describeLive("L3 egress: the guard's records over live commands", () => {
     test.each(REPLAYED)("$id ($method) reaches only the emulator", async (leak) => {
       const s = await step(`leak ${leak.id} (${leak.method})`, leak.command);
       // The exit code is not asserted: the targets are gone, and some answers are
-      // NotImplemented or validation errors (plan section 5.4).
+      // NotImplemented or validation errors.
       expect(byKind(s.events, "refused")).toEqual([]);
       expect(byKind(s.events, "allowed").length).toBeGreaterThan(0);
       for (const host of hostsOf(byKind(s.events, "allowed")))
@@ -439,15 +439,15 @@ describeLive("L3 egress: the guard's records over live commands", () => {
         retryNotReady: false,
       });
       expect(after.call.ms).toBeLessThan(STOPPED_ANSWER_MS);
-      // With the guard on, Appendix G row 2 comes from the guard's upstream record; a call that
+      // With the guard on, `conn-refused` comes from the guard's upstream record; a call that
       // starts after the stop is usually caught earlier, by the tool's own health preflight.
-      const rowTwo = after.call.classId === "conn-refused";
+      const connRefused = after.call.classId === "conn-refused";
       const preflight =
         after.call.text.startsWith("❌ **LocalStack Azure Emulator Not Ready**") &&
         after.call.text.includes("is not running at");
-      if (!rowTwo && !preflight) {
+      if (!connRefused && !preflight) {
         throw new Error(
-          `expected Appendix G row 2 or the not-running preflight, got:\n${after.call.text.slice(0, 1000)}`
+          `expected conn-refused or the not-running preflight, got:\n${after.call.text.slice(0, 1000)}`
         );
       }
       expect(byKind(after.events, "refused")).toEqual([]);

@@ -1,5 +1,5 @@
 /**
- * U9: containment layer 4, the egress guard (plan task 2.8, checks C01 and C08).
+ * The egress guard.
  *
  * Every server here listens on a loopback port the OS picks. Refused hosts are refused
  * before any connection is attempted, and injected connect factories only ever connect
@@ -390,7 +390,7 @@ describe("startEgressProxy, envFor and takeRecords", () => {
     const id = newCallId("env");
     const url = `http://${id}:x@127.0.0.1:${guard.port}`;
     expect(guard.envFor(id)).toEqual({ HTTPS_PROXY: url, HTTP_PROXY: url });
-    // The user part is what requests sends as the Basic tag (C01).
+    // The user part is what requests sends as the Basic tag.
     expect(new URL(url).username).toBe(id);
     expect(guard.envFor(id)).toEqual({ HTTPS_PROXY: url, HTTP_PROXY: url });
   });
@@ -454,7 +454,7 @@ describe("CONNECT", () => {
     const id = newCallId("names");
     guard.envFor(id);
     const names = [
-      "localhost.localstack.cloud", // the LRO polling host (C01)
+      "localhost.localstack.cloud", // the LRO polling host
       "azure.localhost.localstack.cloud",
       "acct.blob.core.azure.localhost.localstack.cloud",
       "AZURE.LocalHost.LocalStack.Cloud.",
@@ -668,7 +668,7 @@ describe("CONNECT", () => {
     const target = `azure.localhost.localstack.cloud:${echo.port}`;
     const acceptedBefore = echo.accepted.length;
     const untagged = [
-      connectRequest(target), // what .NET clients such as Bicep send first (C08)
+      connectRequest(target), // what .NET clients such as Bicep send first
       connectRequest(target, "u9-never-registered"),
       connectRequest(target, taken), // a straggler of a call that has resolved
       connectRequest(target, undefined, ["Proxy-Authorization: Bearer abc"]),
@@ -748,7 +748,7 @@ describe("CONNECT", () => {
     expect(local.takeRecords(id)).toEqual({ ...NO_RECORDS, refused: ["example.com"] });
   });
 
-  test("a client that resets right after the 403 does not crash the process (the C01 crash)", async () => {
+  test("a client that resets right after the 403 does not crash the process", async () => {
     const logs: string[] = [];
     const local = await newGuard({ log: (line) => logs.push(line) });
     const id = newCallId("reset");
@@ -756,7 +756,7 @@ describe("CONNECT", () => {
     const reply = await exchange(local.port, connectRequest("example.com:443", id));
     expect(reply.status).toBe(403);
     reply.socket.resetAndDestroy();
-    // The guard's end saw the reset, so this ran the path that crashed C01's proxy ...
+    // The guard's end saw the reset, so this ran the path that could crash the process ...
     await waitFor(
       () => logs.some((line) => /client socket error: (ECONNRESET|EPIPE)/.test(line)),
       "the reset to reach the guard"

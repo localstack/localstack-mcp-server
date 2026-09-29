@@ -1,7 +1,7 @@
 /**
- * The tool definitions per variant (experiments 1-3): each variant changes only what it
+ * The tool definitions per variant: each variant changes only what it
  * says it changes, fails loudly when the server's description no longer has its anchor,
- * and the P1c adaptation removes exactly the statements that are false for this tool.
+ * and the long description's adaptation removes exactly the statements that are false for this tool.
  */
 import { buildAzureClientDescription } from "../../../src/lib/azure/description";
 import * as VT from "./variants";
@@ -66,7 +66,7 @@ describe("variants", () => {
     expect(COMPACT.replace(VT.TEST_DATA_CLAUSE, "")).toBe(d);
   });
 
-  test("help-tool replaces --help with az_help and adds the P1c arm's az_help tool", () => {
+  test("help-tool replaces --help with az_help and adds the az_help tool", () => {
     const vt = VT.buildVariantTools("help-tool", LISTED);
     expect(vt.tools.map((t) => t.name)).toEqual(["az_help", VT.AZURE_TOOL]);
     expect(vt.azureDescription).toContain("Call `az_help` with the command or group");
@@ -77,15 +77,15 @@ describe("variants", () => {
     expect(vt.helpTool).toBe(true);
   });
 
-  test("p1c: the benchmark's long description, adapted in three places", () => {
-    const d = VT.buildVariantTools("p1c", LISTED).azureDescription;
-    expect(d).toBe(VT.P1C_DESCRIPTION);
+  test("long: the long description, adapted in three places", () => {
+    const d = VT.buildVariantTools("long", LISTED).azureDescription;
+    expect(d).toBe(VT.LONG_DESCRIPTION);
     // what this tool does not do is gone
     expect(d).not.toContain("az_help");
     expect(d).not.toMatch(/list of commands|Batch sequential steps/);
     expect(d).not.toContain("is blocked");
     expect(d).not.toContain("JSON output, parsed");
-    // P1c's own text otherwise
+    // the original text otherwise
     expect(d).toContain("Do not run `az login`, `az logout` or `az cloud ...`");
     expect(d).toContain(
       "One CLI command per string: no pipes (|), redirects (>, <), chaining (&&, ||, ;)"
@@ -119,8 +119,8 @@ describe("variants", () => {
   });
 
   test("isVariant", () => {
-    expect(VT.VARIANTS).toEqual(["compact", "p1c", "help-tool", "no-test-data"]);
-    expect(VT.isVariant("p1c")).toBe(true);
-    expect(VT.isVariant("long")).toBe(false);
+    expect(VT.VARIANTS).toEqual(["compact", "long", "help-tool", "no-test-data"]);
+    expect(VT.isVariant("long")).toBe(true);
+    expect(VT.isVariant("verbose")).toBe(false);
   });
 });

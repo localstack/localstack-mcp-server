@@ -1,8 +1,8 @@
 /**
  * The E2 agent loop against a fake Messages client (no network, no key): the request
- * settings mirror the benchmark's, the model never sees the test envelope, refusals and
+ * settings are the fixed ones, the model never sees the test envelope, refusals and
  * pause_turn are handled, the caps and the spend cap stop the loop, errors are classified,
- * and the cost is computed as the benchmark's cost.py did.
+ * and the cost is computed from the fixed prices.
  */
 import type Anthropic from "@anthropic-ai/sdk";
 import * as A from "./agent";
@@ -173,7 +173,7 @@ describe("egress events", () => {
 });
 
 describe("runAgent", () => {
-  test("the request mirrors the benchmark's settings", async () => {
+  test("the request carries the fixed settings", async () => {
     const { client, calls } = fakeClient([{ content: [text("done")], stop_reason: "end_turn" }]);
     const run = await A.runAgent(options(client));
     expect(run.final_text).toBe("done");
@@ -439,12 +439,12 @@ describe("prewarm", () => {
   });
 });
 
-describe("cost (benchmark cost.py)", () => {
+describe("cost", () => {
   const turn = (input: number, output: number, cache_write: number, cache_read: number) => ({
     usage: { input, output, cache_write, cache_read },
   });
 
-  test("prices: claude-opus-5-5 is the benchmark's frozen $4 / $20, cache $5 / $0.20", () => {
+  test("prices: claude-opus-5-5 is $4 / $20, cache $5 / $0.20", () => {
     expect(A.PRICES["claude-opus-5-5"]).toEqual({
       input: 4,
       output: 20,
@@ -509,7 +509,7 @@ describe("cost (benchmark cost.py)", () => {
   });
 });
 
-describe("error classification (the benchmark's _account and _transient)", () => {
+describe("error classification (account and transient errors)", () => {
   class APIError extends Error {
     constructor(
       public status?: number,

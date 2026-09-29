@@ -103,7 +103,7 @@ export function policyOptions(): PolicyOptions {
   return policyCache;
 }
 
-/** Names of the installed extensions, for the missing-extension hint (Appendix G row 8). */
+/** Names of the installed extensions, for the missing-extension hint. */
 export function installedExtensionNames(): Set<string> {
   return listExtensionNames(azureConfig().extensionDir);
 }
@@ -196,7 +196,7 @@ function readProcVersion(): string | undefined {
 /**
  * The bytecode cache dir (LOCALSTACK_AZ_PYCACHE_DIR, set by the image), created
  * owner-only. A writable bytecode cache can be poisoned, so a directory that others can
- * write, or that another user owns, is not used (plan task 2.4).
+ * write, or that another user owns, is not used.
  */
 export function safePycacheDir(dir: string | undefined): string | undefined {
   if (!dir) return undefined;
@@ -326,7 +326,7 @@ export async function azRunner(): Promise<HostRunner> {
 
 /**
  * The runner for the agent's commands: the warm worker with LOCALSTACK_AZ_RUNNER=worker
- * (plan task 7.1), else the subprocess runner. A launcher run as-is names no Python to
+ *, else the subprocess runner. A launcher run as-is names no Python to
  * run the worker with, and a Python that cannot start it falls back to subprocesses.
  */
 async function commandRunner(host: HostRunner): Promise<AzRunner> {

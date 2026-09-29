@@ -1,5 +1,5 @@
 "use strict";
-// Quoting for the L4 `az` shim (plan task 4.4; checks C06, U16).
+// Quoting for the L4 `az` shim.
 //
 // The shim receives the argv bash built for `az`, and has to hand the Azure tool ONE
 // command string. The tool splits that string with `splitCliArgs(command, {
@@ -13,7 +13,7 @@
 //   Because every original backslash is doubled, the tokenizer never sees a `\$`, `` \` ``
 //   or backslash-newline that the argument did not contain;
 // - never single quotes: the tokenizer refuses the POSIX `'\''` idiom as an unterminated
-//   quote (C06), and a single-quoted string cannot contain a `'`.
+//   quote, and a single-quoted string cannot contain a `'`.
 //
 // Bare words are limited to ASCII on purpose: the tokenizer splits unquoted text on JS
 // `\s`, which also matches U+00A0, U+2028, U+FEFF and the other Unicode spaces.

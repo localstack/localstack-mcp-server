@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# CI only: start this job's own LocalStack Azure emulator (plan Appendix F) and wait until
+# CI only: start this job's own LocalStack Azure emulator and wait until
 # both the plain-HTTP gateway and the HTTPS ARM endpoint answer. It never runs on a
 # developer machine, where an emulator may already be shared.
 #
 #   AZURE_CI_EMULATOR_CONTAINER  container name (default ls-azure-ci)
 #   LOCALSTACK_AZURE_IMAGE_NAME  image (default localstack/localstack-azure:latest)
-#   ORYX_BUILD_IMAGE             pinned Oryx build image, as in the typed server's CI
+#   ORYX_BUILD_IMAGE             pinned Oryx build image
 #   LOCALSTACK_AUTH_TOKEN        an Azure-entitled token (never printed)
 set -euo pipefail
 
@@ -22,7 +22,7 @@ mkdir -p "$logs"
 
 docker pull --quiet "$image"
 # DNS_ADDRESS=0: with the internal DNS on, Cosmos hostnames resolved to the app
-# container's own IP (the typed server's CI). The token goes in by name, never by value.
+# container's own IP. The token goes in by name, never by value.
 docker run -d --name "$name" \
   -p 127.0.0.1:4566:4566 \
   -p 127.0.0.1:4510-4559:4510-4559 \
@@ -64,6 +64,6 @@ for _ in $(seq 1 60); do
 done
 [ "$https_ok" = 1 ] || { echo "the HTTPS ARM endpoint did not answer in 120 s" >&2; exit 1; }
 
-# Warm the coverage list: it can be slow right after start (C02).
+# Warm the coverage list: it can be slow right after start.
 curl -s -m 120 http://127.0.0.1:4566/_localstack/coverage >/dev/null || true
 echo "LocalStack Azure emulator $name is up: $(curl -s http://127.0.0.1:4566/_localstack/health)"

@@ -19,7 +19,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # The prettier step diffs against origin/main (plan review R02, N7).
+          # The prettier step diffs against origin/main.
           fetch-depth: 0
 
       - name: Use Node.js 22
@@ -46,7 +46,7 @@ jobs:
           if [ -n "$files" ]; then npx prettier --check $files; fi
 
       - name: Unit tests, with the Azure coverage gate
-        # The threshold is the gate (plan review R02, F31).
+        # The threshold is the gate.
         shell: bash
         run: >-
           yarn test --ci --coverage
@@ -88,7 +88,7 @@ jobs:
           AZ_SMOKE: "1"
 
       - name: az spawn smoke with a pip az (Windows)
-        # The only job with the pip layout (plan section 8).
+        # The only job with the pip layout.
         if: matrix.os == 'windows-latest'
         shell: bash
         run: |

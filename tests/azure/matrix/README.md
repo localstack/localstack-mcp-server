@@ -2,8 +2,8 @@
 
 Representative `az` commands for each of the 29 providers of the emulator's coverage list
 (`/_localstack/coverage`), run through the real `localstack-azure-client` handler against a live
-LocalStack Azure emulator (plan section 5.4, tasks 4.2 and 4.7). One YAML file per provider; the
-runner is `tests/azure/matrix.live.test.ts`, the schema test (U16) is `schema.test.ts` here.
+LocalStack Azure emulator. One YAML file per provider; the
+runner is `tests/azure/matrix.live.test.ts`, the schema test is `schema.test.ts` here.
 
 ## Run it
 
@@ -35,7 +35,7 @@ Always pass `--runInBand`: the cases run one after the other, one `az` command a
 | `LOCALSTACK_AZ_BICEP_PATH`    | the tool's lookup                      | the Bicep binary for the `.bicep` cases                                          |
 | `LOCALSTACK_AZ_EXTENSION_DIR` | `~/.localstack/azure/mcp-extensions`   | the curated extensions (`node scripts/install-azure-extensions.mjs --dir <dir>`) |
 
-The emulator should run with the CI flags of plan Appendix F: `FRONT_DOOR_CLASSIC_ALLOW_CREATE=1`
+The emulator should run with the CI flags of `scripts/ci/azure-emulator-up.sh`: `FRONT_DOOR_CLASSIC_ALLOW_CREATE=1`
 and `CDN_CLASSIC_ALLOW_CREATE=1` (classic Front Door and CDN cases), `MSSQL_ACCEPT_EULA=Y` (SQL),
 and the pinned `LS_AZURE_ORYX_BUILD_IMAGE_TO_USE` (web apps).
 
@@ -47,13 +47,13 @@ longest-processing-time split (a `backing` case weighs 5, others 1; heaviest fir
 lightest shard). The cancel case and the coverage-key check run in shard 1; the egress check runs
 in every shard. Each shard needs its own emulator.
 
-## Local safety (plan section 7)
+## Local safety
 
 On a machine where the emulator on 4566 is shared with other agents or people:
 
 - use it only through the tool (this runner); never start, stop or restart it, and never start a
-  second emulator beside it (a second instance once destroyed the first one's storage side-car);
-- run only non-`backing` cases unless the owner agrees, with `--runInBand`;
+  second emulator beside it (a second instance can remove the first one's storage side-cars);
+- run only non-`backing` cases unless whoever shares the emulator agrees, with `--runInBand`;
 - every case uses its own names (`mcp-<runid>-...`, from `runId()`) and cleans up: the runner
   waits until nothing in the group is still provisioning, then runs the case's `cleanup`
   (Key Vaults are deleted and purged, App Configuration stores and APIM services purged, locks
@@ -100,12 +100,12 @@ cases:
       - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
     command: storage account keys renew --account-name {storage} --resource-group {rg} --key key2
     expect:
-      # classId: not-found  # optional: the answer's class (Appendix G)
+      # classId: not-found  # optional: the answer's class
       stdout: { contains: key2 } # on the trimmed stdout; one check or a list
     cleanup:
       - group delete --name {rg} --yes --no-wait
     known_gap: # an expected failure (see Known gaps)
-      reason: Why it fails, with the source (typed server COVERAGE_SKIPS, the benchmark, L2).
+      reason: Why it fails.
       operations: [Microsoft.Storage StorageAccounts RegenerateKey] # default: all of the case's
       date: 2026-09-27 # when it was last seen
 ```
@@ -130,7 +130,8 @@ cases:
   cleanup line passes the real policy (`evaluateAzCommand`); a case that creates `{rg}` deletes it
   with `--no-wait`; a case that creates a vault deletes and purges it before the group; the PR
   subset has at least 20 cases, none backing or a known gap, and is part of the full run under
-  every shard split; every one of the typed server's 127 skips is carried by a case (R.1).
+  every shard split; each of the 127 gap-prone operations listed in `schema.test.ts` is carried by
+  a case.
 
 ## Results
 
@@ -153,7 +154,7 @@ cases:
   `known_gap`, `gap_fixed`, `skipped`), class, exit code, duration, each step's command and class,
   the problems (with a 400-character stdout excerpt), and the egress hosts seen; plus a
   `cancel-in-flight` and an `egress-summary` line.
-- **Catalogue** (`AZURE_OP_CATALOGUE_OUT`, for the portal, review F18): per coverage key its best
+- **Catalogue** (`AZURE_OP_CATALOGUE_OUT`, for the portal): per coverage key its best
   result, the date it was last verified passing, the command template (the case's `command`; the
   operation itself may be exercised by one of the case's setup steps), whether the emulator marks
   it implemented (read through the tool from `/_localstack/coverage`), and every case that touches
@@ -167,12 +168,3 @@ cases:
   `core.error_recommendation=off`); housekeeping hosts such as `aka.ms` (Bicep) are only reported.
 - **Coverage keys:** in shard 1 a test checks every key against the emulator's live coverage list;
   unknown keys fail the full run and are only reported in the PR run.
-
-## The typed server's skips (retirement task R.1)
-
-All 127 `COVERAGE_SKIPS` of the typed server are carried here, keyed by coverage key: most as
-`known_gap` entries with the typed server's diagnosis (updated where the emulator now fails
-differently), the rest as plain cases where the CLI path does not share the typed server's
-limitation (its T2 args builder, or its -n 8 parallel load) or the emulator has fixed the gap. The
-YAML comment at each case says which. `schema.test.ts` lists the 127 keys and fails if one is
-dropped.

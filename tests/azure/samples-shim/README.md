@@ -1,6 +1,6 @@
 # The `az` shim and the L4 samples replay
 
-Plan task 4.4 (test layer **L4**). The samples in
+Test layer **L4**. The samples in
 [localstack-azure-samples](https://github.com/localstack/localstack-azure-samples) drive `az` from
 bash. Put this directory first on `PATH` and those same scripts, unmodified, drive the MCP tool
 `localstack-azure-client` instead. That tests the tool the way users' deployments use it:
@@ -12,7 +12,7 @@ data-plane calls.
 | `az`                             | The bash shim. It passes its argv to `az-shim.cjs`, NUL-separated on stdin, with the count in `AZ_SHIM_ARGC`  |
 | `az-shim.cjs`                    | The Node half: it quotes, calls the tool over stdio, reads the test envelope, writes fd 1 and fd 2, and exits |
 | `quote.cjs`                      | argv → one command string: the inverse of the tool's tokenizer (`src/lib/cli/argv.ts`)                        |
-| `quote.test.ts`                  | U16, in plain `yarn test`: the quoting round trip and the envelope round trip                                 |
+| `quote.test.ts`                  | In plain `yarn test`: the quoting round trip and the envelope round trip                                      |
 | `../samples-replay.live.test.ts` | L4 itself: runs the samples' scripts with the shim first on `PATH` (`AZURE_LIVE=1` only)                      |
 
 ## How one `az` call works
@@ -24,14 +24,14 @@ data-plane calls.
    `process.argv` instead.
 2. **Quoting.** `quote.cjs` builds `az <args>`. A word made only of `A-Za-z0-9_@%+=:,./-` stays bare.
    Anything else is wrapped in double quotes, with every `\` and `"` escaped. It never uses single
-   quotes, because the tokenizer refuses the POSIX `'\''` idiom (check C06). Inside double quotes the
+   quotes, because the tokenizer refuses the POSIX `'\''` idiom. Inside double quotes the
    tokenizer keeps `$`, backticks, newlines, `;&|<>` and non-ASCII as data. The leading `az` is kept,
    because the tool strips exactly one. A literal second `az` therefore reaches the policy, which
    refuses it.
 3. **The server.** The shim spawns `node dist/cli.js` (or `AZ_SHIM_SERVER_JS`) over stdio with its
-   **whole** environment (review R02 gap C), with these changes:
+   **whole** environment, with these changes:
    - `LOCALSTACK_AZ_TEST_ENVELOPE=1`: the result gets a second content item, the JSON envelope
-     `{exitCode, stdout, stderr, notes, classId, truncated}` (task 2.9);
+     `{exitCode, stdout, stderr, notes, classId, truncated}`;
    - `LOCALSTACK_AZ_WORKDIR=<the caller's cwd>`: the tool runs az in its workdir, and the scripts
      pass relative file names (`fraud_function.zip`, `main.bicep`) after a `cd`. A call that names
      a file elsewhere in the sample gets the sample's folder, `AZ_SHIM_ROOT` (below);
@@ -73,7 +73,7 @@ data-plane calls.
 
 ## Running it
 
-**Unit tests (U16)**, with no emulator and no az:
+**Unit tests**, with no emulator and no az:
 
 ```bash
 npx jest tests/azure/samples-shim
@@ -109,7 +109,7 @@ AZURE_LIVE=1 AZURE_SAMPLES_DIR=/path/to/localstack-azure-samples \
 
 - `samples-subset` (`AZURE_SAMPLES=pr`) runs the three samples below: `scripts/deploy.sh`, then
   `scripts/validate.sh`.
-- `samples-all` (`AZURE_SAMPLES=all`, **CI**, or locally with the owner's `AZURE_SAMPLES_ALL_LOCAL=1`)
+- `samples-all` (`AZURE_SAMPLES=all`, **CI**, or locally with `AZURE_SAMPLES_ALL_LOCAL=1`)
   runs every entry of the checkout's `run-samples.sh` with its own deploy and test commands: 26
   script, 22 Terraform and 22 Bicep runs at commit `5ae6984`.
 - `AZURE_SAMPLES_ONLY=samples/servicebus/java` runs a single sample.
@@ -124,7 +124,7 @@ and no blocked egress. A blocked egress is a success note naming a blocked host,
 class `egress-refused`; housekeeping blocks do not count. A step that fails on one of the known gaps
 below is recorded as `known-gap`, not as a failure.
 
-## Safety rules (plan section 7; review F25, R02)
+## Safety rules
 
 - **The samples checkout is never written.** Each sample is copied to the results dir, and runs
   there. The scripts write zips and `.deployment-env` next to themselves. On Windows only, the copy's
@@ -164,23 +164,23 @@ below is recorded as `known-gap`, not as a failure.
     the sample's declared groups, never one that existed before. When the emulator belongs to the
     run, it also deletes every group that appeared during the sample, since Terraform and Bicep
     create groups without `az group create`. That is always so in CI, where each job has its own
-    emulator. Locally, the owner opts in with `AZURE_SAMPLES_OWN_EMULATOR=1`.
+    emulator. Locally, opt in with `AZURE_SAMPLES_OWN_EMULATOR=1`.
   - **Set `AZURE_SAMPLES_OWN_EMULATOR=1` for a local `all` run on an emulator nobody else uses.**
     Without it, the first Terraform sample's `local-rg` stays behind, and every later Terraform
     sample that uses the same name fails with "a resource with the ID ... already exists".
     The failure comes from the harness, not the samples or the tool.
   - It then purges the Key Vaults and App Configuration stores the sample created, whose soft-deleted
     names would block the next run.
-- **On the owner's machine** L4 runs only on the owner's explicit request. It targets the shared
-  emulator on 4566 (never beside it on a shifted port), the `pr` subset, one sample at a time
-  (`AZURE_SAMPLES_ONLY`), unless the owner asks for the whole run (`AZURE_SAMPLES_ALL_LOCAL=1`). The token is a dummy (`LOCALSTACK_AUTH_TOKEN=ls-shim-test-presence-only`).
+- **On a developer machine** L4 runs only when asked for. It targets the emulator on 4566 (never
+  one beside it on a shifted port), the `pr` subset, one sample at a time (`AZURE_SAMPLES_ONLY`),
+  unless the whole run is asked for (`AZURE_SAMPLES_ALL_LOCAL=1`). The token is a dummy (`LOCALSTACK_AUTH_TOKEN=ls-shim-test-presence-only`).
 - **Timeouts** kill only the step's own process tree: its process group on POSIX, and
   `taskkill /T` of its own pid on Windows.
 
 ## The PR subset, and why
 
-The plan asks for pure-`az` samples from the Event Hubs, Service Bus, storage and Key Vault families.
-No sample is pure `az` end to end. Read from the scripts at `4193d67`, these three are the only ones
+The PR subset is meant to be pure-`az` samples from the Event Hubs, Service Bus, storage and Key
+Vault families. No sample is pure `az` end to end. Read from the scripts at `4193d67`, these three are the only ones
 in those families whose scripts call no `docker`, `dotnet`, `func` or `terraform`. The other two in
 the families, function-app-service-bus/dotnet and function-app-storage-http/dotnet, run `dotnet`.
 
@@ -197,7 +197,7 @@ tool skips the sample locally and fails it in CI.
 
 ## Known gaps
 
-The policy refuses **seven sample steps** (review R02 N1). U2 records them with their rule ids, and
+The policy refuses **seven sample steps**. The samples corpus records them with their rule ids, and
 the replay classes a failure caused by them as `known-gap`:
 
 - `denied:acr-login`: `az acr login --name "$ACR_NAME" --only-show-errors` without `--expose-token`,
@@ -280,9 +280,8 @@ rewrite refuses to run without `DOCKER_CONFIG`.
 - **The samples repo at a pinned commit.** Use `actions/checkout` with
   `repository: localstack/localstack-azure-samples`, `ref: <sha>` and `path: samples-repo`, and set
   `AZURE_SAMPLES_DIR=${{ github.workspace }}/samples-repo` and `AZURE_SAMPLES_COMMIT=<sha>`. Pin a
-  commit that is on the samples repo's `main`. The U2 corpus's `4193d67` was, at the last fetch of
-  the local clone, only on `feat/api-management-sample`, and a merged-and-deleted branch leaves its
-  commits unreachable.
+  commit that is on the samples repo's `main`: a commit only on a branch becomes unreachable once
+  the branch is merged and deleted.
 - **`yarn build`**, then `dist/cli.js` for the shim.
 - **The pinned az and tools.**
   - `LOCALSTACK_AZ_PATH` (job level), and the extensions installed with
@@ -316,4 +315,4 @@ rewrite refuses to run without `DOCKER_CONFIG`.
   Budget 30-45 minutes for the pr subset until measured in CI, and run `samples-subset` in a job of
   its own, with its own emulator, beside `matrix-subset`/`egress`.
 
-- **Artifacts.** Upload `AZURE_SAMPLES_RESULTS_DIR`, after the token scan of section 8 (N22).
+- **Artifacts.** Upload `AZURE_SAMPLES_RESULTS_DIR`, after the token scan of section 8.

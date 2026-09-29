@@ -32,12 +32,8 @@ interface Stream {
 
 interface Fixture {
   id: string;
-  row: number | null;
   classId: AzFailureClass | null;
   guardOn: boolean;
-  check: string;
-  label: string | null;
-  source: Record<string, string>;
   argv: string[];
   exitCode: number;
   synthetic: boolean;
@@ -47,7 +43,7 @@ interface Fixture {
   egress?: EgressRecords;
   stdout?: Stream;
   stderr?: Stream;
-  reflowed?: { source: string; chars: number; sha256: string };
+  reflowed?: { chars: number; sha256: string };
 }
 
 const INDEX = path.join(__dirname, "../../../tests/fixtures/azure/stderr/index.json");
@@ -150,17 +146,38 @@ describe("fixtures (tests/fixtures/azure/stderr/index.json)", () => {
   });
 
   it("keeps Windows line endings byte for byte", () => {
-    const raw = bytesOf(fixture("r05-not-implemented-native").stderr!).toString("latin1");
+    const raw = bytesOf(fixture("not-implemented-native").stderr!).toString("latin1");
     expect(raw).toContain("\r\n");
     expect(raw.replace(/\r\n/g, "")).not.toContain("\n");
   });
 
-  it("covers every Appendix G row that has a stream (16 and 17 are flags, tested below)", () => {
-    const rows = new Set(FIXTURES.map((f) => f.row).filter((r) => r !== null));
-    const expected = Array.from({ length: 21 }, (_, i) => i + 1).filter(
-      (r) => r !== 16 && r !== 17
+  it("covers every class az's output can show (too-long and timeout are flags, tested below)", () => {
+    const classes = new Set(
+      FIXTURES.map((f) => f.classId).filter((c) => c !== null && c !== "other")
     );
-    expect([...rows].sort((a, b) => a! - b!)).toEqual(expected);
+    expect([...classes].sort()).toEqual(
+      [
+        "login",
+        "conn-refused",
+        "dns",
+        "discovery",
+        "not-implemented",
+        "provider",
+        "no-route",
+        "extension",
+        "unknown-command",
+        "argument",
+        "not-found",
+        "cli-error",
+        "emulator-error",
+        "needs-yes",
+        "egress-refused",
+        "guard-down",
+        "bicep-missing",
+        "bicep-registry",
+        "azcopy",
+      ].sort()
+    );
   });
 
   it("marks reconstructed streams as synthetic and says what they are based on", () => {
@@ -168,11 +185,11 @@ describe("fixtures (tests/fixtures/azure/stderr/index.json)", () => {
     expect(synthetic.sort()).toEqual(
       [
         "ok-update-check-warning",
-        "r13-emulator-error",
-        "r14-needs-yes",
-        "r15-egress-refused-rest",
-        "r15-egress-refused-sdk",
-        "r18-guard-down",
+        "emulator-error",
+        "needs-yes",
+        "egress-refused-rest",
+        "egress-refused-sdk",
+        "guard-down",
       ].sort()
     );
     for (const f of FIXTURES.filter((x) => x.synthetic))
@@ -197,7 +214,7 @@ describe("the first line of every failure", () => {
   );
 
   it("never names a host or a path, only the code and the class id", () => {
-    const sdk = format(fixture("r15-egress-refused-sdk"));
+    const sdk = format(fixture("egress-refused-sdk"));
     expect(firstLineOf(sdk)).toBe("❌ **Command Failed** (exit 1, egress-refused)");
     expect(sdk.indexOf("mcpplanc01zzzz.blob.core.windows.net")).toBeGreaterThan(
       firstLineOf(sdk).length
@@ -205,7 +222,7 @@ describe("the first line of every failure", () => {
   });
 
   it("is `exit none` when the tool stopped az or never started it", () => {
-    const n1 = fixture("r05-not-implemented-native");
+    const n1 = fixture("not-implemented-native");
     const cases: Array<[Partial<AzRunResult>, string]> = [
       [{ timedOut: true }, "timeout"],
       [{ aborted: true }, "cancelled"],
@@ -234,9 +251,9 @@ describe("the first line of every failure", () => {
   });
 });
 
-describe("Appendix G rows", () => {
-  it("row 1: not logged in, after the self-heal retry", () => {
-    const out = format(fixture("r01-login-group-list"));
+describe("the failure classes", () => {
+  it("login: not logged in, after the self-heal retry", () => {
+    const out = format(fixture("login-group-list"));
     expect(out).toBe(
       "❌ **Command Failed** (exit 1, login)\n\n" +
         "ERROR: Please run 'az login' to setup account.\n\n" +
@@ -245,8 +262,8 @@ describe("Appendix G rows", () => {
     );
   });
 
-  it("row 2 with the guard off: host and port come from the stderr", () => {
-    const out = format(fixture("r02-conn-native-group-list"));
+  it("conn-refused with the guard off: host and port come from the stderr", () => {
+    const out = format(fixture("conn-native-group-list"));
     expect(firstLineOf(out)).toBe("❌ **Command Failed** (exit 1, conn-refused)");
     expect(out).toContain(
       "Could not connect to the LocalStack Azure emulator at `azure.localhost.localstack.cloud:4599`: " +
@@ -256,8 +273,8 @@ describe("Appendix G rows", () => {
     expect(out).toContain(GUARD_OFF_NOTE);
   });
 
-  it("row 2: the `az rest` traceback is stripped to its ERROR lines", () => {
-    const f = fixture("r02-conn-rest-traceback");
+  it("conn-refused: the `az rest` traceback is stripped to its ERROR lines", () => {
+    const f = fixture("conn-rest-traceback");
     expect(f.stderr!.bytes).toBe(5_123);
     const out = format(f);
     const stderr = prepareStderr(text(f.stderr));
@@ -274,15 +291,15 @@ describe("Appendix G rows", () => {
     expect(out).toContain("`azure.localhost.localstack.cloud:4599`");
   });
 
-  it("row 2: a failed `az login` connect exits 2", () => {
-    expect(firstLineOf(format(fixture("r02-conn-login")))).toBe(
+  it("conn-refused: a failed `az login` connect exits 2", () => {
+    expect(firstLineOf(format(fixture("conn-login")))).toBe(
       "❌ **Command Failed** (exit 2, conn-refused)"
     );
   });
 
-  it("row 2 with the guard on: only the guard's upstream record counts", () => {
+  it("conn-refused with the guard on: only the guard's upstream record counts", () => {
     // The guard answers 502 and records the host; its stderr regex is for the guard-off case.
-    const guardOn = format(fixture("r02-conn-native-group-list"), { guardOn: true });
+    const guardOn = format(fixture("conn-native-group-list"), { guardOn: true });
     expect(firstLineOf(guardOn)).not.toContain("conn-refused");
 
     const out = formatAzResult(
@@ -298,23 +315,23 @@ describe("Appendix G rows", () => {
     expect(out).not.toContain(GUARD_OFF_NOTE);
   });
 
-  it("row 3: a name outside LocalStack gets the containment answer", () => {
-    for (const id of ["r03-dns-rest-traceback", "r03-dns-native"]) {
+  it("dns: a name outside LocalStack gets the containment answer", () => {
+    for (const id of ["dns-rest-traceback", "dns-native"]) {
       const f = fixture(id);
       const c = classifyFailure(runOf(f), { guardOn: false, argv: f.argv });
       expect(c.classId).toBe("dns");
       expect(c.details.host).toBe("mcpplan-nxdomain.invalid");
       expect(c.hint).toBe("`az` can only reach the LocalStack emulator from this tool.");
     }
-    const out = format(fixture("r03-dns-rest-traceback"));
+    const out = format(fixture("dns-rest-traceback"));
     // The warning before the error stays; the 4.6 KB traceback goes.
     expect(out).toContain("WARNING: Can't derive appropriate Azure AD resource from --url");
     expect(out.length).toBeLessThan(1_500);
   });
 
-  it("row 3: a LocalStack name that did not resolve gets the resolver advice", () => {
+  it("dns: a LocalStack name that did not resolve gets the resolver advice", () => {
     // C8d-group-list-nxdomain with the emulator's own name in place of the .invalid host.
-    const stderr = text(fixture("r03-dns-native").stderr).replace(
+    const stderr = text(fixture("dns-native").stderr).replace(
       /mcpplan-nxdomain\.invalid/g,
       "azure.localhost.localstack.cloud"
     );
@@ -330,14 +347,14 @@ describe("Appendix G rows", () => {
     expect(on.hint).not.toContain("Turn the egress guard back on");
   });
 
-  it("row 4: endpoint discovery maps through row 2 with its Error detail", () => {
-    const f = fixture("r04-discovery-register");
+  it("discovery: endpoint discovery maps through conn-refused with its Error detail", () => {
+    const f = fixture("discovery-register");
     const on = classifyFailure(runOf(f), { guardOn: true, argv: f.argv });
     expect(on.classId).toBe("discovery");
     expect(on.hint).toContain("`azure.localhost.localstack.cloud:4599`: nothing is listening");
-    // With the guard off, row 2's regex comes first.
+    // With the guard off, the conn-refused regex comes first.
     expect(classifyFailure(runOf(f), { guardOn: false }).classId).toBe("conn-refused");
-    // A detail that is neither row 2 nor row 3 still gets an answer.
+    // A detail that is neither conn-refused nor dns still gets an answer.
     const other = classifyFailure(
       run({
         stderr:
@@ -349,48 +366,46 @@ describe("Appendix G rows", () => {
     expect(other.hint).toContain("`/metadata/endpoints`");
   });
 
-  it("row 5: the unimplemented operation, the coverage list and the port", () => {
-    const out = format(fixture("r05-not-implemented-native"), { port: 4666 });
+  it("not-implemented: the unimplemented operation, the coverage list and the port", () => {
+    const out = format(fixture("not-implemented-native"), { port: 4666 });
     expect(out).toContain(
       "The LocalStack Azure emulator does not implement `GET /subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Authorization/locks` yet. " +
         "This is an emulator limitation, so retrying will not help. See the implemented operations at " +
         "http://127.0.0.1:4666/_localstack/coverage and https://docs.localstack.cloud/azure/."
     );
     expect(out).not.toContain("register a provider");
-    const rest = classifyFailure(runOf(fixture("r05-not-implemented-rest")), { guardOn: true });
+    const rest = classifyFailure(runOf(fixture("not-implemented-rest")), { guardOn: true });
     expect(rest.details).toEqual({
       method: "GET",
       path: "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Authorization/locks",
     });
   });
 
-  it("row 5: a provider registration the CLI made on its own", () => {
-    const out = format(fixture("r05-not-implemented-register"));
+  it("not-implemented: a provider registration the CLI made on its own", () => {
+    const out = format(fixture("not-implemented-register"));
     expect(out).toContain(
       "The path ends in `/providers/Microsoft.Management/register`: the CLI tried to register a " +
         "provider the emulator does not emulate."
     );
   });
 
-  it("row 6: the namespace, native (exit 3) and `az rest`", () => {
-    const native = fixture("r06-provider-native");
+  it("provider: the namespace, native (exit 3) and `az rest`", () => {
+    const native = fixture("provider-native");
     expect(firstLineOf(format(native))).toBe("❌ **Command Failed** (exit 3, provider)");
     expect(format(native)).toContain(
       "The LocalStack Azure emulator does not emulate the `Microsoft.Cache` resource provider. " +
         "Supported providers: http://127.0.0.1:4566/_localstack/coverage."
     );
-    expect(classifyFailure(runOf(fixture("r06-provider-rest")), { guardOn: true }).details).toEqual(
-      {
-        namespace: "Microsoft.McpPlanFake",
-      }
-    );
+    expect(classifyFailure(runOf(fixture("provider-rest")), { guardOn: true }).details).toEqual({
+      namespace: "Microsoft.McpPlanFake",
+    });
   });
 
-  it("row 7: no route says the operation may not be emulated", () => {
+  it("no-route: no route says the operation may not be emulated", () => {
     for (const id of [
-      "r07-no-route-bogus-type",
-      "r07-no-route-wrong-method",
-      "r07-no-route-unimplemented-post",
+      "no-route-bogus-type",
+      "no-route-wrong-method",
+      "no-route-unimplemented-post",
     ]) {
       expect(format(fixture(id))).toContain(
         "The emulator has no route for this request. Check the URL path, HTTP method and " +
@@ -400,11 +415,11 @@ describe("Appendix G rows", () => {
     }
   });
 
-  it("row 8: a missing curated extension, named by the command-to-extension map", () => {
+  it("extension: a missing curated extension, named by the command-to-extension map", () => {
     const cases: Array<[string, string, string]> = [
-      ["r08-extension-graph", "graph", "resource-graph"],
-      ["r08-extension-app-insights", "monitor app-insights", "application-insights"],
-      ["r08-extension-k8s-extension", "k8s-extension", "k8s-extension"],
+      ["extension-graph", "graph", "resource-graph"],
+      ["extension-app-insights", "monitor app-insights", "application-insights"],
+      ["extension-k8s-extension", "k8s-extension", "k8s-extension"],
     ];
     for (const [id, group, extension] of cases) {
       const f = fixture(id);
@@ -418,15 +433,15 @@ describe("Appendix G rows", () => {
           "meanwhile `rest` with a relative URL usually works."
       );
     }
-    const f = fixture("r08-extension-graph");
+    const f = fixture("extension-graph");
     const image = classifyFailure(runOf(f), { guardOn: true, argv: f.argv, inDocker: true });
     expect(image.hint).toBe(
       "`resource-graph` is not in this image's curated set; use `rest` with a relative URL."
     );
   });
 
-  it("row 8 vs 9: an installed extension or a typo under a core group is not a missing extension", () => {
-    const f = fixture("r08-extension-graph");
+  it("extension vs unknown-command: an installed extension or a typo under a core group is not a missing extension", () => {
+    const f = fixture("extension-graph");
     const installed = new Set(["resource-graph"]);
     const c = classifyFailure(runOf(f), {
       guardOn: true,
@@ -449,8 +464,8 @@ describe("Appendix G rows", () => {
     expect(typo(["afd", "profile", "list", "-g", "x"], "afd")).toBe("extension");
   });
 
-  it("row 9: an unknown command keeps the CLI's own suggestion and adds no hint", () => {
-    const f = fixture("r09-unknown-command-typo");
+  it("unknown-command: an unknown command keeps the CLI's own suggestion and adds no hint", () => {
+    const f = fixture("unknown-command-typo");
     const c = classifyFailure(runOf(f), { guardOn: true, argv: f.argv });
     expect(c).toEqual({
       classId: "unknown-command",
@@ -461,27 +476,27 @@ describe("Appendix G rows", () => {
       `❌ **Command Failed** (exit 2, unknown-command)\n\n${prepareStderr(text(f.stderr))}`
     );
     expect(
-      classifyFailure(runOf(fixture("r09-unknown-command-subcommand")), { guardOn: true }).classId
+      classifyFailure(runOf(fixture("unknown-command-subcommand")), { guardOn: true }).classId
     ).toBe("unknown-command");
   });
 
-  it("row 10: argument errors point at --help and keep the CLI's examples", () => {
+  it("argument: argument errors point at --help and keep the CLI's examples", () => {
     for (const id of [
-      "r10-argument-required",
-      "r10-argument-unrecognized",
-      "r10-argument-required-location",
-      "r10-argument-choice",
-      "r10-argument-jmespath",
+      "argument-required",
+      "argument-unrecognized",
+      "argument-required-location",
+      "argument-choice",
+      "argument-jmespath",
     ]) {
       const out = format(fixture(id));
       expect(firstLineOf(out)).toBe("❌ **Command Failed** (exit 2, argument)");
       expect(out.endsWith("Run the command with `--help` to see its arguments.")).toBe(true);
     }
-    expect(format(fixture("r10-argument-required"))).toContain("Examples from AI knowledge base:");
+    expect(format(fixture("argument-required"))).toContain("Examples from AI knowledge base:");
   });
 
-  it("row 11: not found adds nothing, and never says resource group not found", () => {
-    for (const id of ["r11-not-found-group", "r11-not-found-storage", "r11-not-found-rest"]) {
+  it("not-found: not found adds nothing, and never says resource group not found", () => {
+    for (const id of ["not-found-group", "not-found-storage", "not-found-rest"]) {
       const f = fixture(id);
       const out = format(f);
       expect(out).toBe(
@@ -491,8 +506,8 @@ describe("Appendix G rows", () => {
     }
   });
 
-  it("row 12: an unexpected CLI error is matched on after its traceback is stripped", () => {
-    const f = fixture("r12-cli-error-traceback");
+  it("cli-error: an unexpected CLI error is matched on after its traceback is stripped", () => {
+    const f = fixture("cli-error-traceback");
     // The stripped traceback holds a row-7 text; it must not decide the class.
     expect(text(f.stderr)).toContain("The requested URL was not found on the server");
     const out = format(f);
@@ -504,7 +519,7 @@ describe("Appendix G rows", () => {
     );
   });
 
-  it("row 12 lets a later row answer", () => {
+  it("cli-error lets a later class answer", () => {
     const stderr =
       "ERROR: The command failed with an unexpected error. Here is the traceback:\r\n" +
       "ERROR: Unable to prompt for confirmation as no tty available. Use --yes.\r\n" +
@@ -512,38 +527,38 @@ describe("Appendix G rows", () => {
     expect(classifyFailure(run({ stderr }), { guardOn: true }).classId).toBe("needs-yes");
   });
 
-  it("row 13 (synthetic): an emulator internal error points at the emulator logs", () => {
-    const out = format(fixture("r13-emulator-error"));
+  it("emulator-error (synthetic): an emulator internal error points at the emulator logs", () => {
+    const out = format(fixture("emulator-error"));
     expect(out).toContain(
       "The LocalStack Azure emulator hit an internal error while handling `GET /subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Storage/storageAccounts`. " +
         "This is an emulator bug; the details are in the emulator logs (`localstack-logs-analysis`, analysisType `logs`)."
     );
   });
 
-  it("row 14 (synthetic): a prompt without --yes", () => {
-    expect(format(fixture("r14-needs-yes"))).toContain(
+  it("needs-yes (synthetic): a prompt without --yes", () => {
+    expect(format(fixture("needs-yes"))).toContain(
       "This command asks for confirmation. Re-run it with `--yes`."
     );
   });
 
-  it("row 15: a refused egress host replaces az's text with the tool's line", () => {
-    const sdk = format(fixture("r15-egress-refused-sdk"));
+  it("egress-refused: a refused egress host replaces az's text with the tool's line", () => {
+    const sdk = format(fixture("egress-refused-sdk"));
     expect(sdk).toBe(
       "❌ **Command Failed** (exit 1, egress-refused)\n\n" +
         "Blocked a connection to `mcpplanc01zzzz.blob.core.windows.net`: this tool only lets `az` " +
         "talk to the local emulator. Use a relative URL with `rest`, or a command that stays on the emulator."
     );
-    const rest = format(fixture("r15-egress-refused-rest"));
+    const rest = format(fixture("egress-refused-rest"));
     expect(rest).toContain("Blocked a connection to `management.azure.com`");
     expect(rest).not.toContain("Unable to connect to proxy");
     expect(rest).not.toContain("WARNING");
   });
 
-  it("row 15: the backup regex, which never reports a housekeeping host", () => {
-    const sdkText = text(fixture("r15-egress-refused-sdk").stderr);
+  it("egress-refused: the backup regex, which never reports a housekeeping host", () => {
+    const sdkText = text(fixture("egress-refused-sdk").stderr);
     const lost = classifyFailure(run({ stderr: sdkText }), { guardOn: true });
     expect(lost.classId).toBe("egress-refused");
-    expect(format(fixture("r15-egress-refused-sdk"), {}, { egress: NO_EGRESS })).toContain(
+    expect(format(fixture("egress-refused-sdk"), {}, { egress: NO_EGRESS })).toContain(
       "Blocked a connection to a host outside the emulator"
     );
     const housekeeping = classifyFailure(
@@ -555,7 +570,7 @@ describe("Appendix G rows", () => {
     expect(classifyFailure(run({ stderr: sdkText }), { guardOn: false }).classId).toBe("other");
   });
 
-  it("row 16: too long for Windows, before spawning or from the spawn error", () => {
+  it("too-long: too long for Windows, before spawning or from the spawn error", () => {
     const hint =
       "The command is too long for Windows (limit 32,767 characters). Put large values, such as " +
       "JSON bodies or templates, in a file inside the working directory and pass `@<file>`.";
@@ -573,8 +588,8 @@ describe("Appendix G rows", () => {
     ).toBe("too-long");
   });
 
-  it("row 17: a timeout whose stderr holds a row-5 message is answered as a timeout", () => {
-    const f = fixture("r05-not-implemented-native");
+  it("timeout: a timeout whose stderr holds a not-implemented message is answered as a timeout", () => {
+    const f = fixture("not-implemented-native");
     const out = format(f, {}, { timedOut: true });
     expect(firstLineOf(out)).toBe("❌ **Command Failed** (exit none, timeout)");
     expect(out).toContain(
@@ -585,8 +600,8 @@ describe("Appendix G rows", () => {
     expect(out).not.toContain("Claude Desktop");
   });
 
-  it("row 17: the hint names Claude Desktop's ~60 s limit", () => {
-    const f = fixture("r05-not-implemented-native");
+  it("timeout: the hint names Claude Desktop's ~60 s limit", () => {
+    const f = fixture("not-implemented-native");
     const desktop = format(
       f,
       { client: { name: "claude-ai", version: "0.1.0" } },
@@ -601,8 +616,8 @@ describe("Appendix G rows", () => {
     expect(code).not.toContain("Claude Desktop");
   });
 
-  it("row 18: the guard-down text is not answered as row 2", () => {
-    const f = fixture("r18-guard-down");
+  it("guard-down: the guard-down text is not answered as conn-refused", () => {
+    const f = fixture("guard-down");
     const on = format(f);
     expect(firstLineOf(on)).toBe("❌ **Command Failed** (exit 1, guard-down)");
     expect(on).toContain(
@@ -615,7 +630,7 @@ describe("Appendix G rows", () => {
     expect(off.classId).not.toBe("conn-refused");
   });
 
-  it("row 19: Bicep missing, C08's three texts", () => {
+  it("bicep-missing: the three texts az prints", () => {
     const hint =
       "Bicep templates need the Bicep CLI, which the LocalStack Azure tool could not find. " +
       "Install it with `npx -y @localstack/localstack-mcp-server install-azure-addons`, or put Bicep on your PATH " +
@@ -623,21 +638,21 @@ describe("Appendix G rows", () => {
       "to a bicep binary, then retry. " +
       "Or deploy compiled ARM JSON: `--template-file main.json`. (`az bicep install` and `az config set` are not available through this tool.)";
     for (const id of [
-      "r19-bicep-missing-path-mode",
-      "r19-bicep-missing-version",
-      "r19-bicep-missing-latest-lookup",
+      "bicep-missing-path-mode",
+      "bicep-missing-version",
+      "bicep-missing-latest-lookup",
     ]) {
       const out = format(fixture(id));
       expect(firstLineOf(out)).toBe("❌ **Command Failed** (exit 1, bicep-missing)");
       expect(out).toContain(hint);
     }
-    // The aka.ms lookup failed through the guard: a housekeeping block, not row 15.
-    expect(format(fixture("r19-bicep-missing-latest-lookup"))).toContain(
+    // The aka.ms lookup failed through the guard: a housekeeping block, not egress-refused.
+    expect(format(fixture("bicep-missing-latest-lookup"))).toContain(
       "Note: the egress guard also blocked `aka.ms`"
     );
   });
 
-  it("row 19: the host and image variants of the hint, and the pre-spawn answer", () => {
+  it("bicep-missing: the host and image variants of the hint, and the pre-spawn answer", () => {
     const host = bicepMissing({ inDocker: false }).content[0].text;
     expect(host).toContain(
       "Install it with `npx -y @localstack/localstack-mcp-server install-azure-addons`, or put " +
@@ -655,8 +670,8 @@ describe("Appendix G rows", () => {
     expect(c.classId).toBe("bicep-missing");
   });
 
-  it("row 20: BCP192 prints the proxy URL, which is redacted with its tag", () => {
-    const f = fixture("r20-bicep-registry-bcp192");
+  it("bicep-registry: BCP192 prints the proxy URL, which is redacted with its tag", () => {
+    const f = fixture("bicep-registry-bcp192");
     expect(text(f.stderr)).toContain("http://c08-0025:x@127.0.0.1:56739/");
     const out = format(f);
     expect(firstLineOf(out)).toBe("❌ **Command Failed** (exit 1, bicep-registry)");
@@ -669,13 +684,13 @@ describe("Appendix G rows", () => {
     expect(classifyFailure(runOf(f), { guardOn: true }).details).toEqual({
       reference: "br:mcr.microsoft.com/bicep/avm/res/storage/storage-account:0.9.1",
     });
-    const direct = format(fixture("r20-bicep-registry-bcp192-direct"));
+    const direct = format(fixture("bicep-registry-bcp192-direct"));
     expect(direct).not.toContain("bicep-1790513910081");
     expect(direct).toContain("http://[redacted]@127.0.0.1:52336/");
   });
 
-  it("row 20: BCP446 and the pre-spawn answer", () => {
-    const f = fixture("r20-bicep-registry-bcp446");
+  it("bicep-registry: BCP446 and the pre-spawn answer", () => {
+    const f = fixture("bicep-registry-bcp446");
     expect(classifyFailure(runOf(f), { guardOn: true })).toMatchObject({
       classId: "bicep-registry",
       details: { reference: "mcpplanc08.invalid" },
@@ -689,8 +704,8 @@ describe("Appendix G rows", () => {
     );
   });
 
-  it("row 21: azcopy download", () => {
-    const out = format(fixture("r21-azcopy"));
+  it("azcopy: azcopy download", () => {
+    const out = format(fixture("azcopy"));
     expect(firstLineOf(out)).toBe("❌ **Command Failed** (exit 1, azcopy)");
     expect(out).toContain(
       "This command needs azcopy, which `az` would download from the internet. Use " +
@@ -732,7 +747,7 @@ describe("Appendix G rows", () => {
   });
 
   it("evaluates the runner flags and the guard's records before the stderr rows", () => {
-    const n1 = runOf(fixture("r05-not-implemented-native"));
+    const n1 = runOf(fixture("not-implemented-native"));
     const refused = {
       ...NO_EGRESS,
       refused: ["x.example"],
@@ -861,9 +876,9 @@ describe("success output", () => {
     const ok = formatAzResult(run({ exitCode: 0, stdout: "[]\r\n" }), options({ guardOn: false }))
       .content[0].text;
     expect(ok).toBe(`${GUARD_OFF_NOTE}\n\n[]`);
-    const failed = format(fixture("r05-not-implemented-native"), { guardOn: false });
+    const failed = format(fixture("not-implemented-native"), { guardOn: false });
     expect(failed.endsWith(GUARD_OFF_NOTE)).toBe(true);
-    expect(format(fixture("r05-not-implemented-native"))).not.toContain("egress guard");
+    expect(format(fixture("not-implemented-native"))).not.toContain("egress guard");
   });
 
   it("notes a refused host even when the command still succeeded", () => {
@@ -914,7 +929,7 @@ describe("success output", () => {
 
   it("lists housekeeping blocks as expected when the command failed for another reason", () => {
     const out = format(
-      fixture("r05-not-implemented-native"),
+      fixture("not-implemented-native"),
       {},
       {
         egress: { ...NO_EGRESS, housekeeping: ["azcliprod.blob.core.windows.net"] },
@@ -927,7 +942,7 @@ describe("success output", () => {
   });
 
   it("puts the failure's parts in order: first line, stderr, output, hint, notes", () => {
-    const f = fixture("r05-not-implemented-native");
+    const f = fixture("not-implemented-native");
     const out = format(f, { notes: ["policy note"] }, { stdout: "partial\r\n" });
     const parts = out.split("\n\n");
     expect(parts[0]).toBe("❌ **Command Failed** (exit 1, not-implemented)");
@@ -970,7 +985,7 @@ describe("truncation", () => {
   });
 
   it("handles 4.5 MB of `provider list` output", () => {
-    // The size of C02's `provider list -o json`: 4,521,778 bytes with CRLF line endings.
+    // The size of a recorded `provider list -o json`: 4,521,778 bytes with CRLF line endings.
     const block =
       '  {\r\n    "id": "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Example",\r\n' +
       '    "namespace": "Microsoft.Example",\r\n    "registrationState": "Registered",\r\n    "resourceTypes": []\r\n  },\r\n';
@@ -1007,7 +1022,7 @@ describe("truncation", () => {
 describe("help pages", () => {
   const reflowOf = (f: Fixture) => reflowHelp(text(f.stdout));
 
-  it("re-flow like C02's prototype (helpjoin.py), byte for byte", () => {
+  it("re-flows each recorded help page to its expected length and hash", () => {
     for (const id of ["help-az", "help-vm-create", "help-aks-create"]) {
       const f = fixture(id);
       const reflowed = reflowOf(f);
@@ -1016,7 +1031,7 @@ describe("help pages", () => {
     }
   });
 
-  // C02's sizes count the blank line that starts every page and the two newlines that end it;
+  // The recorded sizes count the blank line that starts every page and the two newlines that end it;
   // the response drops them.
   const page = (f: Fixture) => reflowOf(f).replace(/^\n+/, "").replace(/\n+$/, "");
 
@@ -1099,7 +1114,7 @@ describe("test envelope", () => {
   });
 
   it("carries az's stdout byte for byte, warnings excluded", () => {
-    // A success with a warning round-trips through $(…) (review R02, N2).
+    // A success with a warning round-trips through $(…).
     for (const id of ["ok-warning-storage-create", "ok-list-locations-utf8", "ok-group-list"]) {
       const f = fixture(id);
       const response = formatAzResult(runOf(f), options({ envelope: true, notes: ["n1"] }));
@@ -1115,7 +1130,7 @@ describe("test envelope", () => {
   });
 
   it("carries the class id, the exit code, redacted stderr and the runner's truncation", () => {
-    const f = fixture("r20-bicep-registry-bcp192");
+    const f = fixture("bicep-registry-bcp192");
     const response = formatAzResult(
       runOf(f, { truncated: true }),
       options({ envelope: true, argv: f.argv })

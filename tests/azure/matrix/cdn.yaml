@@ -4,10 +4,6 @@
 # extension (1.0.0b3) replaces the core commands wherever it is installed, so the cases use its
 # syntax (shorthand --conditions/--actions, --parameters, --web-application-firewall,
 # --formatted-origins). Edge actions go through rest (the `edge-action` extension is a preview).
-# R.1: of the typed server's seven skips, AfdProfiles CheckEndpointNameAvailability (400 for valid
-# names) and Routes Get/Update/Delete (list-vs-get store gap) passed live on 2026-09-27 (fixed
-# upstream, plain cases); EdgeActions Add/DeleteAttachment (500) and Profiles GenerateSsoUri
-# (classic Verizon only) are known gaps.
 provider: Microsoft.Cdn
 cases:
   - id: afd-profile
@@ -47,7 +43,7 @@ cases:
         Microsoft.Cdn AfdEndpoints ListResourceUsage,
         Microsoft.Cdn AfdEndpoints Delete,
       ]
-    note: The benchmark's oracle (ta.py afd-endpoints-list); samples afd endpoint create/show/purge/update.
+    note: Samples afd endpoint create/show/purge/update.
     setup:
       - group create --name {rg} --location {location}
       - afd profile create --profile-name {name:afd} --resource-group {rg} --sku Standard_AzureFrontDoor
@@ -85,7 +81,7 @@ cases:
         Microsoft.Cdn AfdOrigins Delete,
         Microsoft.Cdn AfdOriginGroups Delete,
       ]
-    note: The benchmark's oracle (ta.py afd-origin-group-delete); samples afd origin-group/origin create.
+    note: Samples afd origin-group/origin create.
     setup:
       - group create --name {rg} --location {location}
       - afd profile create --profile-name {name:afd} --resource-group {rg} --sku Standard_AzureFrontDoor
@@ -155,9 +151,6 @@ cases:
         afd route create --route-name r1 --endpoint-name {name:ep} --profile-name {name:afd} --resource-group {rg}
         --origin-group og --supported-protocols Http Https --link-to-default-domain Enabled
         --forwarding-protocol MatchRequest --https-redirect Enabled
-      # R.1: the typed server skipped Get/Update/Delete (a created route was in the list store
-      # but not the get store); Get passed live on 2026-09-27 (fixed upstream), so this is a
-      # plain case that also updates and deletes the route.
       - run: afd route show --route-name r1 --endpoint-name {name:ep} --profile-name {name:afd} --resource-group {rg} --query name -o tsv
         until: { stdout: { equals: r1 } }
       - run: >-
@@ -254,7 +247,6 @@ cases:
         Microsoft.Cdn AfdProfiles ValidateSecret,
         Microsoft.Cdn Validate Secret,
       ]
-    note: The benchmark's oracles (ta.py afd-secret-create, afd-secret-delete).
     setup:
       - group create --name {rg} --location {location}
       - afd profile create --profile-name {name:afd} --resource-group {rg} --sku Premium_AzureFrontDoor
@@ -346,7 +338,6 @@ cases:
         Microsoft.Cdn LogAnalytics GetWafLogAnalyticsMetrics,
         Microsoft.Cdn LogAnalytics GetWafLogAnalyticsRankings,
       ]
-    note: The benchmark's oracle (ta.py afd-waf-metrics).
     setup:
       - group create --name {rg} --location {location}
       - afd profile create --profile-name {name:afd} --resource-group {rg} --sku Premium_AzureFrontDoor
@@ -410,7 +401,6 @@ cases:
         Microsoft.Cdn AfdProfiles CheckHostNameAvailability,
         Microsoft.Cdn AfdProfiles ListResourceUsage,
       ]
-    note: The benchmark's oracle (td.py td-afd-hostname-check).
     setup:
       - group create --name {rg} --location {location}
       - afd profile create --profile-name {name:afd} --resource-group {rg} --sku Standard_AzureFrontDoor
@@ -426,8 +416,6 @@ cases:
     cleanup:
       - group delete --name {rg} --yes --no-wait
 
-  # R.1: the typed server skipped CheckEndpointNameAvailability (400 for valid lower-case names);
-  # it passed live on 2026-09-27 (fixed upstream), so this is a plain case.
   - id: afd-endpoint-name-check
     operations: [Microsoft.Cdn AfdProfiles CheckEndpointNameAvailability]
     setup:
@@ -471,7 +459,7 @@ cases:
       - group delete --name {rg} --yes --no-wait
     known_gap:
       reason: >-
-        Typed server COVERAGE_SKIPS: GenerateSsoUri exists only for classic Verizon SKUs, which are
+        GenerateSsoUri exists only for classic Verizon SKUs, which are
         retired; on a Front Door profile the emulator answers 400 "action isn't allowed on this
         resource for this sku".
       date: 2026-09-27
@@ -494,7 +482,6 @@ cases:
         Microsoft.Cdn Profiles ListSupportedOptimizationTypes,
         Microsoft.Cdn Endpoints Delete,
       ]
-    note: The benchmark's oracle (ta.py cdn-endpoints-list).
     setup:
       - group create --name {rg} --location {location}
       - cdn profile create --name {name:cdn} --resource-group {rg} --sku Standard_Microsoft
@@ -542,7 +529,6 @@ cases:
         Microsoft.Cdn CustomDomains DisableCustomHttps,
         Microsoft.Cdn CustomDomains Delete,
       ]
-    note: The benchmark's oracle (ta.py cdn-origin-delete).
     setup:
       - group create --name {rg} --location {location}
       - cdn profile create --name {name:cdn} --resource-group {rg} --sku Standard_Microsoft
@@ -624,7 +610,6 @@ cases:
 
   - id: cdn-migration
     operations: [Microsoft.Cdn Profiles CdnCanMigrateToAfd, Microsoft.Cdn Profiles CdnMigrateToAfd]
-    note: The benchmark's oracle (ta.py cdn-can-migrate).
     setup:
       - group create --name {rg} --location {location}
       - cdn profile create --name {name:cdn} --resource-group {rg} --sku Standard_Microsoft
@@ -840,7 +825,7 @@ cases:
       - group delete --name {rg} --yes --no-wait
     known_gap:
       reason: >-
-        Typed server COVERAGE_SKIPS: the handler dereferences its request model unguarded
+        The handler dereferences its request model unguarded
         (`A=parameters; D.require_edge_action(A.subscription_id, ...)`) and the parser passes None, so
         AddAttachment and DeleteAttachment answer HTTP 500 AttributeError for every body and
         api-version (verified 2026-09-22 with four bodies and four api-versions).

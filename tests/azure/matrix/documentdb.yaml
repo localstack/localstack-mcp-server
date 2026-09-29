@@ -2,10 +2,6 @@
 # containers. Accounts run nested emulators on the Docker engine: every case is `backing: true`
 # and deletes its account before the group (a group delete of a Mongo account was seen to leave
 # its ls-mongodb-* container running).
-# R.1: the typed server's eleven skips were known gaps (most were a nested sub-emulator flake under
-# its -n 8 parallel load, which the matrix does not have). A full run on 2026-09-28 saw all three
-# carrying cases pass twice on az 2.85, once beside other heavy families, and a probe passed every
-# one of the eleven operations: they are plain cases now, and each claimed operation is exercised.
 provider: Microsoft.DocumentDB
 cases:
   - id: cosmos-account
@@ -15,7 +11,7 @@ cases:
         Microsoft.DocumentDB DatabaseAccounts Get,
       ]
     backing: true
-    note: Samples cosmosdb create/show; tb.py cosmos-container.
+    note: Samples cosmosdb create/show.
     setup:
       - group create --name {rg} --location {location}
       - cosmosdb create --name {name:cosmos} --resource-group {rg} --locations regionName={location}
@@ -40,7 +36,7 @@ cases:
         Microsoft.DocumentDB DatabaseAccounts CheckNameExists,
       ]
     backing: true
-    note: The benchmark's oracle (ta.py cosmos-readonly-keys); samples cosmosdb keys list.
+    note: Samples cosmosdb keys list.
     setup:
       - group create --name {rg} --location {location}
       - cosmosdb create --name {name:cosmos} --resource-group {rg} --locations regionName={location}
@@ -62,7 +58,6 @@ cases:
   - id: cosmos-account-delete
     operations: [Microsoft.DocumentDB DatabaseAccounts Delete]
     backing: true
-    note: The benchmark's oracle (ta.py cosmos-account-delete).
     setup:
       - group create --name {rg} --location {location}
       - cosmosdb create --name {name:cosmos} --resource-group {rg} --locations regionName={location}
@@ -84,7 +79,7 @@ cases:
         Microsoft.DocumentDB MongoDbResources DeleteMongoDbDatabase,
       ]
     backing: true
-    note: Samples cosmosdb mongodb database/collection; ta.py cosmos-mongo-databases-list, -collection-delete.
+    note: Samples cosmosdb mongodb database/collection.
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -184,9 +179,7 @@ cases:
       ]
     backing: true
     note: >-
-      Samples cosmosdb sql database create. Was one known-gap case for the family until a full run on 2026-09-28
-      saw the database create pass (typed server: the NoSQL sub-emulator failed to start under load,
-      and GetSqlDatabase answered HTTP 500); split again as its note asked.
+      Samples cosmosdb sql database create.
     setup:
       - group create --name {rg} --location {location}
       - cosmosdb create --name {name:cosmos} --resource-group {rg} --locations regionName={location}
@@ -208,7 +201,7 @@ cases:
         Microsoft.DocumentDB SqlResources DeleteSqlContainer,
       ]
     backing: true
-    note: tb.py cosmos-container, td.py td-cosmos-container-create; samples cosmosdb sql container create.
+    note: Samples cosmosdb sql container create.
     setup:
       - group create --name {rg} --location {location}
       - cosmosdb create --name {name:cosmos} --resource-group {rg} --locations regionName={location}

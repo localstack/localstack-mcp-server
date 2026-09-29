@@ -1,7 +1,7 @@
 # Microsoft.Storage: accounts, the ARM child resources, and the data plane through az.
 # The data plane (blobs, queues, tables through the account endpoints) is not in the coverage
 # list, so those cases carry `operations: []`. `storage account create` blocks until the account
-# is Succeeded, so children are never created while it is still Creating (plan section 7).
+# is Succeeded, so children are never created while it is still Creating.
 # File shares run on the account's side-car and are `backing: true`.
 provider: Microsoft.Storage
 cases:
@@ -86,8 +86,6 @@ cases:
         answers with both keys, the new one included.
       date: 2026-09-27
 
-  # R.1: the typed server skipped Update because its fixture PATCHed while the account was still
-  # Creating; the CLI waits for Succeeded, so the CLI path does not share that limitation.
   - id: storage-account-update
     operations: [Microsoft.Storage StorageAccounts Update]
     setup:
@@ -127,8 +125,6 @@ cases:
     cleanup:
       - group delete --name {rg} --yes --no-wait
 
-  # R.1: the typed server skipped BlobContainers_Get (404 right after a create, list-vs-get store
-  # gap). It passed live through the CLI on 2026-09-27, so it is a plain case (dropped as a gap).
   - id: storage-container-rm-show
     operations: [Microsoft.Storage BlobContainers Get]
     setup:
@@ -180,9 +176,8 @@ cases:
       - group delete --name {rg} --yes --no-wait
     known_gap:
       reason: >-
-        Found by the benchmark (ta.py storage-blob-soft-delete, blocked) and confirmed by L2: the
-        update answers 200 but applies nothing, and its body is an empty BlobServiceProperties (every
-        field null).
+        The update answers 200 but applies nothing, and its body is an empty BlobServiceProperties
+        (every field null).
       date: 2026-09-27
 
   # --- The data plane (samples: storage container/blob/queue/table command groups) ---
@@ -240,10 +235,6 @@ cases:
       - group delete --name {rg} --yes --no-wait
 
   # --- Side-car backed ARM children: file shares, queues and tables (`backing: true`) ---
-  # R.1: the typed server's FileShares (Get, Update, Lease, Restore), Queue (Create, Get) and Table
-  # (Create, Get, Update) skips are known gaps. Its diagnosis: the ARM queue and table handlers
-  # forward to a freshly spawned, empty azurite container instead of the account's, and copy its
-  # 404 onto the ARM answer.
 
   - id: storage-file-shares
     operations:
@@ -256,7 +247,6 @@ cases:
         Microsoft.Storage FileShares Delete,
       ]
     backing: true
-    note: The benchmark's oracle (ta.py storage-shares-list).
     setup:
       - group create --name {rg} --location {location}
       - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
@@ -276,9 +266,6 @@ cases:
     cleanup:
       - group delete --name {rg} --yes --no-wait
 
-  # R.1: the typed server skipped FileShares Get/Update/Lease/Restore (list found the share, Get
-  # answered 404, and the rest were blocked by that Get). Get passed live on 2026-09-27 (fixed
-  # upstream), so these are plain cases that exercise each operation.
   - id: storage-file-share-read
     operations:
       [
@@ -360,9 +347,6 @@ cases:
     cleanup:
       - group delete --name {rg} --yes --no-wait
 
-  # R.1: the typed server skipped the ARM queue and table operations (a freshly spawned azurite
-  # 404 copied onto the ARM answer; Table Update 501). Queue Create and Table Create passed live
-  # on 2026-09-27 (fixed upstream), so these are plain cases that exercise each operation.
   - id: storage-queue-arm
     operations: [Microsoft.Storage Queue Create, Microsoft.Storage Queue Get]
     backing: true
@@ -419,6 +403,6 @@ cases:
       - group delete --name {rg} --yes --no-wait
     known_gap:
       reason: >-
-        Typed server COVERAGE_SKIPS, confirmed live on 2026-09-27: PATCH of an ARM table answers
+        PATCH of an ARM table answers
         NotImplemented (Create and Get now work, storage-table-arm).
       date: 2026-09-27

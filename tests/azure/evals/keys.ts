@@ -1,5 +1,5 @@
 /**
- * The Anthropic API key for E2, handled as the benchmark's harness/keyfile.py did: it comes
+ * The Anthropic API key for E2: it comes
  * from a CI secret (ANTHROPIC_API_KEY) or a private key file (--key-file or
  * ANTHROPIC_API_KEY_FILE), goes straight into the SDK client, and is never printed, logged
  * or written. `scrubber` removes it from any error text before that text is recorded, and

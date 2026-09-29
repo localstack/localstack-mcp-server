@@ -1,4 +1,4 @@
-"""C06 step 1: statically extract every `az` invocation from the sample shell scripts.
+"""Statically extract every `az` invocation from the sample shell scripts.
 
 A small bash lexer (quotes, escapes, line continuations, comments, heredocs, $VAR, ${...}, $(...),
 backticks, $((...)), <(...), arrays, `eval`-style helper strings). Every simple command is
@@ -17,7 +17,7 @@ import pathlib
 import re
 import subprocess
 
-# The localstack-azure-samples checkout to scan (C06 used commit 4193d67). Set
+# The localstack-azure-samples checkout to scan (the fixture's is at commit 4193d67). Set
 # AZURE_SAMPLES_DIR so DR8's weekly job can point it at any pinned checkout; the default is
 # a sibling checkout of this repository.
 ROOT = pathlib.Path(

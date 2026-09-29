@@ -1,6 +1,6 @@
-# The internal-network egress job (L3 b)
+# The internal-network egress job (L3)
 
-Plan section 5.4, row L3 (b); review F23. `run.sh` proves that the Azure tool needs nothing
+`run.sh` proves that the Azure tool needs nothing
 outside the LocalStack emulator: the MCP server runs in a container that has **no route out**,
 and a scenario through `localstack-azure-client` must still succeed.
 
@@ -28,7 +28,7 @@ side-car once.
 - The MCP server's container is on the internal network **only**, with
   `LOCALSTACK_AZURE_FORWARD_TARGET` set to the emulator's address there. It needs no DNS: the
   egress guard maps `localhost.localstack.cloud` and every name under it to 127.0.0.1 itself
-  (plan task 2.8), and the loopback forwarder relays 127.0.0.1 to the emulator (task 5.2).
+ , and the loopback forwarder relays 127.0.0.1 to the emulator.
 - The client (`tests/azure/tools/stdio-client.mjs`) runs on the runner and talks to the server
   over `docker run -i` stdio. The server gets no Docker socket.
 
@@ -36,8 +36,8 @@ side-car once.
 
 1. Checks `CI=true`, `LOCALSTACK_AUTH_TOKEN` (never printed), and `docker`, `node` and `curl`.
 2. Builds the MCP server image from the repository, or uses `MCP_SERVER_IMAGE`. The image must
-   contain `az`, which is plan task 5.1 (PR 5); without it the script stops with that message.
-3. Starts the emulator on the bridge with Appendix F's values, published on `127.0.0.1` only,
+   contain `az`; without it the script stops with that message.
+3. Starts the emulator on the bridge with the CI flags of `scripts/ci/azure-emulator-up.sh`, published on `127.0.0.1` only,
    and waits until health reports the Azure edition with `license: true` and HTTPS answers.
 4. Connects the emulator to the internal network, then checks the layout:
    - a container on the internal network reaches `http://<IP>:4566/_localstack/health`;
@@ -59,15 +59,15 @@ side-car once.
 6. Checks that the emulator's licence and health held through the scenario.
 
 On exit it saves the emulator log, removes the containers, the network and a built image, then
-**scans every output file for the token** and replaces any occurrence (plan section 8, review
-N22), so an upload step cannot publish it.
+**scans every output file for the token** and replaces any occurrence, so an upload step cannot
+publish it.
 
-### Feasibility first (plan task 4.3)
+### Feasibility first
 
 The first CI run is the feasibility check for this layout. The messages marked `FEASIBILITY:`
 (licence activation while dual-homed, reachability on the internal network, the first bootstrap
 through the forwarder) mean the layout itself does not work: redesign the job before building
-more on it, as the plan says.
+more on it.
 
 ## Inputs
 
@@ -90,7 +90,7 @@ client), `scenario.jsonl` (one line per step, written as each lands, plus the fo
 
 ## Workflow
 
-`azure-weekly.yml` (plan section 8), job `egress-internal-network`:
+`azure-weekly.yml`, job `egress-internal-network`:
 
 ```yaml
 jobs:
@@ -121,5 +121,5 @@ has no dependencies, and the image build installs its own.
 
 - Commands whose extensions call other Microsoft hosts, for example
   `monitor app-insights query` (it calls `api.applicationinsights.io`): that is L3's weekly
-  run with the extensions installed (plan section 3.3).
-- Bicep: L5 covers it in the image (plan phase 5).
+  run with the extensions installed.
+- Bicep: L5 covers it in the image.

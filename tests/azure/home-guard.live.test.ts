@@ -1,5 +1,5 @@
 /**
- * L3, the ~/.azure home guard (plan sections 5.4, 7 and 11; reviews F33 and R02): the Azure tool
+ * L3, the ~/.azure home guard: the Azure tool
  * keeps its own CLI profile, so a bootstrap and a spread of commands must leave the user's own
  * ~/.azure exactly as it was.
  *
@@ -27,7 +27,7 @@ jest.setTimeout(900_000);
 
 const NOT_READY = "❌ **LocalStack Azure Emulator Not Ready**";
 
-/** One command; a "not ready" preflight answer is retried once and logged (plan section 7). */
+/** One command; a "not ready" preflight answer is retried once and logged. */
 async function az(command: string) {
   const call = await azOnce(command);
   if (!call.text.startsWith(NOT_READY)) return call;

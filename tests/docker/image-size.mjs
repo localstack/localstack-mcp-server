@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 /**
- * L5 size gate (plan task 5.4; checks C05, C08; review F37). Measures the COMPRESSED size
+ * L5 size gate. Measures the COMPRESSED size
  * of the image and of the stage images the Dockerfile chains (`docker save | gzip`), never
- * `docker image inspect .Size`: on a containerd image store that reports disk usage
- * (403 MB and 1.28 GB in C05).
+ * `docker image inspect .Size`: on a containerd image store that reports disk usage.
  *
  *   node tests/docker/image-size.mjs --base <img> --az <img> --bicep <img> --final <img>
  *        [--record docker/image-size.json] [--write]

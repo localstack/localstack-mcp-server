@@ -1,6 +1,6 @@
 name: Azure live tests
 
-# The Azure tool against a real LocalStack Azure emulator (plan section 8): the L2 matrix
+# The Azure tool against a real LocalStack Azure emulator: the L2 matrix
 # subset, L3 egress and L1 (the harness stage) in one job; the L4 samples subset in its own
 # job with its own emulator. Path-filtered, so AWS-only PRs do not pay for the emulator.
 on:
@@ -36,7 +36,7 @@ concurrency:
 
 env:
   AZ_VERSION: "2.90.0"
-  # The samples repo's main (2026-09-23). The U2 corpus (tests/fixtures/azure/corpus) was
+  # The samples repo's main (2026-09-23). The samples corpus (tests/fixtures/azure/corpus) was
   # built from 4193d67, whose sample scripts are byte-identical to this commit's; only
   # run-samples.sh differs (it registers two more Bicep samples).
   SAMPLES_COMMIT: "5ae698478bd4810b619469959b73c61f326bc569"
@@ -50,7 +50,7 @@ jobs:
     env:
       LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       # Job level, so every step (the installer included) uses the pinned az and Bicep,
-      # never the runner's /usr/bin/az (review R02, F16).
+      # never the runner's /usr/bin/az.
       LOCALSTACK_AZ_PATH: /home/runner/az/bin/python3
       LOCALSTACK_AZ_BICEP_PATH: /home/runner/bicep-bin/bicep
       AZURE_CI_EMULATOR_CONTAINER: ls-azure-ci
@@ -99,7 +99,7 @@ jobs:
         if: always()
         run: node tests/azure/tools/azure-home-fingerprint.mjs --compare "$RUNNER_TEMP/azure-home-before.json"
 
-      - name: Scan logs and results for the token before any upload (review R02, N22)
+      - name: Scan logs and results for the token before any upload
         id: scan
         if: always()
         run: node scripts/ci/scan-for-secret.mjs --env LOCALSTACK_AUTH_TOKEN emulator-logs test-results

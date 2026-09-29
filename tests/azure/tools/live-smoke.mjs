@@ -1,4 +1,4 @@
-// Dev utility: the phase 2 manual live smoke (plan section 5.2, exit gate), against a
+// Dev utility: a manual live smoke, against a
 // running LocalStack Azure emulator, through the built server over stdio.
 //
 //   node tests/azure/tools/live-smoke.mjs [--out results.jsonl]
@@ -27,7 +27,7 @@ mkdirSync(workdir);
 writeFileSync(join(workdir, "hello.txt"), "hello from the live smoke ✓\n");
 
 const baseEnv = {
-  // Presence only: the Azure tool never sends the token anywhere (D5).
+  // Presence only: the Azure tool never sends the token anywhere.
   LOCALSTACK_AUTH_TOKEN: process.env.LOCALSTACK_AUTH_TOKEN || "ls-local-smoke-presence-only",
   LOCALSTACK_AZ_CONFIG_DIR: join(root, "azure-config"),
   LOCALSTACK_AZ_WORKDIR: workdir,

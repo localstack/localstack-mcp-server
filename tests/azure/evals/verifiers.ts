@@ -1,12 +1,11 @@
 /**
- * The E2 verifier and fixture library: a port of the benchmark's harness/verifiers.py and
- * the helpers of harness/tasks.py (the CLI-vs-REST MCP benchmark's harness).
+ * The E2 verifier and fixture library.
  *
  * Every verifier reads the outcome from the emulator at verification time, never from the
  * agent's report, through a `Query`: in a run that is a server session of the harness's
- * own (never the agent's), in the unit tests recorded answers with a fake clock. The seven
- * verifier defects the benchmark found after data collection (research file 19; the fixes
- * in benchmark/report/rescore.py) are fixed here: see `affirmedRights` (1),
+ * own (never the agent's), in the unit tests recorded answers with a fake clock. Seven
+ * defects of the readers these verifiers started from are fixed here (defects.test.ts
+ * shows each): see `affirmedRights` (1),
  * `validationVerdict` (2), `untaggedVerdicts` (3), `hostOf` (4), `hostVerdicts` (5),
  * `membershipVerdicts` (6) and `tenantAccessVerdict` (7).
  *
@@ -26,7 +25,7 @@ function isDict(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-/** Python's str() for JSON values: True/False/None, as the benchmark compared them. */
+/** Python's str() for JSON values: True/False/None, as the task answers print them. */
 export function pyStr(v: unknown): string {
   if (v === null || v === undefined) return "None";
   if (v === true) return "True";
@@ -81,7 +80,7 @@ export function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\/-]/g, "\\$&");
 }
 
-/** The benchmark's _norm_text: no whitespace, underscores or hyphens; lower case. */
+/** Normalised text: no whitespace, underscores or hyphens; lower case. */
 export function normText(s: unknown): string {
   return pyStr(s)
     .replace(/[\s_-]+/g, "")
@@ -91,7 +90,7 @@ export function normText(s: unknown): string {
 const SELECT = /^(\w*)\[(\w+)=([^\]]*)\]$/;
 
 /**
- * A dotted path into a JSON body (the benchmark's _dotted). A numeric part indexes a list
+ * A dotted path into a JSON body. A numeric part indexes a list
  * (`containers.0.image`); `name[field=value]` picks the list element whose field equals
  * value (`keys[keyName=key1].value`). Missing parts give null, as Python's None.
  */
@@ -156,7 +155,7 @@ export function hex(chars: number): string {
     .slice(0, chars);
 }
 
-/** The context a task's setup runs with (the benchmark's builders and setup steps). */
+/** The context a task's setup runs with. */
 export function makeSetupContext(q: Query, slots: Slots, rg: string): SetupContext {
   const random = () => Math.random();
   const randomInt = (min: number, max: number) => min + Math.floor(random() * (max - min + 1));
@@ -336,7 +335,7 @@ export async function azOk(q: Query, command: string, what?: string): Promise<un
   return parseJson(a.stdout);
 }
 
-/** PUT a resource; it must succeed (the benchmark's _put_ok). */
+/** PUT a resource; it must succeed. */
 export async function putOk(
   q: Query,
   path: string,
@@ -364,7 +363,7 @@ export async function getOk(q: Query, path: string, api: string, what: string): 
 }
 
 /**
- * The benchmark's snapshot setup step: record values before the task, as slots
+ * The snapshot setup step: record values before the task, as slots
  * `_before_<label>` (a POST such as listKeys by default). Nothing to snapshot is a
  * fixture error.
  */
@@ -392,7 +391,7 @@ export async function snapshot(
 
 /**
  * With the oracle there is no answer: the claim verifiers read the oracle's transcript,
- * one block per call, as the benchmark read its CLI arms' outputs. A block is a mark line
+ * one block per call. A block is a mark line
  * (`ORACLE ✅ az <command>`, or ❌ when the command failed) and az's output in a fence
  * (```json when it is JSON).
  */
@@ -798,9 +797,9 @@ export function migrationVerdict(slot: string): Verify {
 }
 
 // ── verifier defect 1: eventhub-hub-auth-rule-rights ──────────────────────────
-// The benchmark's negation pattern was \b(...|n't)\b: the boundary before "n't" never
+// The original negation pattern was \b(...|n't)\b: the boundary before "n't" never
 // matches inside "doesn't", so "grants only Send. It doesn't include Listen or Manage"
-// affirmed all three. Fixed reading (rescore.py fix 1): the answer's grant statement.
+// affirmed all three. Fixed reading: the answer's grant statement.
 
 const RIGHTS = ["listen", "send", "manage"] as const;
 const RIGHTS_NEG = /(?:\b(?:not|no|without|lacks?|lacking|excluding|except|neither|nor)\b|n't\b)/;
@@ -887,7 +886,7 @@ export function rightsClaim(path: string, api: string): Verify {
 
 // ── verifier defect 2: deployment-sub-validate ────────────────────────────────
 // validation_claim failed any answer containing "error(s)" or "fail" anywhere, so "The
-// template passed validation ... no errors" was wrong. Fixed (rescore.py fix 2): the
+// template passed validation ... no errors" was wrong. Fixed: the
 // verdict comes from the answer's validity statement.
 
 const VALID_POS =
@@ -918,7 +917,7 @@ export function validationClaim(deploymentPath: string, api: string): Verify {
 // ── verifier defect 3: tb-tag-audit ───────────────────────────────────────────
 // untagged_reported read each name's stretch up to the next name, so a correct table
 // ("| tbpip-x | ... | ❌ **missing** (no tags) |") followed by summary lines read as mixed.
-// Fixed (rescore.py fix 3): per line.
+// Fixed: per line.
 
 const TAG_NEG =
   /\u274c|\bmissing\b|\bno\s+(?:`?owner`?\s+)?tags?\b|\bno\s+`?owner\b|\buntagged\b|\bwithout\b/i;
@@ -989,8 +988,7 @@ export function untaggedReported(untagged: string[], tagged: string[]): Verify {
 
 // ── verifier defect 4: tb-mysql-firewall ──────────────────────────────────────
 // The step "host name reported" demanded the emulator's fullyQualifiedDomainName
-// verbatim, which carries a port (":4514"); a domain name has none. Fixed (rescore.py
-// fix 4): the name with or without the port counts.
+// verbatim, which carries a port (":4514"); a domain name has none. Fixed: the name with or without the port counts.
 
 /** The host of an FQDN or URL: no scheme, no trailing slash, no port; lower case. */
 export function hostOf(value: string): string {
@@ -1014,7 +1012,7 @@ export function hostStated(want: (q: Query, slots: Slots) => Promise<string>): V
 
 // ── verifier defect 5: td-afd-hostname-check (T-D; no E2 task uses it) ────────
 // The pilot's availability parser read no verdict from answers giving one per host in a
-// table or a sentence. Fixed (rescore.py fix 5): per line, the text after each host name
+// table or a sentence. Fixed: per line, the text after each host name
 // up to the next one; the first verdict word decides.
 
 const AVAIL_NEG =
@@ -1070,7 +1068,7 @@ export function hostAvailability(takenSlot: string, freeSlot: string): Verify {
 
 // ── verifier defect 6: apim-group-user-check ──────────────────────────────────
 // The yes/no reader collected every verdict word in a name's stretch, so "alice: not a
-// member ... her account does exist" read as both. Fixed (rescore.py fix 6): per user, the
+// member ... her account does exist" read as both. Fixed: per user, the
 // first verdict word after the name decides; lines about "whether" are skipped.
 
 const MEMBER_NEG =
@@ -1123,7 +1121,7 @@ export function membershipStated(): Verify {
 
 // ── verifier defect 7: apim-tenant-access ─────────────────────────────────────
 // The same reader: "No. Direct management API access is turned off ... enabled: false"
-// read as also enabled. Fixed (rescore.py fix 7): the first verdict word decides.
+// read as also enabled. Fixed: the first verdict word decides.
 
 const ENABLED_NEG =
   /\bno\b|\bturned\s+off\b|\bdisabled\b|\bnot\s+enabled\b|\benabled[`*]*\s*[:=]\s*[`*]*false\b/i;

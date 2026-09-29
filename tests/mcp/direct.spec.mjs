@@ -43,7 +43,7 @@ test("exposes all expected LocalStack MCP tools", async ({ mcp }) => {
   expect(toolNames).toHaveLength(EXPECTED_TOOLS.length);
 });
 
-// P2 (plan task 2.10): the Azure tool's entry and the whole catalogue stay in budget.
+// The Azure tool's entry and the whole catalogue stay in budget.
 // The azure-offline project fills the description with a 200-character workdir.
 test("the tools/list budget: Azure entry <= 3,200 bytes, catalogue < 24,000 bytes", async ({
   mcp,

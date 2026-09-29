@@ -1,8 +1,7 @@
 /**
- * Regression tests for the seven verifier defects the benchmark found after data
- * collection (research-2026-09-24/19-campaign-log.md, "verifier defect"; the fixes are in
- * benchmark/report/rescore.py). For each defect:
- *   1. the benchmark's ORIGINAL reader (ported below, as it was) misreads a correct answer;
+ * Regression tests for seven defects of the readers the E2 verifiers started from. For each
+ * defect:
+ *   1. the ORIGINAL reader (kept below, as it was) misreads a correct answer;
  *   2. the fixed E2 verifier reads the same answer correctly;
  *   3. a wrong answer still fails, so the fix did not just loosen the check.
  */
@@ -26,9 +25,9 @@ const notFound = (): AzAnswer => ({
 const q = (calls: Array<[string, AzAnswer]>) =>
   V.replayQuery(calls.map(([command, answer]) => ({ command, answer })));
 
-// ── the benchmark's original readers, verbatim in logic ─────────────────────
+// ── the original readers, verbatim in logic ──────────────────────────────────
 
-/** ta.py rights_claim (before fix 1): 30 characters back, and a negation pattern whose
+/** The original reader of defect 1: 30 characters back, and a negation pattern whose
  * \b before "n't" can never match inside "doesn't". */
 function originalRightsAffirmed(text: string): Set<string> {
   const low = text.toLowerCase();
@@ -45,14 +44,14 @@ function originalRightsAffirmed(text: string): Set<string> {
   return affirmed;
 }
 
-/** ta.py validation_claim (before fix 2): any "error(s)" or "fail" anywhere fails. */
+/** The original reader of defect 2: any "error(s)" or "fail" anywhere fails. */
 function originalValidation(text: string): boolean {
   const neg = /\binvalid\b|\bnot\s+valid\b|\bfail(?:ed|s)?\b|\berrors?\b/i;
   const pos = /\bvalid\b|\bpass(?:ed|es)?\b|\bsucceed(?:ed|s)?\b|\bsuccessful(?:ly)?\b/i;
   return pos.test(text) && !neg.test(text);
 }
 
-/** tb.py untagged_reported (before fix 3): each name's stretch per sentence (verifiers.spans). */
+/** The original reader of defect 3: each name's stretch per sentence (verifiers.spans). */
 function originalUntagged(text: string, untagged: string[], tagged: string[]): boolean {
   const neg = /\b(?:no|without|missing|lacks?|lacking|untagged|not\s+tagged|none)\b|❌/i;
   const pos = /\bhas\b|\bhave\b|\btagged\b|owner\s*[=:]|✅/i;
@@ -65,13 +64,13 @@ function originalUntagged(text: string, untagged: string[], tagged: string[]): b
   );
 }
 
-/** tb.py endpoint_stated (before fix 4): the emulator's value verbatim, port included. */
+/** The original reader of defect 4: the emulator's value verbatim, port included. */
 function originalEndpointStated(want: string, text: string): boolean {
   const w = want.replace(/\/+$/, "");
   return w !== "" && text.toLowerCase().includes(w.toLowerCase());
 }
 
-/** pilot.py availability (before fix 5), as reused for Front Door host names. */
+/** The original reader of defect 5, as reused for Front Door host names. */
 function originalAvailability(text: string, truth: Record<string, boolean>): boolean {
   const neg =
     /\bnot\s+(be\s+)?(available|free|usable)\b|\bunavailable\b|\btaken\b|\balready\b|alreadyexists|\bin\s+use\b|\bcan\s*(not|'t)\s+(be\s+)?use|name\s*available["']?\s*[:=]\s*false|❌/i;
@@ -84,7 +83,7 @@ function originalAvailability(text: string, truth: Record<string, boolean>): boo
   });
 }
 
-/** tapim.py membership_stated (before fix 6): every stretch's verdict is collected. */
+/** The original reader of defect 6: every stretch's verdict is collected. */
 function originalMembership(text: string, truth: Record<string, boolean>): boolean {
   const neg =
     /\bnot\s+(?:a\s+)?member\b|\bisn'?t\s+(?:a\s+)?member\b|\bnot\s+in\s+(?:the\s+)?group\b|\bdoes\s*n[o']?t\s+belong\b|\bnot\s+part\s+of\b|\bnon-?member\b|❌/i;
@@ -96,7 +95,7 @@ function originalMembership(text: string, truth: Record<string, boolean>): boole
   });
 }
 
-/** tapim.py access_stated (before fix 7): the stretches about "direct"/"management". */
+/** The original reader of defect 7: the stretches about "direct"/"management". */
 function originalAccess(text: string, want: boolean): boolean {
   const neg =
     /\bnot\s+(?:currently\s+)?(?:allowed|enabled|permitted|on)\b|\bdisallowed\b|\bdisabled\b|\bblocked\b|\bdenied\b|\bturned\s+off\b|\bswitched\s+off\b|\bis\s+off\b|\ballow\W{0,4}false\b|❌/i;
@@ -253,7 +252,7 @@ describe("defect 4: tb-mysql-firewall (the FQDN demanded with the emulator's por
   });
 });
 
-// ── 5. td-afd-hostname-check (T-D; the fixed reader is in the library) ──────
+// ── 5. Front Door host names (no E2 task yet; the fixed reader is in the library) ──
 
 describe("defect 5: td-afd-hostname-check (dots in host names split the sentences)", () => {
   const slots: Slots = { taken_host: "shop-x1.contoso.com", free_host: "store-y2.contoso.com" };

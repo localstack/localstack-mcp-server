@@ -1,4 +1,4 @@
-// Drift gates DR3 and DR4 (plan task 4.5): the az version and the curated extensions.
+// Drift gates DR3 and DR4: the az version and the curated extensions.
 import { readFileSync } from "fs";
 import path from "path";
 import { az, describeLive, setupLiveEnv } from "../live/harness";

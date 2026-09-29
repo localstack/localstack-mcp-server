@@ -33,7 +33,7 @@ cases:
 
   - id: resource-graph-rest-default-format
     operations: [Microsoft.ResourceGraph Microsoft.ResourceGraph Resources]
-    note: Without `options`, as the benchmark's P1 arms sent it.
+    note: Without `options`.
     setup:
       - group create --name {rg} --location {location}
       - identity create --name {name:id} --resource-group {rg} --location {location}

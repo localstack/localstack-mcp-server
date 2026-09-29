@@ -1,7 +1,6 @@
 # Microsoft.Insights.DataPlane: the Application Insights query, events and metrics APIs, through
-# the curated application-insights extension. The benchmark blocked its tasks on this data plane
-# because ingestion stores nothing (ta.py AI_BLOCK), so these cases only check that the calls
-# answer. On 2026-09-27 they do not reach the emulator at all: the cloud the tool registers
+# the curated application-insights extension. Ingestion stores nothing, so these cases only
+# check that the calls answer. On 2026-09-27 they do not reach the emulator at all: the cloud the tool registers
 # (src/lib/azure/bootstrap.ts cloudConfigJson) sets no Application Insights endpoint, so the
 # extension targets api.applicationinsights.io, and the egress guard refuses it (nothing leaks).
 # The three cases are known gaps until the cloud config maps that endpoint; their refusals are
@@ -10,7 +9,6 @@ provider: Microsoft.Insights.DataPlane
 cases:
   - id: appinsights-query
     operations: [Microsoft.Insights.DataPlane Query Execute]
-    note: The benchmark's oracle (ta.py appinsights-query).
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -30,7 +28,6 @@ cases:
 
   - id: appinsights-events
     operations: [Microsoft.Insights.DataPlane Events GetByType]
-    note: The benchmark's oracle (ta.py appinsights-events-by-type).
     setup:
       - group create --name {rg} --location {location}
       - run: >-

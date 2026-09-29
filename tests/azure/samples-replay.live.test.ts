@@ -1,5 +1,5 @@
 /**
- * L4: the samples replay (plan task 4.4, section 5.4; research file 08 section 3).
+ * L4: the samples replay.
  *
  * Runs localstack-azure-samples' own scripts, unmodified, with the `az` shim first on
  * PATH (tests/azure/samples-shim/), so every `az` call goes through the MCP tool
@@ -15,7 +15,7 @@
  *   run-samples.sh (script, Terraform and Bicep runs), with its own deploy and test
  *   commands, as the samples repo's CI runs them.
  *
- * Safety (review F25, R02; plan section 7):
+ * Safety:
  * - the samples checkout is never written: each sample is copied to a temp dir first;
  * - every script gets a fresh AZURE_CONFIG_DIR, a private HOME/USERPROFILE (and XDG
  *   dirs), DOCKER_CONFIG=<tmp>/docker (an empty dir) and KUBECONFIG=<tmp>/kubeconfig,
@@ -58,11 +58,11 @@ const SERVER_JS = process.env.AZ_SHIM_SERVER_JS || path.join(REPO_ROOT, "dist", 
 
 const MODE: "pr" | "all" = process.env.AZURE_SAMPLES === "all" ? "all" : "pr";
 const IN_CI = process.env.CI === "true";
-/** The owner's explicit opt-in to run every sample on a developer machine's Docker engine. */
+/** An explicit opt-in to run every sample on a developer machine's Docker engine. */
 const ALL_LOCAL = process.env.AZURE_SAMPLES_ALL_LOCAL === "1";
 /**
  * The emulator belongs to this run, so cleanup may delete every group a sample made. CI has one
- * emulator per job; locally the owner opts in with AZURE_SAMPLES_OWN_EMULATOR=1. Without it, a
+ * emulator per job; locally, opt in with AZURE_SAMPLES_OWN_EMULATOR=1. Without it, a
  * Terraform or Bicep sample's group (made without `az group create`) is left behind, and the next
  * sample that reuses the name fails with "already exists" (every Terraform sample after
  * the first that used local-rg).
@@ -134,7 +134,7 @@ const PR_SAMPLES: Sample[] = [
   },
 ];
 
-/** Sample steps the policy refuses (review R02 N1; U2 records them with these rule ids). */
+/** Sample steps the policy refuses (the samples corpus records them with these rule ids). */
 const KNOWN_GAPS: Array<{ ruleId: string; where: string; match: (argv: string[]) => boolean }> = [
   {
     ruleId: "denied:acr-login",
@@ -306,7 +306,7 @@ function stepEnv(
   const bicep = process.env.LOCALSTACK_AZ_BICEP_PATH || realHomeDefault("bin", bicepName);
   if (bicep) env.LOCALSTACK_AZ_BICEP_PATH = bicep;
   env.LOCALSTACK_AZ_TIMEOUT_SECONDS ||= "1800"; // function app deploys pull build images
-  env.LOCALSTACK_AUTH_TOKEN ||= DUMMY_TOKEN; // only its presence is checked (D5)
+  env.LOCALSTACK_AUTH_TOKEN ||= DUMMY_TOKEN; // only its presence is checked
   env.MCP_ANALYTICS_DISABLED ||= "1";
   env.AZ_SHIM_LOG = shimLog;
   env.AZ_SHIM_STEP = step;
@@ -689,7 +689,7 @@ async function cleanupSample(
     ].map((g) => g.toLowerCase())
   );
   if (OWN_EMULATOR) {
-    // The emulator is this run's (CI's one per job, or the owner's opt-in): anything new was made
+    // The emulator is this run's (CI's one per job, or an explicit opt-in): anything new was made
     // by this sample (Terraform and Bicep create groups without `az group create`). Never on a
     // shared emulator.
     try {

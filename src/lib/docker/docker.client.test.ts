@@ -279,9 +279,9 @@ describe("DockerApiClient", () => {
     );
   });
 
-  // --- Azure as a third stack (plan task 1.3, U13b) ---
+  // --- Azure as a third stack ---
 
-  // The phase 3 test emulator as the spec builder really publishes it:
+  // A port-shifted test emulator as the spec builder really publishes it:
   // GATEWAY_LISTEN=:4666 gives 4666 -> 4666, the service range 4610-4660, and no 443.
   const recipeTestContainer = {
     Id: "test-4666",

@@ -1,7 +1,4 @@
 # Microsoft.ServiceBus: namespaces, queues, topics, subscriptions, rules, authorization rules.
-# R.1: the typed server skipped Subscriptions_CreateOrUpdate because, under its -n 8 parallel
-# load, the topic was not yet visible; the matrix runs its steps in order, so it is a plain case
-# (servicebus-topic-subscriptions), from the benchmark's T-B servicebus-topic workflow.
 # Namespace names use {name:sbns}: Azure (and the emulator, 400 NamespaceUnavailable InvalidName)
 # refuses a namespace name that ends in -sb or -mgmt.
 provider: Microsoft.ServiceBus
@@ -49,7 +46,7 @@ cases:
 
   - id: servicebus-namespace-update-delete
     operations: [Microsoft.ServiceBus Namespaces Update, Microsoft.ServiceBus Namespaces Delete]
-    note: The benchmark's oracle (ta.py sb-namespace-premium) upgrades the sku.
+    note: The case upgrades the sku.
     setup:
       - group create --name {rg} --location {location}
       - servicebus namespace create --name {name:sbns} --resource-group {rg} --location {location} --sku Standard
@@ -176,7 +173,6 @@ cases:
         Microsoft.ServiceBus Queues RegenerateKeys,
         Microsoft.ServiceBus Queues DeleteAuthorizationRule,
       ]
-    note: The benchmark's oracle (ta.py sb-queue-regenerate-key).
     setup:
       - group create --name {rg} --location {location}
       - servicebus namespace create --name {name:sbns} --resource-group {rg} --location {location} --sku Standard
@@ -209,7 +205,6 @@ cases:
         Microsoft.ServiceBus Subscriptions ListByTopic,
       ]
     pr: true
-    note: The benchmark's T-B servicebus-topic workflow (tb.py).
     setup:
       - group create --name {rg} --location {location}
       - servicebus namespace create --name {name:sbns} --resource-group {rg} --location {location} --sku Standard
@@ -233,7 +228,6 @@ cases:
         Microsoft.ServiceBus Subscriptions Get,
         Microsoft.ServiceBus Subscriptions Delete,
       ]
-    note: The benchmark's oracles (ta.py sb-topic-delete, sb-dp-subscription-delete).
     setup:
       - group create --name {rg} --location {location}
       - servicebus namespace create --name {name:sbns} --resource-group {rg} --location {location} --sku Standard
@@ -265,7 +259,6 @@ cases:
         Microsoft.ServiceBus Topics RegenerateKeys,
         Microsoft.ServiceBus Topics DeleteAuthorizationRule,
       ]
-    note: The benchmark's oracles (ta.py sb-topic-auth-rules, sb-topic-keys).
     setup:
       - group create --name {rg} --location {location}
       - servicebus namespace create --name {name:sbns} --resource-group {rg} --location {location} --sku Standard

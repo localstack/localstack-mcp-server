@@ -559,7 +559,7 @@ describe("summarize and the gate", () => {
     });
   });
 
-  test("refusals are counted, and Key Vault crypto refusals apart (experiment 3)", () => {
+  test("refusals are counted, and Key Vault crypto refusals apart", () => {
     const rows = [
       row("kv-sign", false, { refusal: true, kv_crypto: true }),
       row("x", false, { refusal: true }),

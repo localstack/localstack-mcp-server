@@ -1,6 +1,6 @@
 /**
  * The E2 task catalogue, and every task's verifier against answers recorded in live runs
- * against the LocalStack Azure emulator: the benchmark's oracle (the verifier must pass) and
+ * against the LocalStack Azure emulator: the oracle (the verifier must pass) and
  * setup alone (the verifier must fail). Replaying the recordings proves the verifiers score
  * real emulator answers as they did live, without an emulator.
  */
@@ -82,7 +82,7 @@ function fields(template: string): string[] {
 }
 
 describe("the task catalogue", () => {
-  test("50 tasks drawn from T-A, T-B and T-APIM, with the benchmark's ids", () => {
+  test("50 tasks in T-A, T-B and T-APIM, with unique ids", () => {
     expect(TASKS).toHaveLength(50);
     expect(new Set(TASKS.map((t) => t.id)).size).toBe(TASKS.length);
     for (const [tier, ids] of Object.entries(EXPECTED)) {
@@ -90,7 +90,7 @@ describe("the task catalogue", () => {
     }
   });
 
-  test("the E2 tasks of the benchmark's verifier defects are all here", () => {
+  test("the tasks of the fixed verifier defects are all here", () => {
     for (const id of [
       "eventhub-hub-auth-rule-rights",
       "deployment-sub-validate",
@@ -103,7 +103,7 @@ describe("the task catalogue", () => {
     }
   });
 
-  test("the Key Vault crypto tasks that experiment 3 counts", () => {
+  test("the Key Vault crypto tasks whose refusals the summary counts", () => {
     expect(TASKS.filter((t) => t.kvCrypto).map((t) => t.id)).toEqual([
       "kv-sign",
       "kv-decrypt",

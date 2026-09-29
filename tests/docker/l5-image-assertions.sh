@@ -1,5 +1,5 @@
 #!/bin/sh
-# L5 image assertions (plan task 5.4). Run inside the image with --entrypoint /bin/sh,
+# L5 image assertions. Run inside the image with --entrypoint /bin/sh,
 # because the image's ENTRYPOINT is the MCP server:
 #
 #   docker run --rm --entrypoint /bin/sh \
@@ -9,7 +9,7 @@
 #
 # The absence checks run FIRST, before any az command in the container, and this script's
 # own az call uses AZURE_CONFIG_DIR=/tmp/l5-az, so the test cannot create what it checks
-# for (review R02, F37).
+# for.
 set -eu
 fail() { echo "L5 FAIL: $*" >&2; exit 1; }
 
@@ -51,7 +51,7 @@ node -e '
   console.log("L5: " + pins.length + " extensions match the pin list");
 '
 
-# 4. The bundled Bicep (decision D11).
+# 4. The bundled Bicep.
 version=$(bicep --version)
 echo "$version" | grep -q "${BICEP_EXPECTED:-0.47.16}" || fail "bicep reports: $version"
 echo "L5: $version"

@@ -1,10 +1,10 @@
 /**
- * Types shared by the E2 eval modules (plan section 5.6). Type declarations only: every
+ * Types shared by the E2 eval modules. Type declarations only: every
  * module imports this file with `import type`, which Node's type stripping erases, so the
  * modules can be loaded unbundled by `run.mjs` (Node 22.18+) and by ts-jest alike.
  */
 
-/** The benchmark's tiers that E2 draws from. */
+/** The E2 task tiers (README.md, The tasks). */
 export type Tier = "T-A" | "T-B" | "T-APIM";
 
 /**
@@ -32,7 +32,7 @@ export interface Query {
   sleep(ms: number): Promise<void>;
   /** Milliseconds, monotonic. */
   now(): number;
-  /** How long a polling check waits for a state (the benchmark's VERIFY_WAIT_S, 90 s). */
+  /** How long a polling check waits for a state (90 s by default). */
   waitS: number;
 }
 
@@ -57,7 +57,7 @@ export interface Verdict {
 export type Verify = (q: Query, slots: Slots, text: string) => Promise<Verdict>;
 
 /** An oracle command: a template filled from the slots, or one computed from the
- * emulator just before it runs (the benchmark's `Late`). */
+ * emulator just before it runs. */
 export type OracleStep = string | ((q: Query, slots: Slots) => Promise<string>);
 
 /** What a task's setup gets: the harness query, the run's slots and random helpers. */
@@ -65,7 +65,7 @@ export interface SetupContext {
   q: Query;
   slots: Slots;
   rg: string;
-  /** `prefix` + 6 hex characters (the benchmark's `_name`). */
+  /** `prefix` + 6 hex characters. */
   name(prefix: string): string;
   hex(chars: number): string;
   uuid(): string;
@@ -76,7 +76,7 @@ export interface SetupContext {
 }
 
 export interface Task {
-  /** The benchmark's task id, kept as it was. */
+  /** The task id. */
   id: string;
   tier: Tier;
   /** The sampled operation (provider/OperationId). */
@@ -84,18 +84,18 @@ export interface Task {
   verb: string;
   /** One or two phrasings of the same request (T-A has two). */
   prompts: readonly string[];
-  /** The benchmark's CLI oracle commands, in order. */
+  /** The reference (oracle) commands, in order. */
   oracle: readonly OracleStep[];
   verify: Verify;
   /** Creates the prerequisites through the harness session and fills the slots. */
   setup?: (ctx: SetupContext) => Promise<void>;
   /** Removes what a run leaves outside its resource group (subscription-scope records). */
   teardown?: (q: Query, slots: Slots) => Promise<void>;
-  /** The benchmark's caps tier for the agent loop (T-APIM tasks use T-A's). */
+  /** The caps tier for the agent loop (T-APIM tasks use T-A's). */
   caps: "T-A" | "T-B";
-  /** Read tasks whose answer is the same whatever the fixture (the benchmark's GUESSABLE). */
+  /** Read tasks whose answer is the same whatever the fixture. */
   guessable?: boolean;
-  /** Key Vault crypto tasks: experiment 3 counts their refusals (risk R7). */
+  /** Key Vault crypto tasks: the summary counts their refusals apart. */
   kvCrypto?: boolean;
   /** Slots naming Key Vaults the run may create, purged in cleanup. */
   vaultSlots?: readonly string[];
@@ -105,18 +105,18 @@ export interface Task {
   apimSlots?: readonly string[];
   /** Resource types (with an api-version) the end-of-run orphan sweep lists. */
   sweep?: readonly string[];
-  /** Why the task differs from the benchmark (the port's own notes, like CLI_NOTES). */
+  /** Notes on how the task is set up or verified. */
   notes?: string;
 }
 
-/** Per-tier agent-loop caps (the benchmark's config.CAPS). */
+/** Per-tier agent-loop caps. */
 export interface Caps {
   turns: number;
   toolCalls: number;
   seconds: number;
 }
 
-/** Token counts of one Messages API turn (the benchmark's `_usage`). */
+/** Token counts of one Messages API turn. */
 export interface Usage {
   input: number;
   output: number;

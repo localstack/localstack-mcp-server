@@ -1,26 +1,24 @@
 {
  "_metadata": {
-  "description": "Every az command in localstack-azure-samples, deduplicated, with the expected variant-P argv and policy verdict. Consumed by src/lib/azure/policy.corpus.test.ts.",
+  "description": "Every az command in localstack-azure-samples, deduplicated, with the expected argv and policy verdict. Consumed by src/lib/azure/policy.corpus.test.ts.",
   "source_repo": "localstack-azure-samples (samples/**/*.sh)",
   "source_commit": "4193d67c3684ee1ccb9f700be8503e66ffdba674",
-  "built_from": "checks/artifacts/samples-az-corpus.json (check C06)",
-  "generated_utc": "2026-09-27T17:18:42Z",
+  "built_from": "extract.py and bash_argv.py (see README.md)",
+  "generated_utc": "2026-09-29T00:56:41Z",
   "command_count": 1985,
   "distinct_count": 736,
   "refused_occurrences": 7,
   "known_refusals": [
    {
     "command": "acr login --name \"x_acr_name\" --only-show-errors",
-    "ruleId": "denied:acr-login",
-    "source": "review R02 N1"
+    "ruleId": "denied:acr-login"
    },
    {
     "command": "container exec --name \"x_aci_group_name\" --resource-group \"x_resource_group_name\" --container-name \"x_aci_group_name\" --exec-command \"echo hello-from-exec\"",
-    "ruleId": "denied:container-exec",
-    "source": "review R02 N1"
+    "ruleId": "denied:container-exec"
    }
   ],
-  "note": "Regenerate on a samples bump (DR8): see README.md. argv is bash `printf` output, identical to Python shlex on every case (C06). Placeholder values (x_var) stand in for shell expansions, so the fixture exercises quoting exactly as the scripts write it."
+  "note": "Regenerate on a samples bump: see README.md. argv is bash `printf` output. Placeholder values (x_var) stand in for shell expansions, so the fixture exercises quoting exactly as the scripts write it."
  },
  "cases": [
   {

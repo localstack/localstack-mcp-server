@@ -3,23 +3,22 @@ import path from "path";
 import type { AzExecutable, AzureConfig } from "./types";
 
 /**
- * The environment `az` runs with (plan task 2.3; checks C03 and C08). It is built
+ * The environment `az` runs with. It is built
  * from an allow-list, never from a copy of the server's environment:
  * - `AZURE_*`, `ARM_*`, `MSI_ENDPOINT`, `IDENTITY_*` and the user's proxy and CA
  *   variables would point `az` at real Azure or at another profile;
  * - `KUBECONFIG`, `DOCKER_COMMAND`, `GITHUB_ACTIONS`, `TF_BUILD`, `BICEP_*`,
- *   `AZURE_EXTENSION_SYS_DIR` and `BROWSER` each change what `az` or Bicep does (C08).
+ *   `AZURE_EXTENSION_SYS_DIR` and `BROWSER` each change what `az` or Bicep does.
  * The home, AppData and temp directories are private ones inside the tool's config
  * dir, so commands that default to `~` (`--generate-ssh-keys`, `aks get-credentials`,
- * `ad ... --create-cert`) write there instead of into the user's home (C08: 66 calls,
- * and az wrote nothing into the real ones).
+ * `ad ... --create-cert`) write there instead of into the user's home.
  */
 
 /** Inherited on every platform. */
 const INHERITED = ["PATH", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "LANG"];
 /**
  * Inherited on Windows only. az finds Bicep with `shutil.which("bicep")`, which reads
- * PATHEXT on older Pythons; the others are in the environment C08's calls ran with.
+ * PATHEXT on older Pythons; the others describe the machine, and Windows programs expect them.
  */
 const INHERITED_WINDOWS = [
   "PATHEXT",
@@ -80,8 +79,8 @@ function hasUtf8Locale(env: Record<string, string>) {
 
 /**
  * Build the child environment. The egress proxy variables are added per call by the
- * runner (task 2.8); `NO_PROXY` is never set, since bypassing the guard would skip
- * its name mapping and its per-call records (C01).
+ * runner; `NO_PROXY` is never set, since bypassing the guard would skip
+ * its name mapping and its per-call records.
  */
 export function buildAzChildEnv(
   parent: NodeJS.ProcessEnv,
@@ -139,11 +138,11 @@ export function buildAzChildEnv(
   env.AZURE_CORE_NO_COLOR = "1";
   if (opts.az.azInstaller) env.AZ_INSTALLER = opts.az.azInstaller;
   if (config.inDocker) {
-    // A bundled or mounted Linux Bicep runs without ICU; C08 saw identical output.
+    // A bundled or mounted Linux Bicep runs without ICU, with identical output.
     env.DOTNET_SYSTEM_GLOBALIZATION_INVARIANT = "1";
   }
   if (opts.az.installer === "launcher-as-is") {
-    // No interpreter to give `-X utf8`: the launcher's own flags decide (C03), so
+    // No interpreter to give `-X utf8`: the launcher's own flags decide, so
     // ask for UTF-8 through the locale and, for launchers without -I, PYTHONIOENCODING.
     if (!hasUtf8Locale(env)) env.LC_ALL = "C.UTF-8";
     env.PYTHONIOENCODING = "utf-8";

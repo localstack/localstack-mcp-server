@@ -19,7 +19,7 @@ const SHUTDOWN_TIMEOUT_MS = 1000;
 
 export const TOOL_ARG_ALLOWLIST: Record<string, string[]> = {
   "localstack-aws-client": ["command"],
-  // Value-free by construction (decision D6): the tool passes derived fields, never
+  // Value-free by construction: the tool passes derived fields, never
   // the command. Exit code and error class travel in the failure text's first line.
   "localstack-azure-client": ["command_path", "flag_names", "policy_outcome"],
   "localstack-aws-replicator": [

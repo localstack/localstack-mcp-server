@@ -45,7 +45,7 @@ cases:
 
   - id: deployment-group-bicep
     operations: [Microsoft.Resources Deployments CreateOrUpdate]
-    note: "The PR Bicep case (plan section 4), compiled by the local Bicep binary; no registry modules."
+    note: "The PR Bicep case, compiled by the local Bicep binary; no registry modules."
     pr: true
     setup:
       - group create --name {rg} --location {location}
@@ -63,10 +63,8 @@ cases:
   - id: deployment-group-dependencies
     operations: [Microsoft.Resources Deployments CreateOrUpdate]
     note: >-
-      A template whose subnet depends on a network security group (ordering). It was a known gap
-      until 2026-09-27 for a TOOL defect (the Bicep module scan took the `ts:` of `subnets:` for a
-      template-spec module); the scan now matches only a quoted reference after
-      module/using/extends/from, and a full run on 2026-09-28 passed it.
+      A template whose subnet depends on a network security group (ordering). It also checks that
+      the Bicep module scan does not take the `ts:` of `subnets:` for a template-spec module.
     setup:
       - group create --name {rg} --location {location}
     command: >-
@@ -138,7 +136,7 @@ cases:
 
   - id: deployment-sub-rest
     operations: [Microsoft.Resources Deployments CreateOrUpdateAtSubscriptionScope]
-    note: The benchmark's oracle (ta.py deployment-sub-create) sends the template inline with az rest.
+    note: The case sends the template inline with az rest.
     command: >-
       rest --method put
       --url /subscriptions/{sub}/providers/Microsoft.Resources/deployments/{name:subdep}?api-version=2022-09-01

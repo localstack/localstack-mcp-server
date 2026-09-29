@@ -1,6 +1,5 @@
 /**
- * The Python side of the warm az worker (plan task 7.1; the benchmark's V2 arm,
- * `benchmark/arms/cli_server.py`). It imports azure-cli once and runs each command
+ * The Python side of the warm az worker. It imports azure-cli once and runs each command
  * in-process with `get_default_cli().invoke(argv)`.
  *
  * Protocol: one JSON line per command on stdin (`{id, argv, cwd, env}`), one JSON line per

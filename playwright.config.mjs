@@ -20,7 +20,7 @@ const sharedMcpConfig = {
   callTimeoutMs: 300000,
 };
 
-// P3 (plan task 2.16): the Azure tool without an emulator. A port that is free right
+// The Azure tool without an emulator. A port that is free right
 // now keeps "no emulator" true even where one runs on 4566; 4766 and 4710-4790 are
 // never picked because the OS chooses from its ephemeral range.
 async function freePort() {
@@ -32,7 +32,7 @@ async function freePort() {
 }
 const azureOfflinePort = await freePort();
 
-// P2 measures the description filled with a 200-character workdir.
+// The catalogue budget check measures the description filled with a 200-character workdir.
 const workdirRoot = join(tmpdir(), "lsmcp-p2");
 const azureWorkdir = join(workdirRoot, "w".repeat(Math.max(1, 200 - workdirRoot.length - 1)));
 mkdirSync(azureWorkdir, { recursive: true });
@@ -67,7 +67,7 @@ export default defineConfig({
       },
     },
     {
-      // Its own env (review R02, N8): a dummy token, and the Azure tool pointed at a
+      // Its own env: a dummy token, and the Azure tool pointed at a
       // port where nothing listens, with its own config dir.
       name: "azure-offline",
       testMatch: /azure-offline\.spec\.mjs$/,

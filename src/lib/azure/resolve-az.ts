@@ -3,11 +3,10 @@ import path from "path";
 import type { AzExecutable } from "./types";
 
 /**
- * Finding `az` and Bicep (plan task 2.2; check C03 "Recommended resolve-and-spawn
- * algorithm", check C08). Every launcher is mapped to the CLI's own Python, which is
+ * Finding `az` and Bicep. Every launcher is mapped to the CLI's own Python, which is
  * then spawned as `<python> -X utf8 -W ignore::SyntaxWarning -IBm azure.cli`:
  * - `-I` keeps a planted `azure/cli/__main__.py` in the working directory from
- *   running in place of `az` (plain `-m` runs it; verified in C03);
+ *   running in place of `az` (plain `-m` runs it);
  * - `-X utf8` is the only UTF-8 fix that works under `-I` (PYTHON* variables are
  *   ignored there), and without it non-cp1252 values come back empty with exit 0;
  * - `-W ignore::SyntaxWarning` keeps extensions' compile-time warnings out of stderr.
@@ -16,7 +15,7 @@ import type { AzExecutable } from "./types";
  */
 
 export const MIN_AZ_VERSION = "2.85.0";
-/** `.bicepparam` files need this Bicep release or newer (C08). */
+/** `.bicepparam` files need this Bicep release or newer. */
 export const MIN_BICEPPARAM_VERSION = "0.14.85";
 
 export interface ResolveFs {
@@ -77,7 +76,7 @@ export interface ResolveAzContext {
   fs: ResolveFs;
   /** POSIX only: the text of /proc/version, for WSL detection. */
   procVersion?: string;
-  /** LOCALSTACK_AZ_PYCACHE_DIR: write bytecode there instead of `-B` (C05). */
+  /** LOCALSTACK_AZ_PYCACHE_DIR: write bytecode there instead of `-B`. */
   pycacheDir?: string;
 }
 
@@ -156,7 +155,7 @@ export function interpreterFlags(prefixArgs: string[]): string[] {
   return stripped === "-" || stripped === "" ? flags : [...flags, stripped];
 }
 
-/** The spawn prefix for a mapped Python (C03, C05). */
+/** The spawn prefix for a mapped Python. */
 export function pythonPrefix(opts: { pycacheDir?: string; safePathFallback?: boolean }) {
   const cache = opts.pycacheDir ? ["-X", `pycache_prefix=${opts.pycacheDir}`] : [];
   // With a cache dir the image's stripped .pyc files are rebuilt there once; `-B`
@@ -198,7 +197,7 @@ const INSTALLERS: Record<string, AzExecutable["azInstaller"]> = {
 
 /**
  * The interpreter a bash launcher execs, e.g. the deb package's
- * `AZ_INSTALLER=DEB "$bin_dir"/../../opt/az/bin/python3 -Im azure.cli "$@"` (C03 §8)
+ * `AZ_INSTALLER=DEB "$bin_dir"/../../opt/az/bin/python3 -Im azure.cli "$@"`
  * or the MSI's Git Bash `wbin/az`. Undefined when the text has another shape, or
  * needs PYTHONPATH (which `-I` ignores); such launchers are spawned as they are.
  */
@@ -271,7 +270,7 @@ function pipPython(dir: string, ctx: ResolveAzContext): Mapped {
   };
 }
 
-/** Map one Windows launcher file to its Python (C03 §1). */
+/** Map one Windows launcher file to its Python. */
 function mapWindowsLauncher(file: string, ctx: ResolveAzContext): Mapped {
   const pathApi = path.win32;
   const dir = pathApi.dirname(file);
@@ -306,7 +305,7 @@ function mapWindowsLauncher(file: string, ctx: ResolveAzContext): Mapped {
   };
 }
 
-/** Map one POSIX `az` to its Python, or to itself when its shape is unknown (C03 §8). */
+/** Map one POSIX `az` to its Python, or to itself when its shape is unknown. */
 function mapPosixLauncher(file: string, ctx: ResolveAzContext): Mapped {
   const pathApi = path.posix;
   const real = ctx.fs.realpath(file) ?? file;
@@ -315,7 +314,7 @@ function mapPosixLauncher(file: string, ctx: ResolveAzContext): Mapped {
     [file, real].some((p) => /^\/mnt\/[a-z]\//i.test(p) || /\.(exe|cmd|bat)$/i.test(p))
   ) {
     // WSL interop does not forward AZURE_CONFIG_DIR, so a Windows az would use the
-    // user's real ~/.azure (C03 §8). There is deliberately no escape hatch.
+    // user's real ~/.azure. There is deliberately no escape hatch.
     return {
       ok: false,
       reason: `${file}: a Windows Azure CLI seen through WSL; it would use your real Windows ~/.azure profile, so it is never used`,
@@ -395,7 +394,7 @@ export function locateAz(ctx: ResolveAzContext): LocatedAz {
     };
   }
 
-  // One launcher per directory: az and az.cmd side by side map once (C03 case 3),
+  // One launcher per directory: az and az.cmd side by side map once,
   // and the first that maps wins, so the extensionless file is never the target.
   const names = ctx.platform === "win32" ? ["az.cmd", "az.bat", "az", "az.exe"] : ["az"];
   for (const dir of pathEntries(ctx.env, ctx.platform)) {
@@ -456,7 +455,7 @@ export interface AzProbeOutcome {
 /**
  * Probe code: prints the Python version first, so a failed import still tells the
  * resolver whether the `-P` fallback exists (Python 3.11+). ~0.17 s against ~1.3 s
- * for `az version` (C03 §5).
+ * for `az version`.
  */
 export const AZ_PROBE_CODE =
   "import sys, json\n" +
@@ -522,7 +521,7 @@ export async function resolveAz(
 }
 
 // ---------------------------------------------------------------------------
-// Bicep (C08; plan task 2.2)
+// Bicep
 // ---------------------------------------------------------------------------
 
 export interface BicepResolution {
@@ -555,7 +554,7 @@ export interface ResolveBicepContext {
 
 /**
  * The Bicep binary, in order: LOCALSTACK_AZ_BICEP_PATH (a hard error when missing or
- * misnamed, review R02 N13), the tool's own ~/.localstack/azure/bin, then PATH. It
+ * misnamed), the tool's own ~/.localstack/azure/bin, then PATH. It
  * never picks up `~/.azure/bin/bicep` (where `az bicep install` puts it) on its own.
  */
 export function locateBicep(
@@ -613,7 +612,7 @@ export async function resolveBicep(
 }
 
 // ---------------------------------------------------------------------------
-// `version`, answered locally (plan task 2.7/2.12; `az version` calls Microsoft, C02)
+// `version`, answered locally (`az version` calls Microsoft)
 // ---------------------------------------------------------------------------
 
 export interface InstalledExtension {

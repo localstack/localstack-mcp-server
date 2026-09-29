@@ -1,7 +1,4 @@
 # Microsoft.ManagedIdentity: user-assigned identities and their federated credentials.
-# R.1: of the typed server's six skips, the four federated-credential operations passed live on
-# 2026-09-27 (fixed upstream, plain cases); GetByScope at subscription scope and RevokeTokens are
-# carried as known gaps with their diagnoses.
 provider: Microsoft.ManagedIdentity
 cases:
   - id: identity-create
@@ -64,7 +61,6 @@ cases:
 
   - id: identity-list-operations
     operations: [Microsoft.ManagedIdentity Operations List]
-    note: The benchmark's oracle (ta.py identity-operations).
     command: identity list-operations --query "length(@) > `0`"
     expect:
       json: { path: "", equals: true }
@@ -80,8 +76,6 @@ cases:
     cleanup:
       - group delete --name {rg} --yes --no-wait
 
-  # R.1: the typed server skipped the four federated-credential operations (HTTP 501, no store);
-  # all four passed live on 2026-09-27, so the gap is fixed upstream and these are plain cases.
   - id: identity-federated-credential-create
     operations: [Microsoft.ManagedIdentity FederatedIdentityCredentials CreateOrUpdate]
     setup:
@@ -148,7 +142,7 @@ cases:
       - group delete --name {rg} --yes --no-wait
     known_gap:
       reason: >-
-        Typed server COVERAGE_SKIPS: the emulator gates the operation off, POST .../revokeTokens
+        The emulator gates the operation off, POST .../revokeTokens
         answers HTTP 400 "Revoke Tokens feature is not enabled".
       date: 2026-09-27
 
@@ -161,6 +155,6 @@ cases:
       json: { path: type, equals: Microsoft.ManagedIdentity/identities }
     known_gap:
       reason: >-
-        Typed server COVERAGE_SKIPS: the emulator raises ValueError "Invalid resource ID format" on
+        The emulator raises ValueError "Invalid resource ID format" on
         the subscription-scope variant of GetByScope.
       date: 2026-09-27

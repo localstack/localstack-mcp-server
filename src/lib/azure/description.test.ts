@@ -4,7 +4,7 @@ import {
   buildAzureClientDescription,
 } from "./description";
 
-// P2, the unit part (plan task 2.10). The direct test measures the real tools/list
+// The unit part of the catalogue budget. The direct test measures the real tools/list
 // entry; this one keeps the description itself inside its share of the budget.
 
 describe("buildAzureClientDescription", () => {
@@ -27,7 +27,7 @@ describe("buildAzureClientDescription", () => {
   test("with a 200-character workdir, JSON-escaped, it leaves room in the 3,200-byte entry", () => {
     const text = buildAzureClientDescription({ workdir: workdir200, maxOutputChars: 30000 });
     const escaped = Buffer.byteLength(JSON.stringify(text));
-    // C04: the input schema is ~241 bytes and xmcp/the SDK add ~137 per tool, plus
+    // Measured: the input schema is ~241 bytes and xmcp/the SDK add ~137 per tool, plus
     // the name, title and annotations (~250). 2,400 keeps the whole entry under 3,200.
     expect(escaped).toBeLessThanOrEqual(2400);
     expect(Buffer.byteLength(JSON.stringify(AZURE_COMMAND_DESCRIPTION))).toBeLessThan(120);

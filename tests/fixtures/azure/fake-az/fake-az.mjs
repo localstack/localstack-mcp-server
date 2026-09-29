@@ -1,4 +1,4 @@
-// A stand-in for `az` in the runner tests (plan task 2.4, U10). The first argument
+// A stand-in for `az` in the runner tests. The first argument
 // picks a behaviour; the runner spawns it as `node fake-az.mjs <mode> ...`.
 import { spawn } from "node:child_process";
 import { renameSync, writeFileSync } from "node:fs";
@@ -18,7 +18,7 @@ function writePids(file, pids) {
 }
 
 function spawnSleeper(ms) {
-  // Inherits stdout/stderr, so it holds the runner's pipes open (C03 §6).
+  // Inherits stdout/stderr, so it holds the runner's pipes open.
   return spawn(process.execPath, [`${here}sleeper.mjs`, String(ms)], { stdio: "inherit" });
 }
 
@@ -41,7 +41,7 @@ async function connectThroughProxy(target) {
 
 switch (mode) {
   case "connect": {
-    // A refused host or a dead emulator port, then hang like an SDK retry loop (C01).
+    // A refused host or a dead emulator port, then hang like an SDK retry loop.
     const status = await connectThroughProxy(args[0]);
     process.stderr.write(`proxy answered: ${status}\n`);
     await sleep(Number(args[1] ?? 30000));
@@ -101,7 +101,7 @@ switch (mode) {
     process.exitCode = Number(args[0] ?? 1);
     break;
   case "prompt": {
-    // knack's behaviour without a tty: warn and cancel (C03 §7).
+    // knack's behaviour without a tty: warn and cancel.
     if (process.stdin.isTTY) {
       process.stdout.write("Are you sure you want to perform this operation? (y/n): ");
       await sleep(30000);

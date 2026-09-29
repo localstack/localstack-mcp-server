@@ -1,5 +1,5 @@
 {
-  // Type-checks the test code outside src/ as well (plan section 5.2; review R02, N17).
+  // Type-checks the test code outside src/ as well.
   // CI runs `tsc --noEmit -p tsconfig.tests.json`, and ts-jest compiles every test with
   // it, because the base config's rootDir is ./src.
   "extends": "./tsconfig.json",

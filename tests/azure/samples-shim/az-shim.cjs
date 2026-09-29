@@ -1,5 +1,5 @@
 "use strict";
-// The Node half of the L4 `az` shim (plan task 4.4; review R02 gap C and N2).
+// The Node half of the L4 `az` shim.
 //
 // `tests/azure/samples-shim/az` (bash) hands this script its argv, NUL-separated on stdin
 // with the count in AZ_SHIM_ARGC. That keeps every byte intact on all platforms: on
@@ -15,7 +15,7 @@
 //    the tool runs az in its workdir; AZ_SHIM_ROOT widens it for a file elsewhere in the
 //    sample, see workdirFor) and this directory removed from PATH (else the tool would
 //    resolve `az` to this shim);
-// 3. calls `localstack-azure-client` once, and reads the test envelope (task 2.9):
+// 3. calls `localstack-azure-client` once, and reads the test envelope:
 //    `{exitCode, stdout, stderr, notes, classId, truncated}`;
 // 4. writes the envelope's stdout to fd 1 and its stderr plus the notes to fd 2, and
 //    exits with its exitCode, so `VAR=$(az ...)` captures exactly what az printed.
@@ -216,7 +216,7 @@ function childEnv(parent, { platform = process.platform, shimDir = SHIM_DIR } = 
 }
 
 /**
- * The server's environment: all of `parent` (review R02 gap C) as childEnv() leaves it,
+ * The server's environment: all of `parent` as childEnv() leaves it,
  * plus the variables the replay depends on.
  */
 function serverEnv(
@@ -532,7 +532,7 @@ function planOutput(result, argv, { newlines = "keep" } = {}) {
 }
 
 // ---------------------------------------------------------------------------------------
-// CI only: `acr login` without --expose-token (review R02 N1)
+// CI only: `acr login` without --expose-token
 
 const ACR_VALUE_FLAGS = new Set([
   "--name",

@@ -4,7 +4,7 @@ import { ensureLoopbackForwarder } from "./loopback-forwarder";
 import { azureConfig } from "./services";
 
 /**
- * `localstack-management`'s view of the Azure emulator (plan tasks 3.1 and 3.2). It
+ * `localstack-management`'s view of the Azure emulator. It
  * is "running" once the gateway answers as the Azure edition, and "ready" once the
  * ARM endpoint's HTTPS listener answers too, which comes a few seconds later.
  */

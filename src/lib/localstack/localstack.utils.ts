@@ -674,7 +674,7 @@ export function deriveRecreateOverrides(
 ): RecreateOverrides | undefined {
   if (!metadata?.image) return undefined;
   // Pass the labels: a bare-ID Azure container is identified by its description label
-  // (plan review F38). An image of unknown stack keeps the historical AWS default.
+  //. An image of unknown stack keeps the historical AWS default.
   if ((stackFromImage(metadata.image, metadata.labels) ?? "aws") !== stack) return undefined;
 
   const overrides: RecreateOverrides = {

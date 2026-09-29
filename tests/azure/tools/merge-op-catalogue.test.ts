@@ -3,7 +3,7 @@ import * as os from "os";
 import * as path from "path";
 
 // The shard merge of the L2 operation catalogue (scripts/ci/merge-op-catalogue.cjs), which
-// azure-weekly.yml publishes for the portal's inventory gate (R.2).
+// azure-weekly.yml publishes for the portal's inventory gate.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { mergeCatalogues, findCatalogues } = require("../../../scripts/ci/merge-op-catalogue.cjs");
 

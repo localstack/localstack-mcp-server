@@ -1,9 +1,9 @@
 import { loadEvalDataset, runEvalDataset } from "@gleanwork/mcp-server-tester";
 import { test, expect } from "@gleanwork/mcp-server-tester/fixtures/mcp";
 
-// E1 (plan task 4.8): Gemini tool-trigger evals for the Azure tools, manual like the
+// E1: Gemini tool-trigger evals for the Azure tools, manual like the
 // existing Gemini suite. The management case only reads status; run it in CI, or locally
-// against an emulator you own (plan section 5.3's recipe).
+// against an emulator you own.
 function requireEnv(name) {
   const value = process.env[name];
   if (!value || !value.trim()) {

@@ -1,6 +1,6 @@
 /**
- * One E2 run, end to end, and what surrounds it: a port of the benchmark's harness/run.py
- * (run_one, _cleanup, the budget stop) for the unified server.
+ * One E2 run, end to end, and what surrounds it: the cleanup, the budget stop and the
+ * summary.
  *
  *   group create -> the task's setup (harness session) -> the oracle, the agent or nothing
  *   (agent session) -> the verifier (harness session, every answer recorded) -> teardown
@@ -39,7 +39,7 @@ export interface Deps {
 // ── the spend cap ─────────────────────────────────────────────────────────────
 
 export interface Budget {
-  /** Stop starting runs once the spend reaches it (the benchmark's --max-usd). */
+  /** Stop starting runs once the spend reaches it (--max-usd). */
   maxUsd: number;
   /** Stop a run's agent loop once the run's own cost reaches it. */
   perRunUsd: number;
@@ -189,7 +189,7 @@ function slotNames(
 }
 
 /**
- * Leaves nothing behind (plan section 7, local safety): wait until nothing in the group is
+ * Leaves nothing behind: wait until nothing in the group is
  * still provisioning (a group deleted while a storage account is Creating leaks its Azurite
  * container), remove its locks, delete and purge its Key Vaults, delete the group and wait,
  * purge what soft-deleted, and check the group is gone.
@@ -299,7 +299,7 @@ export async function cleanupRun(
 }
 
 /**
- * The end-of-run orphan sweep (the benchmark's orphans.py): a PUT on a group that already
+ * The end-of-run orphan sweep: a PUT on a group that already
  * exists empties the group's resource index, and a later group delete then leaves those
  * resources running. The per-type subscription listings still show them, so every listed
  * type is read and whatever still sits in one of this run's groups is deleted. Then the
@@ -617,9 +617,8 @@ export async function runOne(spec: RunSpec, deps: Deps): Promise<Record<string, 
     rec.steps_passed = verdict.steps.filter((s) => s.passed).length;
   }
   rec.verify_ms = verifyMs;
-  // Everything the verifier read, so a verifier fixed later can re-score the run offline
-  // (the benchmark's report/rescore.py needed exactly this): the slots at verification
-  // time, snapshots included, and the text it was given.
+  // Everything the verifier read, so a verifier fixed later can re-score the run offline:
+  // the slots at verification time, snapshots included, and the text it was given.
   rec.verify_input = {
     slots: verifySlots(slots),
     text: text.length > MAX_VERIFY_TEXT ? text.slice(0, MAX_VERIFY_TEXT) : text,

@@ -1,7 +1,7 @@
 import { isAllowedEgressHost } from "./egress-proxy";
 
 /**
- * The host names `az` may reach (plan tasks 2.1, 2.7 and 2.8; review F29). The
+ * The host names `az` may reach. The
  * endpoint override, the policy's URL rule and the egress guard share one check, the
  * guard's own, so they always agree (it also canonicalises case, a trailing dot,
  * brackets and IP spellings such as `127.1`). LocalStack's public DNS answers
@@ -13,6 +13,6 @@ export function isLocalHost(host: string): boolean {
   return isAllowedEgressHost(host);
 }
 
-/** The same list as a pattern, for messages and documentation (Appendix B.6). */
+/** The same list as a pattern, for messages and documentation. */
 export const LOCAL_HOST =
   /(^|\.)localhost\.localstack\.cloud$|^localhost$|^127\.0\.0\.1$|^\[?::1\]?$/i;

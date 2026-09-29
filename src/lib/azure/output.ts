@@ -1,9 +1,9 @@
 /**
- * Output formatting and error hints of the Azure client (plan task 2.9, Appendix G).
+ * Output formatting and error hints of the Azure client.
  *
  * Every failure starts with `❌ **Command Failed** (exit N, <class id>)`. The repo's analytics
  * record the first line of an ❌ response as `error_message`, so that line carries only the exit
- * code and the class id, never a value from the command (review F20). N is az's exit code, or
+ * code and the class id, never a value from the command. N is az's exit code, or
  * `none` when az did not exit by itself: it never started, the handler answered before spawning,
  * or the tool stopped it (timeout, client cancel, egress fail-fast), where the code only reflects
  * the kill and differs between Windows and POSIX.
@@ -28,7 +28,7 @@ export interface ClassifyContext {
   guardOn: boolean;
   /**
    * Pass only for commands that need Bicep (`policy.needsBicep`): false means no binary was
-   * found, which Appendix G answers before spawning (row 19).
+   * found, which is answered before spawning with `bicep-missing`.
    */
   bicepFound?: boolean;
   /** The command-to-extension lookup bound to the installed set (`extension-map.ts`). */
@@ -69,7 +69,7 @@ export interface FormatOptions {
   extensionFor?: (tokens: string[]) => string | undefined;
 }
 
-/** The second content item with `envelope: true` (review R02, N2). */
+/** The second content item with `envelope: true`. */
 export interface ResultEnvelope {
   exitCode: number | null;
   /** az's stdout exactly as the runner decoded it: CRLF kept, never capped. */
@@ -100,8 +100,8 @@ export const GUARD_OFF_NOTE =
 // The docs landing page of LocalStack for Azure; the emulator's own list is the coverage endpoint.
 const AZURE_DOCS_URL = "https://docs.localstack.cloud/azure/";
 
-// Refused on every run, never a failure (task 2.8): the guard's own list, for the backup regex
-// of row 15, which must not report these.
+// Refused on every run, never a failure: the guard's own list, for the backup regex
+// of `egress-refused`, which must not report these.
 const HOUSEKEEPING_HOSTS = new Set<string>(GUARD_HOUSEKEEPING_HOSTS);
 
 // `functionapp create` catches a failed App Insights setup and warns with this line
@@ -116,7 +116,7 @@ const APP_INSIGHTS_NOTE =
   "workspace (`monitor log-analytics workspace create`) and pass `--workspace <its name>`; " +
   "`--disable-app-insights true` skips it without a warning.";
 
-// Warnings caused only by refused housekeeping hosts (Appendix G, stderr step 3).
+// Warnings caused only by refused housekeeping hosts, which prepareStderr drops.
 const HOUSEKEEPING_WARNINGS = [
   /^WARNING: Unable to check if your CLI is up-to-date\. Check your internet connection\.\s*$/,
   /^WARNING: Failed to retrieve image alias doc '[^']*'\. Error: 'ConnectionError'\. Use local copy instead\.\s*$/,
@@ -125,10 +125,10 @@ const HOUSEKEEPING_WARNINGS = [
 const TRACEBACK_START = /^Traceback \(most recent call last\):\s*$/;
 const TRACEBACK_OMITTED = "(Python traceback omitted)";
 
-// The guard's per-call URL `http://<callId>:x@127.0.0.1:<port>`; Bicep's BCP192 prints it (C08).
+// The guard's per-call URL `http://<callId>:x@127.0.0.1:<port>`; Bicep's BCP192 prints it.
 const PROXY_URL = /\b(https?:\/\/)[^\s'"<>@/]+@(127\.0\.0\.1|localhost|\[::1\])(:\d+)?/gi;
 
-// Appendix G detection, all with the m flag: stderr often starts with a WARNING line.
+// The stderr detectors, all with the m flag: stderr often starts with a WARNING line.
 const RE = {
   login: /^ERROR: Please run 'az login' to setup account\./m,
   connRefused:
@@ -167,7 +167,7 @@ const RE = {
   register: /\/providers\/([^/]+)\/register$/i,
 };
 
-// Clients that stop waiting for a tool call long before LOCALSTACK_AZ_TIMEOUT_SECONDS (C07).
+// Clients that stop waiting for a tool call long before LOCALSTACK_AZ_TIMEOUT_SECONDS.
 // Claude Desktop (and claude.ai) identify themselves as `claude-ai`.
 const SHORT_LIMIT_CLIENTS: Array<{ match: RegExp; label: string; seconds: number }> = [
   { match: /^claude-ai$|claude[\s-]?desktop/i, label: "Claude Desktop", seconds: 60 },
@@ -249,7 +249,7 @@ function prepareLines(raw: string): string {
 }
 
 /**
- * Appendix G's stderr preparation: CRLF to LF, Python tracebacks stripped (the ERROR: lines
+ * The stderr preparation: CRLF to LF, Python tracebacks stripped (the ERROR: lines
  * stay), the two housekeeping warnings dropped, proxy URLs redacted, capped keeping the head.
  */
 export function prepareStderr(raw: string, opts: { maxChars?: number } = {}): string {
@@ -258,7 +258,7 @@ export function prepareStderr(raw: string, opts: { maxChars?: number } = {}): st
 }
 
 /**
- * Re-flows an az help page (C02 §10a): a line indented 20 or more spaces is a wrapped part of
+ * Re-flows an az help page: a line indented 20 or more spaces is a wrapped part of
  * the description column and joins the previous line, and runs of spaces inside a line collapse
  * to two. Pages shrink to 25-78 % and stay readable.
  */
@@ -310,7 +310,7 @@ export function cutHelpPage(text: string, max: number): string {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Hints (Appendix G). They say "may not be implemented" unless the emulator itself said so, and
+// Hints. They say "may not be implemented" unless the emulator itself said so, and
 // never assume Azure's error codes: the emulator reports a missing group as ResourceNotFound.
 
 const coverageUrl = (port: number) => `http://127.0.0.1:${port}/_localstack/coverage`;
@@ -467,7 +467,7 @@ const AZCOPY_HINT =
   "This command needs azcopy, which `az` would download from the internet. Use " +
   "`storage blob upload-batch`, `download-batch` or `delete-batch` instead.";
 
-/** Row 4 is answered through row 2 or row 3, using the `Error detail` az prints after it. */
+/** `discovery` gets the `conn-refused` or `dns` hint, from the `Error detail` az prints after it. */
 function discoveryHint(text: string, guardOn: boolean, port: number): string {
   const detail = text.slice(text.search(RE.discovery));
   if (RE.connRefused.test(detail)) {
@@ -494,15 +494,19 @@ const failure = (
 ): FailureClassification => ({ classId, hint, details });
 
 /**
- * The failure class of a run, in Appendix G's evaluation order; the first match wins.
- * 1. pre-spawn: command too long (row 16), no Bicep binary (row 19, only with `bicepFound`),
- *    and a failed spawn;
- * 2. runner flags: aborted (`cancelled`), then `timedOut` (row 17);
- * 3. the guard's record: a refused host (row 15), then an upstream failure (row 2);
- * 4. row 18, only with the guard on (with it off, a proxy error is the system proxy's);
- * 5. the stderr rows 1, 2 (guard off only), 3-11, 13, 14, 19-21 on the prepared stderr. Row 12
- *    has no hint of its own and matching goes on; it is the class only when nothing else matches.
- *    Row 15's backup regex comes last, and never reports a housekeeping host;
+ * The failure class of a run; the first match wins.
+ * 1. pre-spawn: command too long (`too-long`), no Bicep binary (`bicep-missing`, only with
+ *    `bicepFound`), and a failed spawn;
+ * 2. runner flags: aborted (`cancelled`), then `timedOut` (`timeout`);
+ * 3. the guard's record: a refused host (`egress-refused`), then an upstream failure
+ *    (`conn-refused`);
+ * 4. `guard-down`, only with the guard on (with it off, a proxy error is the system proxy's);
+ * 5. the stderr detectors on the prepared stderr: `login`, `conn-refused` (guard off only),
+ *    `dns`, `discovery`, `not-implemented`, `provider`, `no-route`, `extension` or
+ *    `unknown-command`, `argument`, `not-found`, `emulator-error`, `needs-yes`,
+ *    `bicep-missing`, `bicep-registry`, `bicep-env` and `azcopy`. `cli-error` has no hint of
+ *    its own and matching goes on; it is the class only when nothing else matches. The backup
+ *    regex of `egress-refused` comes last, and never reports a housekeeping host;
  * 6. no match: `other`.
  * Matching sees the prepared stderr before the display cap, so a long warning cannot hide it.
  */
@@ -674,7 +678,7 @@ function hostsNote(prefix: string, hosts: string[], suffix: string): string {
   return `${prefix} ${hosts.map(inlineCode).join(", ")}${suffix}`;
 }
 
-/** Formats a finished `az` run for the model (plan task 2.9). */
+/** Formats a finished `az` run for the model. */
 export function formatAzResult(result: AzRunResult, opts: FormatOptions): ToolTextResponse {
   const notes = [...opts.notes];
   if (!opts.guardOn) notes.push(GUARD_OFF_NOTE);
@@ -724,7 +728,7 @@ export function formatAzResult(result: AzRunResult, opts: FormatOptions): ToolTe
     classId = c.classId;
     blocks.push(firstLine(stoppedByTool(result) ? "none" : String(result.exitCode), c.classId));
     if (c.classId === "egress-refused") {
-      // az's own text never names the refused host on SDK paths (C01): the tool's line replaces it.
+      // az's own text never names the refused host on SDK paths: the tool's line replaces it.
       const hosts = c.details.hosts ? c.details.hosts.split(",") : [];
       blocks.push(egressRefusedMessage(hosts));
     } else {
@@ -766,7 +770,7 @@ export function formatAzResult(result: AzRunResult, opts: FormatOptions): ToolTe
   return response;
 }
 
-/** Appendix G row 19, answered before spawning when a command needs Bicep and none was found. */
+/** `bicep-missing`, answered before spawning when a command needs Bicep and none was found. */
 export function bicepMissing(opts: { inDocker: boolean }): ToolTextResponse {
   return ResponseBuilder.markdown(
     `${firstLine("none", "bicep-missing")}\n\n${bicepMissingHint(opts.inDocker)}`
@@ -774,8 +778,8 @@ export function bicepMissing(opts: { inDocker: boolean }): ToolTextResponse {
 }
 
 /**
- * Appendix G row 20, answered before spawning when a `.bicep` input references a registry
- * module. On Windows a successful restore would write the real %USERPROFILE%\.bicep (C08).
+ * `bicep-registry`, answered before spawning when a `.bicep` input references a registry
+ * module. On Windows a successful restore would write the real %USERPROFILE%\.bicep.
  */
 export function bicepRegistryUnsupported(ref: string): ToolTextResponse {
   return ResponseBuilder.markdown(
@@ -784,7 +788,7 @@ export function bicepRegistryUnsupported(ref: string): ToolTextResponse {
   );
 }
 
-/** Appendix G row 16: the Windows command line would exceed its limit, so az is not spawned. */
+/** `too-long`: the Windows command line would exceed its limit, so az is not spawned. */
 export function commandTooLong(): ToolTextResponse {
   return ResponseBuilder.markdown(`${firstLine("none", "too-long")}\n\n${TOO_LONG_HINT}`);
 }

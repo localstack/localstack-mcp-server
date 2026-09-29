@@ -13,7 +13,7 @@ import {
   type Download,
 } from "./bicep-install";
 
-// U12 (plan task 5.3), the Bicep step. Every install goes into a temporary home: the real
+// The Bicep step. Every install goes into a temporary home: the real
 // ~/.localstack is never touched, and nothing is downloaded (the download is injected).
 
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");

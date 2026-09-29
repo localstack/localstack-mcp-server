@@ -1,11 +1,8 @@
 # Microsoft.Sql: logical servers, databases, elastic pools, firewall and network rules, security
 # and auditing policies, keys, AD administrators. A server runs a real MSSQL container, so every
-# case is `backing: true` (CI sets MSSQL_ACCEPT_EULA=Y on the emulator, plan Appendix F).
-# R.1: the typed server's nine skips were known gaps: schema, table and column introspection (the
-# MSSQL container is reachable only over ODBC), Rename, RestorableDroppedDatabases Get, and
-# ServerConnectionPolicies Get. A full run on 2026-09-28 saw introspection, Rename and the policy
-# Get pass; the table and column reads stay a known gap only because no table can be created, and
-# the elastic pool and data warehouse families became known gaps (no pool or DW can be created).
+# case is `backing: true` (CI sets MSSQL_ACCEPT_EULA=Y on the emulator).
+# The table and column reads are a known gap only because no table can be created; the elastic
+# pool and data warehouse families are known gaps because no pool or DW can be created.
 provider: Microsoft.Sql
 cases:
   - id: sql-server
@@ -21,8 +18,8 @@ cases:
       ]
     backing: true
     note: >-
-      Samples sql server create/show; tb.py sql-keyvault. The (empty) pool list is here because no
-      pool can be created (see sql-elastic-pool).
+      Samples sql server create/show. The (empty) pool list is here because no pool can be
+      created (see sql-elastic-pool).
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -91,7 +88,7 @@ cases:
         Microsoft.Sql Databases Delete,
       ]
     backing: true
-    note: The benchmark's oracles (ta.py sql-database-create, -delete); samples sql db create/show.
+    note: Samples sql db create/show.
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -125,7 +122,6 @@ cases:
         Microsoft.Sql ReplicationLinks ListByDatabase,
       ]
     backing: true
-    note: The benchmark's oracles (ta.py sql-db-threat-policy, sql-db-audit-policy).
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -237,7 +233,6 @@ cases:
         Microsoft.Sql SqlVulnerabilityAssessmentsSettings ListByServer,
       ]
     backing: true
-    note: The benchmark's oracle (td.py td-sql-server-alert-policy).
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -305,7 +300,7 @@ cases:
         Microsoft.Sql ServerAzureAdOnlyAuthentications ListByServer,
       ]
     backing: true
-    note: The benchmark's oracle (ta.py sql-encryption-protector) sets the protector with resource update.
+    note: The case sets the protector with resource update.
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -351,8 +346,7 @@ cases:
       ]
     backing: true
     note: >-
-      The benchmark's oracles (ta.py sql-elastic-pool; td.py td-sql-pool-failover, blocked as a
-      no-op). One known-gap case for the family: every later step needs the pool. When the create
+      One known-gap case for the family: every later step needs the pool. When the create
       passes, give show, update, failover, list-dbs and delete their steps again.
     setup:
       - group create --name {rg} --location {location}
@@ -376,8 +370,7 @@ cases:
     operations: [Microsoft.Sql Databases Pause, Microsoft.Sql Databases Resume]
     backing: true
     note: >-
-      The benchmark's oracle (ta.py sql-database-resume). The case runs the create they need; when
-      it passes, add `sql dw pause` and `sql dw resume` again.
+      The case runs the create that pause and resume need; when it passes, add `sql dw pause` and `sql dw resume` again.
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -489,8 +482,7 @@ cases:
       ]
     backing: true
     note: >-
-      A known gap until a full run on 2026-09-28 (typed server: the ODBC query timed out, HYT00, before the MSSQL
-      container was ready). A new database has only the dbo schema and no table.
+      A new database has only the dbo schema and no table.
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -541,16 +533,12 @@ cases:
       reason: >-
         Untestable here: these read a user table, and a new database has none; neither az nor ARM
         can create one (T-SQL only). The emulator lists no column for the missing table (and answers
-        200 where Azure would answer 404). Typed server COVERAGE_SKIPS had them as the ODBC timeout
-        (HYT00), now gone.
+        200 where Azure would answer 404).
       date: 2026-09-28
 
   - id: sql-db-rename
     operations: [Microsoft.Sql Databases Rename]
     backing: true
-    note: >-
-      A known gap until a full run on 2026-09-28 (typed server: SqlUnavailableException "Container not found or
-      inaccessible").
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -586,16 +574,12 @@ cases:
     known_gap:
       reason: >-
         A dropped database is never listed (restorableDroppedDatabases stayed [] for two
-        minutes after `sql db delete`), so Get has nothing to read. FUN-01's earlier known_gap result
-        was empty-capture luck (D-15). Typed server COVERAGE_SKIPS had a strict timestamp suffix.
+        minutes after `sql db delete`), so Get has nothing to read.
       date: 2026-09-28
 
   - id: sql-connection-policy-get
     operations: [Microsoft.Sql ServerConnectionPolicies Get]
     backing: true
-    note: >-
-      A known gap until a full run on 2026-09-28 (typed server: the emulator rejected the only valid policy name,
-      "default", with HTTP 400).
     setup:
       - group create --name {rg} --location {location}
       - >-

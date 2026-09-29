@@ -1,12 +1,7 @@
 # Microsoft.KeyVault: vaults (ARM), and secrets, keys and certificates (the data plane, keyed as
 # `Microsoft.KeyVault Microsoft.KeyVault <Op>` in the coverage list).
 # Every vault is deleted and purged before its group is deleted: a group delete only soft-deletes
-# a vault, and the emulator is shared (plan section 7, local safety).
-#
-# R.1 (typed server COVERAGE_SKIPS): the 17 certificate skips were about T2's inline timing (slow
-# RSA generation) or its args builder not threading a version through; the CLI waits for the
-# certificate and passes real versions, so they are plain cases here. Only the contacts route
-# (SetCertificateContacts and its two siblings) is carried as a known gap.
+# a vault, and the emulator may be shared.
 provider: Microsoft.KeyVault
 cases:
   - id: kv-create
@@ -82,7 +77,7 @@ cases:
 
   - id: kv-set-policy
     operations: [Microsoft.KeyVault Vaults UpdateAccessPolicy]
-    note: The benchmark's oracle (ta.py kv-access-policy-grant); access policies need a non-RBAC vault.
+    note: Access policies need a non-RBAC vault.
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -198,7 +193,6 @@ cases:
       - keyvault purge --name {vault}
       - group delete --name {rg} --yes --no-wait
 
-  # R.1: UpdateSecret was skipped because T2 had no real version to PATCH; the CLI passes the id.
   - id: kv-secret-set-attributes
     operations: [Microsoft.KeyVault Microsoft.KeyVault UpdateSecret]
     setup:
@@ -287,8 +281,6 @@ cases:
       - keyvault purge --name {vault}
       - group delete --name {rg} --yes --no-wait
 
-  # R.1: the typed server skipped Secrets_Update for its args builder (no version segment); ARM
-  # PATCH needs none, and it still fails, for a different reason (the diagnosis below).
   - id: kv-arm-secret-update
     operations: [Microsoft.KeyVault Secrets Update]
     setup:
@@ -310,12 +302,12 @@ cases:
       - group delete --name {rg} --yes --no-wait
     known_gap:
       reason: >-
-        Found by L2 (carrying the typed server's Secrets_Update skip): a PATCH shaped like Azure's
+        A PATCH shaped like Azure's
         SecretPatchParameters (contentType only; `value` is not patchable) answers HTTP 400
         ParameterNotSpecified "The parameter value is not specified".
       date: 2026-09-27
 
-  # --- Keys (the benchmark's kv-sign, kv-decrypt, kv-rotation-policy, kv-deleted-key oracles) ---
+  # --- Keys ---
 
   - id: kv-key-create-show
     operations:
@@ -509,7 +501,7 @@ cases:
       - keyvault purge --name {vault}
       - group delete --name {rg} --yes --no-wait
 
-  # --- Certificates (samples keyvault certificate create; the typed server's 17 skips) ---
+  # --- Certificates (samples keyvault certificate create) ---
 
   - id: kv-cert-create-show
     operations:
@@ -657,7 +649,6 @@ cases:
       - group delete --name {rg} --yes --no-wait
     known_gap:
       reason: >-
-        Found by L2 (the typed server's diagnosis was a 404 on /certificates/contacts; the route now
-        answers): a contact without a phone number, which Azure accepts, is refused with
+        A contact without a phone number, which Azure accepts, is refused with
         (BadParameter) "Property contacts[0] has invalid value. Phone number is too long".
       date: 2026-09-27

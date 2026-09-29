@@ -12,7 +12,7 @@ import type {
 } from "./types";
 
 /**
- * The dedicated `az` runner (plan task 2.4, Appendix B.4; check C03). The shared
+ * The dedicated `az` runner. The shared
  * `core/command-runner.ts` is not used: it decodes per chunk (a character split at a
  * 64 KB chunk boundary becomes U+FFFD), resolves on `'close'` (a grandchild holding
  * the pipe makes it hang past its timeout), and its SIGKILL escalation never runs.
@@ -20,9 +20,9 @@ import type {
 
 /** Byte cap per stream; a breach kills the tree and marks the result truncated. */
 export const MAX_STREAM_BYTES = 10 * 1024 * 1024;
-/** `spawn()` throws ENAMETOOLONG at 32,767 UTF-16 units for the whole command line (C03). */
+/** `spawn()` throws ENAMETOOLONG at 32,767 UTF-16 units for the whole command line. */
 export const WINDOWS_COMMAND_LINE_LIMIT = 32_000;
-/** At most four `az` runs at once per server process (research 09 §8, R8). */
+/** At most four `az` runs at once per server process. */
 export const MAX_CONCURRENT_RUNS = 4;
 
 export interface RunnerTimings {
@@ -154,13 +154,13 @@ function signalGroup(pid: number, signal: NodeJS.Signals): boolean {
 }
 
 /**
- * Kill a child and everything it started (C03 §6).
+ * Kill a child and everything it started.
  * - Windows: `taskkill /PID <pid> /T /F` FIRST, while the root is alive; once the
  *   root is gone taskkill can no longer find the tree (exit 128) and orphans keep
  *   the pipe open. It runs through an awaited asynchronous spawn, so the event loop,
  *   and the in-process egress guard with it, is not blocked for its ~0.4 s. Then
  *   `child.kill()` only if taskkill failed. The kill list is never built by walking
- *   parent PIDs, which C03 showed to be unsafe under PID reuse.
+ *   parent PIDs, which is unsafe under PID reuse.
  * - POSIX: the child leads its own process group (`detached`): SIGTERM to the group,
  *   then SIGKILL after a grace period.
  */
@@ -220,7 +220,7 @@ export function killTreeSync(child: ChildProcess, platform: NodeJS.Platform): vo
 
 // A registry of live children. The server exits 1.25 s after the client closes
 // stdin (src/cli/lifecycle.ts); an interrupted `aks create` would otherwise keep
-// changing the emulator (C07; review F27).
+// changing the emulator.
 const liveChildren = new Map<ChildProcess, NodeJS.Platform>();
 const TERMINATING_SIGNALS: NodeJS.Signals[] = ["SIGTERM", "SIGINT", "SIGHUP"];
 let exitHookInstalled = false;
@@ -369,7 +369,7 @@ export class HostRunner implements AzRunner {
       return Promise.resolve(this.result({ tooLong: true }));
     }
 
-    // Not a secret: Bicep's BCP192 error prints the proxy URL, tag included (C08).
+    // Not a secret: Bicep's BCP192 error prints the proxy URL, tag included.
     const callId = randomUUID();
     const env = proxy ? { ...this.opts.env, ...proxy.envFor(callId) } : this.opts.env;
     const takeEgress = () => (proxy ? proxy.takeRecords(callId) : emptyEgressRecords());
@@ -380,7 +380,7 @@ export class HostRunner implements AzRunner {
         shell: false,
         windowsHide: true,
         // Not "ignore": on Windows that is NUL, which Python treats as a tty, so
-        // prompts would leak into stdout (C03 §7).
+        // prompts would leak into stdout.
         stdio: ["pipe", "pipe", "pipe"],
         env,
         cwd: o.cwd,
@@ -478,14 +478,14 @@ export class HostRunner implements AzRunner {
 
       child.on("error", (error) => {
         // The async form of a failed start (ENOENT for an extensionless script);
-        // "file missing" is not implied (C03 §1.4).
+        // "file missing" is not implied.
         if (child.pid === undefined) finish({ spawnError: describeSpawnError(error) });
       });
       child.on("exit", (code) => {
         exited = true;
         exitCode = code;
         // Resolve once the pipes drain, or after the grace: a grandchild holding the
-        // pipe would otherwise keep 'close' from ever firing (C03 §6).
+        // pipe would otherwise keep 'close' from ever firing.
         timers.push(setTimeout(() => finish(), this.timings.drainGraceMs));
         maybeFinish();
       });
@@ -534,7 +534,7 @@ export class HostRunner implements AzRunner {
         );
       }
 
-      // Fail fast (review F06): after a refused host or a failed upstream, SDK paths
+      // Fail fast: after a refused host or a failed upstream, SDK paths
       // retry for about 87 s and then print an error without the host in it.
       unsubscribe = proxy?.onEvent((id, event) => {
         if (id !== callId || failFast || (event.kind !== "refused" && event.kind !== "upstream"))
@@ -554,7 +554,7 @@ export class HostRunner implements AzRunner {
 
 /**
  * `notifications/progress` every 10 s while `az` runs, when the client asked for
- * progress (plan task 2.12). Undefined without a progress token.
+ * progress. Undefined without a progress token.
  */
 export function progressSender(extra?: {
   _meta?: { progressToken?: string | number };

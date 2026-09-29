@@ -27,7 +27,7 @@ import {
 } from "./bootstrap";
 import type { AzRunner, AzRunOptions, AzRunResult } from "./types";
 
-// U7 (plan task 2.6), with a fake runner that records argv sequences.
+// With a fake runner that records argv sequences.
 
 const ENDPOINT = "https://azure.localhost.localstack.cloud:4566";
 const ok = (stdout = ""): AzRunResult => ({
@@ -167,7 +167,7 @@ describe("the five calls (B.5)", () => {
   });
 });
 
-describe("the versionCheck.json seed (review F21)", () => {
+describe("the versionCheck.json seed", () => {
   test("written BEFORE the first az call, with the exact keys and times", async () => {
     let seenAtFirstCall: unknown;
     const { runner } = fakeRunner((argv, n) => {
@@ -208,7 +208,7 @@ describe("the versionCheck.json seed (review F21)", () => {
     expect(() => versionCheckSeed({})).toThrow(/core/);
   });
 
-  test("the launcher-as-is seed comes from az version -o json (review R02, N16)", () => {
+  test("the launcher-as-is seed comes from az version -o json", () => {
     const azVersion = JSON.stringify({
       "azure-cli": "2.90.0",
       "azure-cli-core": "2.90.0",
@@ -259,7 +259,7 @@ describe("the marker", () => {
   });
 });
 
-describe("locks (review F26, R02 N19)", () => {
+describe("locks", () => {
   test("two concurrent calls give one bootstrap", async () => {
     const { runner, calls } = fakeRunner(async (argv) => {
       await new Promise((r) => setTimeout(r, 20));
@@ -371,7 +371,7 @@ describe("locks (review F26, R02 N19)", () => {
   });
 });
 
-describe("a shared config dir (review R02, N5)", () => {
+describe("a shared config dir", () => {
   test("a marker for another endpoint with that process's fresh lease fails with a clear error", async () => {
     mkdirSync(path.join(configDir, LEASE_DIR), { recursive: true });
     const other = "https://azure.localhost.localstack.cloud:4666";
@@ -412,7 +412,7 @@ describe("a shared config dir (review R02, N5)", () => {
   });
 });
 
-describe("self-heal (ported from the typed server's test_cli_tool.py)", () => {
+describe("self-heal", () => {
   test.each([
     "ERROR: Please run 'az login' to setup account.",
     'WARNING: something first\nERROR: Please run "az login" to setup account.',

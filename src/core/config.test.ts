@@ -9,7 +9,7 @@ import {
   type AzureConfigDeps,
 } from "./config";
 
-// U14 (plan task 2.1). Most cases use a fake POSIX home, so they run the same on
+// Most cases use a fake POSIX home, so they run the same on
 // every OS; the real-filesystem cases use a temp dir.
 const HOME = "/home/user";
 const CWD = "/work/project";
@@ -27,7 +27,7 @@ const config = (env: NodeJS.ProcessEnv = {}, deps: AzureConfigDeps = posix) =>
   getAzureConfig(env, deps);
 
 describe("getAzureConfig: defaults", () => {
-  test("every value has its Appendix D default", () => {
+  test("every value has its documented default", () => {
     const c = config();
     expect(c).toMatchObject({
       port: 4566,
@@ -64,7 +64,7 @@ describe("getAzureConfig: defaults", () => {
 });
 
 describe("getAzureConfig: overrides", () => {
-  test("the port shift (4666) flows into the health URL, the ARM endpoint and the config dir (R15, N5)", () => {
+  test("the port shift (4666) flows into the health URL, the ARM endpoint and the config dir", () => {
     const c = config({ LOCALSTACK_PORT: "4566", LOCALSTACK_AZURE_PORT: "4666" });
     expect(c.port).toBe(4666);
     expect(c.healthBaseUrl).toBe("http://127.0.0.1:4666");
@@ -230,7 +230,7 @@ describe("getAzureConfig: invalid values fall back with a warning", () => {
   });
 });
 
-describe("getAzureConfig: the config dir never touches the real Azure CLI profile (N4)", () => {
+describe("getAzureConfig: the config dir never touches the real Azure CLI profile", () => {
   test.each([
     ["~/.azure", /basename \.azure/],
     ["/home/user/.azure/sub", /inside your Azure CLI profile/],

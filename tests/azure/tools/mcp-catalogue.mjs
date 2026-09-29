@@ -1,4 +1,4 @@
-// Dev utility: measure the built server's tools/list catalogue (plan P2, from check C04).
+// Dev utility: measure the built server's tools/list catalogue.
 //
 //   node tests/azure/tools/mcp-catalogue.mjs [--out catalogue.json]
 //

@@ -1,9 +1,7 @@
 /**
- * E2 tasks drawn from the benchmark's T-B tier (benchmark/harness/tb.py): multi-step goals
- * with one phrasing, verified step by step (partial credit is recorded). The agent gets the
- * goal, the resource group and the names to use; the fixture only picks random names,
- * except for tb-tag-audit, whose group it fills. Task ids, prompts, oracle commands and
- * verifiers are the benchmark's.
+ * The E2 tasks of tier T-B: multi-step goals with one phrasing, verified step by step
+ * (partial credit is recorded). The agent gets the goal, the resource group and the names to
+ * use; the fixture only picks random names, except for tb-tag-audit, whose group it fills.
  *
  * The verifier library arrives as a parameter (see verifiers.ts).
  */
@@ -31,7 +29,7 @@ export function tbTasks(v: typeof V): Task[] {
     "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.EventHub/namespaces/{ehns}/eventhubs/{hub}";
 
   /**
-   * The benchmark's _names: random names for everything the goal creates; a trailing `#`
+   * Random names for everything the goal creates; a trailing `#`
    * drops the hyphens (storage accounts, vaults).
    */
   function names(ctx: SetupContext, prefixes: Record<string, string>) {
@@ -144,8 +142,8 @@ export function tbTasks(v: typeof V): Task[] {
     oracle: [
       "keyvault create --name {kv1} --resource-group {rg} --location westeurope --tags costcenter={cc}",
       "keyvault create --name {kv2} --resource-group {rg} --location westeurope --tags costcenter={cc}",
-      // The benchmark's CLI arms rejected the pipe every KQL filter needs; az resource list
-      // --tag answers the question (the tagged steps read the ARM resource index).
+      // A KQL filter needs a pipe, which the tool refuses; az resource list --tag answers
+      // the question (the tagged steps read the ARM resource index).
       "resource list --tag costcenter={cc}",
     ],
     verify: v.workflow(

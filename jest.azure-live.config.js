@@ -1,4 +1,4 @@
-// Live Azure suites (plan section 5.4; review F15, R02). They need a running LocalStack
+// Live Azure suites. They need a running LocalStack
 // Azure emulator, so `yarn test` never runs them (jest.config.js ignores *.live.test.ts).
 //
 //   AZURE_LIVE=1 npx jest -c jest.azure-live.config.js --selectProjects matrix-subset egress

@@ -1,4 +1,4 @@
-"""A stand-in for azure.cli.core, for the warm-worker tests (plan task 7.1).
+"""A stand-in for azure.cli.core, for the warm-worker tests.
 
 get_default_cli().invoke(argv, out_file) runs one fake command, chosen by argv[0], so the
 tests can drive the real worker code (src/lib/azure/worker-script.ts) without azure-cli.

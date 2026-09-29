@@ -1,8 +1,7 @@
 /**
- * The `localstack-azure-client` tool description (plan task 2.10, Appendix C;
- * decision D7). It is filled once at server start and then static, so clients can
- * cache the tool list. `tools/list` is served before any bootstrap, so the
- * subscription is a constant; DR2 watches the emulator's value.
+ * The `localstack-azure-client` tool description. It is filled once at server start and
+ * then static, so clients can cache the tool list. `tools/list` is served before any
+ * bootstrap, so the subscription is a constant; DR2 watches the emulator's value.
  */
 
 export const AZURE_SUBSCRIPTION_ID = "00000000-0000-0000-0000-000000000000";

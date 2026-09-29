@@ -1,4 +1,4 @@
-// A deployment for the Docker harness's Bicep checks (plan task 5.4, decision D11). It
+// A deployment for the Docker harness's Bicep checks. It
 // creates one user-assigned identity named by the parameter, so the check can see that
 // Bicep compiled the file, the parameter arrived and the resource exists. (The emulator
 // returns no deployment outputs, so an output alone would prove nothing.)

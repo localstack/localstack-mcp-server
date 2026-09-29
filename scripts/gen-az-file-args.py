@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Generate the file-argument table the Azure command policy uses (plan task 2.7, review R02 F08).
+"""Generate the file-argument table the Azure command policy uses.
 
 Why this exists
 ---------------
 The policy's file rule must know which `az` arguments take a local path, so it can keep those
 paths inside the workdir. A hand-maintained list drifts and misses short aliases and output
-flags (R02 F08). Instead we load az's own command table and record, per command, every argument
+flags. Instead we load az's own command table and record, per command, every argument
 that az itself treats as a file:
 
   * its `type` is `azure.cli.core.commands.parameters.file_type` (it calls os.path.expanduser); or

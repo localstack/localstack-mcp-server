@@ -20,7 +20,7 @@ import {
   type ResolveFs,
 } from "./resolve-az";
 
-// U5 (plan task 2.2; the ten cases of check C03, plus the launcher texts and Bicep).
+// Resolving az on every install layout, the launcher texts, and Bicep.
 // A fake filesystem keeps every case OS-independent.
 
 interface FakeFile {
@@ -62,7 +62,7 @@ function fakeFs(files: Record<string, FakeFile>, platform: NodeJS.Platform): Res
   };
 }
 
-// The launcher texts from check C03 §1.2 and §8, verbatim.
+// The launcher texts, verbatim, as the installers write them.
 const MSI_CMD = `::\r\n:: Microsoft Azure CLI - Windows Installer - Author file components script\r\n:: Copyright (C) Microsoft Corporation. All Rights Reserved.\r\n::\r\n\r\n@IF EXIST "%~dp0\\..\\python.exe" (\r\n  SET AZ_INSTALLER=MSI\r\n  "%~dp0\\..\\python.exe" -IBm azure.cli %*\r\n) ELSE (\r\n  echo Failed to load python executable.\r\n  exit /b 1\r\n)\r\n`;
 const MSI_BASH = `#!/usr/bin/env bash\n\nAZ_INSTALLER=MSI "$(dirname "\${BASH_SOURCE[0]}")/../python.exe" -IBm azure.cli "$@"\n`;
 const PIP_BAT = `@echo off\r\nsetlocal\r\n\r\nSET PYTHONPATH=%~dp0\\src;%PYTHONPATH%\r\nSET AZ_INSTALLER=PIP\r\n\r\nIF EXIST "%~dp0\\python.exe" (\r\n  "%~dp0\\python.exe" -m azure.cli %*\r\n) ELSE (\r\n  python -m azure.cli %*\r\n)\r\n`;
@@ -107,7 +107,7 @@ const locateError = (ctx: ResolveAzContext): AzResolveError => {
   throw new Error("expected locateAz to throw");
 };
 
-describe("locateAz: LOCALSTACK_AZ_PATH (C03 case 1)", () => {
+describe("locateAz: LOCALSTACK_AZ_PATH", () => {
   test("the MSI az.cmd maps to CLI2\\python.exe with -X utf8 -IBm and AZ_INSTALLER=MSI", () => {
     const exe = locateAz(winCtx(msiFiles, { LOCALSTACK_AZ_PATH: `${CLI2}\\wbin\\az.cmd` }));
     expect(exe).toEqual({
@@ -418,7 +418,7 @@ describe("parseBashLauncher and the spawn prefix", () => {
     ).toBeUndefined();
   });
 
-  test("the image form: a pycache prefix replaces -B (C05)", () => {
+  test("the image form: a pycache prefix replaces -B", () => {
     expect(pythonPrefix({ pycacheDir: "/tmp/localstack-az-pycache" })).toEqual([
       "-X",
       "utf8",
@@ -507,7 +507,7 @@ describe("resolveAz: the probe (case 10)", () => {
   });
 });
 
-describe("resolveBicep (C08)", () => {
+describe("resolveBicep", () => {
   const home = "/home/me";
   const bicepCtx = (
     files: Record<string, FakeFile>,

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Installs the curated Azure CLI extensions of docker/azure-extensions.txt (plan Appendix E) into
+// Installs the curated Azure CLI extensions of docker/azure-extensions.txt into
 // the extension dir the localstack-azure-client tool uses. One installer for CI, the init wizard
 // and developers.
 //

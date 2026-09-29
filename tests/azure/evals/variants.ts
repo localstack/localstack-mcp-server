@@ -1,14 +1,14 @@
 /**
- * The tool definitions E2 sends to Claude, per variant (plan section 5.6, experiments 1-3).
- * A variant changes only what the runner sends to the Messages API, never the server: the
- * server's own `tools/list` entry is the base, and a variant whose anchor text is missing
- * from it fails loudly instead of silently testing the default.
+ * The tool definitions E2 sends to Claude, per variant. A variant changes only what the
+ * runner sends to the Messages API, never the server: the server's own `tools/list` entry is
+ * the base, and a variant whose anchor text is missing from it fails loudly instead of
+ * silently testing the default.
  *
- *   compact       the server's description as listed (the shipped default, Appendix C)
- *   p1c           the benchmark's P1c description (benchmark/arms/p1c_description.md),
- *                 adapted to this tool (experiment 1)
- *   help-tool     compact, with --help replaced by a separate `az_help` tool (experiment 2)
- *   no-test-data  compact without the "local test data" wording (experiment 3)
+ *   compact       the server's description as listed (the shipped default)
+ *   long          a longer description in sections (Context, Input, Output, Rules,
+ *                 Examples), written for an earlier az tool and adapted to this one
+ *   help-tool     compact, with --help replaced by a separate `az_help` tool
+ *   no-test-data  compact without the "local test data" wording
  *
  * No runtime imports of local modules (run.mjs loads this file with type stripping).
  */
@@ -16,11 +16,11 @@ import type { ToolDef } from "./types";
 
 export const AZURE_TOOL = "localstack-azure-client";
 export const HELP_TOOL = "az_help";
-export const VARIANTS = ["compact", "p1c", "help-tool", "no-test-data"] as const;
+export const VARIANTS = ["compact", "long", "help-tool", "no-test-data"] as const;
 export type Variant = (typeof VARIANTS)[number];
 
 /** Tools never offered with --all-tools: `localstack-management` can stop the emulator
- * the evals run on (the benchmark held its lifecycle tool back from every arm too). */
+ * the evals run on. */
 export const WITHHELD_TOOLS = ["localstack-management"];
 
 export const HELP_SENTENCE = "- Unsure of a command or its parameters? Run it with --help first.";
@@ -28,7 +28,7 @@ export const HELP_TOOL_SENTENCE =
   '- Unsure of a command or its parameters? Call `az_help` with the command or group (for example "containerapp env create") instead of guessing.';
 export const TEST_DATA_CLAUSE = ", so all data and secrets are local test data";
 
-/** The P1c arm's az_help tool (benchmark/arms/cli_server.py), verbatim. */
+/** The `az_help` tool of the help-tool variant. */
 export const AZ_HELP_DESCRIPTION =
   "Show the Azure CLI help for a command group or command (`az <prefix> --help`): " +
   "its subcommands, or its parameters with descriptions and examples. Call this " +
@@ -49,17 +49,17 @@ export const AZ_HELP_SCHEMA: Record<string, unknown> = {
 };
 
 /**
- * The P1c description, adapted to this tool. Three statements would be false here and are
- * changed; everything else is P1c's text:
- *   1. Input: this tool takes one command per call (P1c also took a list, with a batching
- *      example): the list sentence and its example are removed, and "parsed" is dropped
- *      from the output line (the tool returns the CLI's JSON text).
- *   2. `rest`: P1c said an absolute management.azure.com URL "would leave it and is
- *      blocked"; this tool rewrites it onto the emulator, so the parenthesis is removed.
+ * The long description, adapted to this tool. Three statements of the original would be
+ * false here and are changed; everything else is the original text:
+ *   1. Input: this tool takes one command per call (the original also took a list, with a
+ *      batching example): the list sentence and its example are removed, and "parsed" is
+ *      dropped from the output line (the tool returns the CLI's JSON text).
+ *   2. `rest`: the original said an absolute management.azure.com URL "would leave it and
+ *      is blocked"; this tool rewrites it onto the emulator, so the parenthesis is removed.
  *   3. Help: there is no `az_help` tool in this variant, so the last rule says to run the
  *      command with --help instead.
  */
-export const P1C_DESCRIPTION = [
+export const LONG_DESCRIPTION = [
   "Run Azure CLI (`az`) commands against the local LocalStack for Azure emulator and return their output.",
   "",
   "Context",
@@ -123,8 +123,8 @@ export function variantDescription(variant: Variant, listed: string): string {
   switch (variant) {
     case "compact":
       return listed;
-    case "p1c":
-      return P1C_DESCRIPTION;
+    case "long":
+      return LONG_DESCRIPTION;
     case "help-tool":
       if (!listed.includes(HELP_SENTENCE)) {
         throw new Error(

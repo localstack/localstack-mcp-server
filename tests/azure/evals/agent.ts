@@ -1,9 +1,9 @@
 /**
- * The E2 agent loop and its bookkeeping: a port of the benchmark's harness/agent.py
- * (run_llm, prewarm), harness/cost.py and the frozen settings of harness/config.py.
+ * The E2 agent loop and its bookkeeping: the loop, the cache pre-warm, the cost, and the
+ * fixed settings.
  *
- * The loop is hand-rolled on the Messages API, as the benchmark's was, with the same
- * settings (model claude-opus-5-5, max_tokens 16000, adaptive thinking with summarized
+ * The loop is hand-rolled on the Messages API, with fixed settings (model
+ * claude-opus-5-5, max_tokens 16000, adaptive thinking with summarized
  * display, effort high, a cached system block plus top-level automatic caching, the
  * assistant turn replayed unmodified). The client is injected: run.mjs passes the official
  * SDK's client, the unit tests a fake. This module imports no local module at runtime and
@@ -25,7 +25,7 @@ import type {
   Usage,
 } from "./types";
 
-// ── frozen settings (benchmark/harness/config.py) ────────────────────────────
+// ── fixed settings ────────────────────────────────────────────────────────────
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
 export const DEFAULT_EFFORT = "high";
@@ -33,7 +33,7 @@ export const MAX_TOKENS = 16_000;
 export const THINKING = { type: "adaptive", display: "summarized" } as const;
 export const TOOL_CALL_TIMEOUT_S = 300;
 
-/** Appendix B of the benchmark's file 14: identical for every arm. */
+/** The system prompt, identical for every variant. */
 export const SYSTEM_PROMPT =
   "You operate a local Azure emulator (LocalStack for Azure) on behalf of a developer. " +
   "Everything you create lives in subscription 00000000-0000-0000-0000-000000000000; the " +
@@ -49,8 +49,8 @@ export const CAPS: Record<"T-A" | "T-B", Caps> = {
 };
 
 /**
- * USD per million tokens. claude-opus-5-5 and claude-opus-5 are the benchmark's frozen
- * prices; the others are the list prices with the standard 1.25x (5-minute) cache write.
+ * USD per million tokens, fixed so that runs stay comparable; the cache write is the
+ * standard 1.25x (5-minute) one, except where a model's row says otherwise.
  * A model without a price cannot run: the spend cap needs one.
  */
 export const PRICES: Record<string, Price> = {
@@ -65,7 +65,7 @@ export function priceFor(model: string): Price | undefined {
   return PRICES[model];
 }
 
-// ── tokens and cost (benchmark/harness/cost.py) ──────────────────────────────
+// ── tokens and cost ───────────────────────────────────────────────────────────
 
 interface UsageLike {
   input_tokens?: number | null;
@@ -119,7 +119,7 @@ export function costUsd(turns: ReadonlyArray<{ usage: Usage }>, price: Price): n
 /**
  * Cost as if the first turn found the shared prefix (tool catalogue + system prompt)
  * already cached ("warm") or not cached ("cold"); later turns are priced as billed. The
- * benchmark's decision rule used the warm price (file 14 section 14.8).
+ * gate's cost per completed task uses the warm price.
  */
 export function pricedCostUsd(
   turns: ReadonlyArray<{ usage: Usage }>,
@@ -238,7 +238,7 @@ export function egressOf(
   return { events, housekeeping };
 }
 
-// ── the agent loop (benchmark/harness/agent.py run_llm) ──────────────────────
+// ── the agent loop ────────────────────────────────────────────────────────────
 
 /** What a tool call returns to the loop: the model-visible text plus the record. */
 export interface ToolOutcome {
@@ -299,7 +299,7 @@ export interface ErrorClasses {
 }
 
 /**
- * The benchmark's _account and _transient (agent.py), on the SDK's typed errors. An
+ * Error classes, on the SDK's typed errors. An
  * account error (invalid or revoked key, no credit, a spend limit) stops the campaign
  * unscored; an infrastructure error (connection, 429, 5xx after the SDK's retries) is not
  * scored either; anything else (a 400) is the run's own failure.

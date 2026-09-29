@@ -11,7 +11,6 @@ provider: Microsoft.ServiceBus.DataPlane
 cases:
   - id: servicebus-dp-entity-get
     operations: [Microsoft.ServiceBus.DataPlane Entity Get]
-    note: The benchmark's T-A task sb-dp-queue-max-delivery reads the same queue description.
     setup:
       - group create --name {rg} --location {location}
       - servicebus namespace create --name {name:sbns} --resource-group {rg} --location {location} --sku Standard
@@ -58,7 +57,6 @@ cases:
         Microsoft.ServiceBus.DataPlane Subscription Get,
         Microsoft.ServiceBus.DataPlane Subscription Delete,
       ]
-    note: The benchmark's T-A tasks sb-dp-subscription-max-delivery and sb-dp-subscription-delete.
     setup:
       - group create --name {rg} --location {location}
       - servicebus namespace create --name {name:sbns} --resource-group {rg} --location {location} --sku Standard

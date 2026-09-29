@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# L3 (b), the internal-network egress job (plan section 5.4; review F23). CI ONLY: see README.md.
+# L3 (b), the internal-network egress job. CI ONLY: see README.md.
 #
 # The emulator is dual-homed: on the default bridge, so it can activate its licence online, and
 # on a network created with --internal. The MCP server's container is on the internal network
@@ -46,8 +46,8 @@ die() {
   exit 1
 }
 
-# Replace the token in every file this job wrote, so a later upload step cannot publish it
-# (plan section 8, review N22). The value is read from the environment and never printed.
+# Replace the token in every file this job wrote, so a later upload step cannot publish it.
+# The value is read from the environment and never printed.
 scan_outputs() {
   node - "$OUT_DIR" << 'NODE'
 const fs = require("fs");
@@ -98,7 +98,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# 1. The MCP server image, which must carry az (plan phase 5, task 5.1).
+# 1. The MCP server image, which must carry az.
 if [ -z "$MCP_IMAGE" ]; then
   MCP_IMAGE="lsmcp-egress-internal:$RUN_ID"
   log "building $MCP_IMAGE from $REPO_ROOT"
@@ -106,9 +106,9 @@ if [ -z "$MCP_IMAGE" ]; then
   MCP_IMAGE_BUILT=1
 fi
 docker run --rm --network none --entrypoint /bin/sh "$MCP_IMAGE" -c 'command -v az && command -v curl' > /dev/null \
-  || die "$MCP_IMAGE has no az (or no curl); this job needs the image with az from plan task 5.1"
+  || die "$MCP_IMAGE has no az (or no curl); this job needs the MCP server image with az"
 
-# 2. The emulator on the default bridge (Appendix F's values), published on 127.0.0.1 only, so
+# 2. The emulator on the default bridge (azure-emulator-up.sh's flags), published on 127.0.0.1 only, so
 #    this script can watch its health from the runner.
 docker network create --internal "$NET" > /dev/null
 NET_CREATED=1
@@ -123,7 +123,7 @@ docker run -d --name "$EMU" \
 EMU_STARTED=1
 
 # Health says the edition and whether the licence activated; HTTPS comes up seconds later
-# (Appendix F). The ARM name is pinned to 127.0.0.1, so no DNS is involved.
+#. The ARM name is pinned to 127.0.0.1, so no DNS is involved.
 emulator_ready() {
   local health
   health="$(curl -fsS -m 5 "http://127.0.0.1:$EMU_PORT/_localstack/health" 2> /dev/null)" || return 1
@@ -233,7 +233,7 @@ const exit0 = ({ envelope }) => envelope?.exitCode === 0;
 let subscription = "";
 try {
   // The first call bootstraps the tool's profile through the forwarder: licence, name mapping
-  // and routing all have to work for this to pass (the feasibility check of plan task 4.3).
+  // and routing all have to work for this to pass (the layout's feasibility check).
   await step("group list (bootstrap)", "group list -o json", exit0);
   await step("group create", `group create --name ${rg} --location westeurope`, ({ json }) => {
     subscription = /^\/subscriptions\/([^/]+)\//.exec(json().id)?.[1] ?? "";

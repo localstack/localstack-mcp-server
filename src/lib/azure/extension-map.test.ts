@@ -16,7 +16,7 @@ const REPO = path.join(__dirname, "../../..");
 const PIN_LIST = path.join(REPO, "docker", "azure-extensions.txt");
 const SCRIPT = path.join(REPO, "scripts", "install-azure-extensions.mjs");
 
-// Appendix E: the 26 curated extensions, the six preview-only ones among them.
+// The 26 curated extensions, the six preview-only ones among them.
 const CURATED = [
   "acrcssc",
   "acrquery",
@@ -77,7 +77,7 @@ describe("the pin list (docker/azure-extensions.txt)", () => {
     for (const p of pins) expect(p.preview).toBe(/[a-z]/.test(p.version));
   });
 
-  it("uses C05's versions (azure-cli 2.90.0, 2026-09-27)", () => {
+  it("pins the versions checked with azure-cli 2.90.0 (2026-09-27)", () => {
     const versions = Object.fromEntries(pins.map((p) => [p.name, p.version]));
     expect(versions).toMatchObject({
       acrcssc: "1.0.0b8",
@@ -160,7 +160,7 @@ describe("EXTENSION_COMMANDS", () => {
 });
 
 describe("extensionFor", () => {
-  it("names the extension of the path az did not recognise (Appendix G row 8 examples)", () => {
+  it("names the extension of the path az did not recognise", () => {
     expect(extensionFor(["graph"])).toBe("resource-graph");
     expect(extensionFor(["monitor", "app-insights"])).toBe("application-insights");
     expect(extensionFor(["k8s-extension"])).toBe("k8s-extension");
@@ -189,7 +189,7 @@ describe("extensionFor", () => {
 });
 
 describe("missingExtensionHint", () => {
-  it("has Appendix G row 8's two texts: the add-ons command on a host, the image's set in Docker", () => {
+  it("has the two extension hints: the add-ons command on a host, the image's set in Docker", () => {
     expect(missingExtensionHint("graph", "resource-graph", false)).toBe(
       "`az graph` comes from the `resource-graph` Azure CLI extension, which is not installed for " +
         "this tool (automatic installs are disabled). Install the tool's extensions once with " +

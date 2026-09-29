@@ -1,6 +1,4 @@
 # Microsoft.OperationalInsights: Log Analytics workspaces.
-# R.1: the typed server's three skips (Failover, ListLinkTargets, ReconcileNSP, all 404 then) passed
-# live on 2026-09-27 (fixed upstream: 200 with `{}`, `[]`, `{}`), so they are plain cases.
 provider: Microsoft.OperationalInsights
 cases:
   - id: la-workspace-create
@@ -28,7 +26,6 @@ cases:
         Microsoft.OperationalInsights Workspaces List,
         Microsoft.OperationalInsights Workspaces Update,
       ]
-    note: The benchmark's oracle (ta.py la-workspace-retention).
     setup:
       - group create --name {rg} --location {location}
       - monitor log-analytics workspace create --resource-group {rg} --workspace-name {name:law} --location {location}
@@ -81,7 +78,7 @@ cases:
 
   - id: la-workspace-deleted-listed
     operations: [Microsoft.OperationalInsights DeletedWorkspaces ListByResourceGroup]
-    note: A soft-deleted workspace should appear in the deleted list (the benchmark's la-deleted-workspaces).
+    note: A soft-deleted workspace should appear in the deleted list.
     setup:
       - group create --name {rg} --location {location}
       - monitor log-analytics workspace create --resource-group {rg} --workspace-name {name:law} --location {location}
@@ -93,8 +90,8 @@ cases:
       - group delete --name {rg} --yes --no-wait
     known_gap:
       reason: >-
-        Found by the benchmark (ta.py la-deleted-workspaces, blocked): deleting a workspace never adds
-        it to the deleted-workspaces list; the list is always empty.
+        Deleting a workspace never adds it to the deleted-workspaces list; the list is always
+        empty.
       date: 2026-09-27
 
   - id: la-workspace-failback-nsp
@@ -104,7 +101,7 @@ cases:
         Microsoft.OperationalInsights Workspaces ListNSP,
         Microsoft.OperationalInsights Workspaces GetNSP,
       ]
-    note: The benchmark's oracle (ta.py la-failback); the emulator accepts it without replication state.
+    note: The emulator accepts it without replication state.
     setup:
       - group create --name {rg} --location {location}
       - monitor log-analytics workspace create --resource-group {rg} --workspace-name {name:law} --location {location}

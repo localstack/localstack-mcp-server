@@ -3,7 +3,7 @@
 # Declared globally so the Bicep stage can be picked per architecture (BuildKit sets it).
 ARG TARGETARCH
 
-# The pinned Bicep CLI (decision D11; check C08): one sha256-checked binary per
+# The pinned Bicep CLI: one sha256-checked binary per
 # architecture. `ADD --checksum` fails the build on any mismatch.
 FROM scratch AS bicep-amd64
 ADD --checksum=sha256:64c345a58e0c3e48b1bc98a4e62d6b3adb1d238281297de3400aeafb2697aa5a --chmod=755 \
@@ -24,7 +24,7 @@ COPY . .
 RUN yarn build
 
 # The runtime is built in chained stages so the size gate can measure the Azure layers
-# alone (plan task 5.4): runtime-base -> runtime-az (layers A and B) -> runtime-bicep -> runtime.
+# alone: runtime-base -> runtime-az (layers A and B) -> runtime-bicep -> runtime.
 FROM node:22-bookworm-slim AS runtime-base
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -58,8 +58,8 @@ RUN python3 -m venv /opt/venv \
 
 FROM runtime-base AS runtime-az
 
-# Layer A (plan task 5.1, Appendix B.8): azure-cli in a venv of its own, so it cannot clash
-# with the /opt/venv tools. Bytecode is stripped here (C05: +41.6 MB compressed); the tool
+# Layer A: azure-cli in a venv of its own, so it cannot clash
+# with the /opt/venv tools. Bytecode is stripped here (+41.6 MB compressed); the tool
 # rebuilds what it needs in LOCALSTACK_AZ_PYCACHE_DIR, which saves ~0.7 s per call.
 ARG AZURE_CLI_VERSION=2.90.0
 # The whole venv is stripped, not only lib/: pip also compiles scripts in bin/ (jp.py; L5
@@ -73,8 +73,8 @@ RUN python3 -m venv /opt/az \
 
 # AZURE_EXTENSION_DIR serves the build-time `az extension add`. The tool's child gets its
 # extension dir from LOCALSTACK_AZ_EXTENSION_DIR, because the child environment drops every
-# plain AZURE_* variable (review F10). DOTNET_SYSTEM_GLOBALIZATION_INVARIANT lets the Linux
-# Bicep binary run without ICU (C08: identical output). The tool's working directory is
+# plain AZURE_* variable. DOTNET_SYSTEM_GLOBALIZATION_INVARIANT lets the Linux
+# Bicep binary run without ICU (with identical output). The tool's working directory is
 # /work: mount your templates and files there.
 ENV AZURE_EXTENSION_DIR=/opt/az-extensions \
     AZURE_CORE_COLLECT_TELEMETRY=no \
@@ -84,7 +84,7 @@ ENV AZURE_EXTENSION_DIR=/opt/az-extensions \
     DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
 
 # Layer B: the 26 curated extensions, pinned and fail-fast, stripped in the SAME RUN
-# (C05: 70.0 MB as first specified, ~21 MB stripped). The pin list may arrive with CRLF
+# (70.0 MB unstripped, ~21 MB stripped). The pin list may arrive with CRLF
 # line endings from a Windows checkout, so they are removed first.
 COPY docker/azure-extensions.txt /tmp/azure-extensions.txt
 RUN set -eu; \
@@ -104,7 +104,7 @@ RUN set -eu; \
 
 FROM runtime-az AS runtime-bicep
 
-# The bundled Bicep CLI (decision D11): about +110 MB compressed on amd64 (C08).
+# The bundled Bicep CLI: about +110 MB compressed on amd64.
 COPY --from=bicep /bicep /usr/local/bin/bicep
 
 FROM runtime-bicep AS runtime
@@ -141,7 +141,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./package.json
 
 # `az version` runs in a throwaway config dir created and removed in the same command: a
-# prefix assignment would leave /tmp/tmp.* behind (review R02, F37). `bicep --version`
+# prefix assignment would leave /tmp/tmp.* behind. `bicep --version`
 # extracts its .NET bundle and creates a /tmp/.bicep cache; both are removed too, so L5's
 # absence checks (no /root/.azure, no /tmp/tmp*) hold and the build leaves nothing behind.
 RUN set -eux; \

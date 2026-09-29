@@ -1,6 +1,6 @@
 {
   "name": "localstack-mcp-gemini-azure",
-  "description": "Scenario-based Gemini evals for the Azure tools (plan E1): a pinned-command case for localstack-azure-client and a management status case for service azure. A separate dataset from gemini-comprehensive.json, because the AWS and Azure emulators cannot share port 4566 in one run.",
+  "description": "Scenario-based Gemini evals for the Azure tools (E1): a pinned-command case for localstack-azure-client and a management status case for service azure. A separate dataset from gemini-comprehensive.json, because the AWS and Azure emulators cannot share port 4566 in one run.",
   "cases": [
     {
       "id": "scenario-azure-client-group-list",

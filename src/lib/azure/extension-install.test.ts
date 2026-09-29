@@ -12,7 +12,7 @@ import {
 } from "./extension-install";
 import { AZURE_EXTENSION_PINS } from "./extension-pins";
 
-// U12 (plan task 5.3), the shared extension installer. Nothing here runs az: the runner is
+// The shared extension installer. Nothing here runs az: the runner is
 // injected, and every directory is a temporary one.
 
 describe("extensionAddArgs", () => {

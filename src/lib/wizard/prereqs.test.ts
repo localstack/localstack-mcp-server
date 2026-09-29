@@ -1,7 +1,7 @@
 import { checkNodeVersion, checkPrereqs } from "./prereqs";
 import { runCommand } from "../../core/command-runner";
 
-// The wizard's prerequisites (plan task 2.14): Node and Docker, and nothing else. A tool's own
+// The wizard's prerequisites: Node and Docker, and nothing else. A tool's own
 // CLI, the Snowflake tool's `snow` or the Azure tool's `az`, is the user's to install, as the
 // README says, and each tool names what is missing when it is used: the wizard neither checks
 // nor installs it. Docker is never run: the command runner is mocked.

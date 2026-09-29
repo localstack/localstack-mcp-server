@@ -1,15 +1,15 @@
 name: Azure weekly
 
-# The heavy Azure suites (plan section 8): the L2 matrix sharded x4, L3 in full with the
+# The heavy Azure suites: the L2 matrix sharded x4, L3 in full with the
 # internal-network job, L4 over all samples, the drift gates DR1-DR8, the az version
 # matrix (DR3), and E2 when an API key exists. A summary job opens or updates a tracking
 # issue on failure.
 on:
   schedule:
-    - cron: "0 7 * * 1" # Mondays 07:00 UTC, as the typed server had it
+    - cron: "0 7 * * 1" # Mondays 07:00 UTC
   workflow_dispatch:
   repository_dispatch:
-    # samples-changed: sent by localstack-azure-samples (re-pointed from the typed repo);
+    # samples-changed: for localstack-azure-samples to send when its samples change;
     # azure-emulator-release: for an emulator release hook, when the platform sends one.
     types: [samples-changed, azure-emulator-release]
 
@@ -64,7 +64,7 @@ jobs:
             emulator-logs/
           retention-days: 7
 
-  # One catalogue for the portal's inventory gate (R.2), kept longer than the shards: the
+  # One catalogue for the portal's inventory gate, kept longer than the shards: the
   # portal's own weekly runs at the same hour and reads it by artifact name.
   catalogue:
     name: Merged operation catalogue (for the portal)

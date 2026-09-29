@@ -17,7 +17,7 @@ export const DEFAULT_COMMAND_MAX_BUFFER = 1024 * 1024 * 10; // 10 MB
 export const IAM_CONFIG_ENDPOINT = "/_aws/iam/config";
 
 // ---------------------------------------------------------------------------
-// The Azure client (plan task 2.1, Appendix D). Unlike the constants above, this is a
+// The Azure client. Unlike the constants above, this is a
 // function of the environment, so tests can build any configuration without
 // re-importing the module.
 // ---------------------------------------------------------------------------
@@ -213,7 +213,7 @@ function readBicepEnv(env: NodeJS.ProcessEnv, warnings: string[]): string[] {
 }
 
 /**
- * The Azure client's settings (plan task 2.1, Appendix D). Invalid numbers fall back
+ * The Azure client's settings. Invalid numbers fall back
  * to their defaults with a warning; values that would weaken containment (a remote
  * endpoint, a config dir inside the user's real Azure CLI profile) are hard errors,
  * and the tool refuses to run while any is present.
@@ -332,7 +332,7 @@ export function getAzureConfig(
     errors.push(`LOCALSTACK_AZ_DENYLIST_FILE ${denylistFile} does not exist or is not a file.`);
   }
 
-  // `worker` (plan task 7.1) is opt-in: one warm az process per concurrent call.
+  // `worker` is opt-in: one warm az process per concurrent call.
   const runnerSetting = env.LOCALSTACK_AZ_RUNNER?.trim().toLowerCase();
   let runner: AzureConfig["runner"] = "host";
   if (runnerSetting === "worker") {

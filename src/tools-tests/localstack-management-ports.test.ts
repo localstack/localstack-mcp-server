@@ -1,6 +1,6 @@
-// Plan task 3.3 (review F01), through the tool: with LOCALSTACK_PORT=4666, stop and
-// restart never select a container that does not publish 4666, so a test run beside
-// the owner's shared emulator on 4566 can never stop it. The real DockerApiClient
+// Through the tool: with LOCALSTACK_PORT=4666, stop and restart never select a
+// container that does not publish 4666, so a test run beside a shared emulator on 4566
+// can never stop it. The real DockerApiClient
 // runs; only dockerode is mocked.
 import localstackManagement from "../tools/localstack-management";
 
@@ -62,7 +62,7 @@ const testContainer = {
   State: "running",
 };
 
-describe("stop and restart with LOCALSTACK_PORT=4666 (F01, through the tool)", () => {
+describe("stop and restart with LOCALSTACK_PORT=4666, through the tool", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.LOCALSTACK_AUTH_TOKEN = "ls-test-token";

@@ -2,8 +2,7 @@
 # operations, policies, releases, version sets, schemas, products, groups, users, subscriptions,
 # named values, loggers, diagnostics, backends, caches, certificates, gateways, workspaces, tenant
 # access, identity and OpenID providers, GraphQL resolvers, tags. The CLI covers the main groups;
-# the rest go through rest, as the benchmark's T-APIM oracles do (tapim.py, api-version
-# 2024-05-01). A deleted service is soft-deleted, so every case deletes and purges its service.
+# the rest go through rest (api-version 2024-05-01). A deleted service is soft-deleted, so every case deletes and purges its service.
 provider: Microsoft.ApiManagement
 cases:
   - id: apim-service
@@ -73,7 +72,7 @@ cases:
         Microsoft.ApiManagement Api Delete,
       ]
     pr: true
-    note: The benchmark's oracle (tapim.py apim-api-create); samples apim api show.
+    note: Samples apim api show.
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -116,8 +115,7 @@ cases:
         Microsoft.ApiManagement ApiOperation Delete,
       ]
     note: >-
-      The benchmark's oracles (tapim.py apim-operation-delete, apim-operation-policy); samples apim api
-      operation. The XML policy travels JSON-escaped (<, >), as tapim.py sends it.
+      Samples apim api operation. The XML policy travels JSON-escaped (<, >).
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -308,7 +306,6 @@ cases:
         Microsoft.ApiManagement Subscription RegeneratePrimaryKey,
         Microsoft.ApiManagement Subscription Delete,
       ]
-    note: The benchmark's oracle (tapim.py apim-group-user-check).
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -454,7 +451,6 @@ cases:
         Microsoft.ApiManagement Tag DetachFromProduct,
         Microsoft.ApiManagement ApiTagDescription ListByService,
       ]
-    note: The benchmark's oracles (tapim.py apim-tag-assign-api, apim-tag-detach-product, apim-api-tag-descriptions).
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -502,7 +498,6 @@ cases:
         Microsoft.ApiManagement GraphqlApiResolver ListByApi,
         Microsoft.ApiManagement GraphqlApiResolver Delete,
       ]
-    note: The benchmark's oracle (tapim.py apim-graphql-resolver).
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -541,9 +536,6 @@ cases:
         Microsoft.ApiManagement WorkspaceApi ListByService,
         Microsoft.ApiManagement Workspace Delete,
       ]
-    note: >-
-      The benchmark's oracles (tapim.py apim-workspace-product-update, apim-workspace-group-update,
-      apim-workspace-loggers).
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -609,9 +601,6 @@ cases:
         Microsoft.ApiManagement IdentityProvider ListByService,
         Microsoft.ApiManagement ApiManagementService MigrateToStv2,
       ]
-    note: >-
-      The benchmark's oracles (tapim.py apim-tenant-access, apim-git-regenerate-primary, apim-oidc-secret,
-      apim-migrate-stv2).
     setup:
       - group create --name {rg} --location {location}
       - >-

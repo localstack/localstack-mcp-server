@@ -1,12 +1,12 @@
 /**
- * L3 (c), the policy half (plan section 5.4; reviews F17 and R02): the benchmark's leak commands.
+ * L3, the policy half: the leak commands.
  *
- * The P1a arm of the CLI-vs-REST benchmark sent these `az rest` calls with an absolute
+ * Agents driving `az` against the emulator sent these `az rest` calls with an absolute
  * https://management.azure.com URL, so real Azure was their target and only the guard stopped
- * them. scripts/extract-leak-commands.mjs copied them from the run records into
- * tests/fixtures/azure/leak-commands.json. Every one must now be rewritten to a relative URL
- * before anything is spawned, with nothing else in the argv changed, and no argv element may
- * still name the ARM host, except as a `--resource` token audience (the leak commands have none).
+ * them. They are recorded in tests/fixtures/azure/leak-commands.json. Every one must now be
+ * rewritten to a relative URL before anything is spawned, with nothing else in the argv changed,
+ * and no argv element may still name the ARM host, except as a `--resource` token audience (the
+ * leak commands have none).
  * The live half (GET and DELETE replayed on a CI emulator) is in tests/azure/egress.live.test.ts.
  */
 import { splitCliArgs } from "../cli/argv";
@@ -17,7 +17,6 @@ interface LeakCommand {
   id: string;
   method: string;
   calls: number;
-  tasks: string[];
   command: string;
 }
 interface LeakFixture {
@@ -33,7 +32,7 @@ interface LeakFixture {
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const fixture: LeakFixture = require("../../../tests/fixtures/azure/leak-commands.json");
 
-// The three "variant P" options the Azure client uses (check C06), as in the policy.
+// The three tokenizer options the Azure client uses, as in the policy.
 const AZURE_TOKENIZER = {
   quotedControlChars: true,
   keepEmptyQuoted: true,
@@ -59,7 +58,7 @@ const PLATFORMS: Array<[string, PolicyOptions]> = [
 const ARM_HOST = /(?<![A-Za-z0-9.-])management\.azure\.com/i;
 const ARM_ORIGIN = /^https:\/\/management\.azure\.com(?::443)?/i;
 const URL_FLAGS = new Set(["--url", "--uri", "-u"]);
-const REDACTION_MARKER = "REDACTED-BY-EXTRACT-LEAK-COMMANDS-PKCS12-WITH-PRIVATE-KEY";
+const REDACTION_MARKER = "REDACTED-PKCS12-WITH-PRIVATE-KEY";
 
 function ok(result: PolicyResult, id: string): Extract<PolicyResult, { ok: true }> {
   if (!result.ok) throw new Error(`${id}: refused ${result.ruleId}: ${result.message}`);
@@ -72,8 +71,8 @@ function urlIndex(argv: string[]): number {
   return flag === -1 ? -1 : flag + 1;
 }
 
-describe("L3 leak commands (the benchmark's absolute management.azure.com calls)", () => {
-  test("the fixture holds the plan's 154 distinct commands from 182 calls", () => {
+describe("L3 leak commands (absolute management.azure.com calls that agents sent)", () => {
+  test("the fixture holds 154 distinct commands from 182 calls", () => {
     expect(fixture.calls).toBe(182);
     expect(fixture.distinct).toBe(154);
     expect(fixture.commands).toHaveLength(154);

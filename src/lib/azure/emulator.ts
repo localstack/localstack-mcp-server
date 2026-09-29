@@ -5,7 +5,7 @@ import net from "net";
 import type { AzureConfig } from "./types";
 
 /**
- * Is the LocalStack Azure emulator usable (plan task 2.5)? Health and info are read
+ * Is the LocalStack Azure emulator usable? Health and info are read
  * over plain HTTP on 127.0.0.1, never `localhost`: on Windows `localhost` tries ::1
  * first and costs about 2 s per call when the emulator listens on IPv4 only. The ARM
  * endpoint's HTTPS readiness is checked by connecting to the loopback address with
@@ -211,7 +211,7 @@ export async function getAzureEmulatorStatus(
   const sessionId = typeof info?.session_id === "string" ? info.session_id : undefined;
   const version = typeof info?.version === "string" ? info.version : undefined;
 
-  // HTTPS comes up seconds after plain HTTP (Appendix F), so a fresh emulator gets
+  // HTTPS comes up seconds after plain HTTP, so a fresh emulator gets
   // up to 10 s. A session that passed once is not probed again.
   if (!sessionId || sessionId !== verifiedSession) {
     const target = endpointTarget(config);
@@ -236,7 +236,7 @@ export async function getAzureEmulatorStatus(
   }
 
   // With the guard on, the guard maps the names itself; only with it off does az
-  // depend on public DNS answering 127.0.0.1 (Appendix G row 3).
+  // depend on public DNS answering 127.0.0.1.
   if (!config.egressGuard) {
     let addresses: string[];
     try {

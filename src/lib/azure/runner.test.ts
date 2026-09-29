@@ -20,7 +20,7 @@ import {
 import { pythonPrefix } from "./resolve-az";
 import type { AzExecutable, EgressEvent, EgressProxy, EgressRecords } from "./types";
 
-// U10 (plan task 2.4; the 13 cases of check C03 plus the plan's extras). The fake
+// The runner, case by case. The fake
 // `az` is a Node script; the cases that need a real interpreter use Python.
 
 jest.setTimeout(60_000);
@@ -108,7 +108,7 @@ const withPython = PYTHON ? test : test.skip;
 if (!PYTHON)
   console.warn("runner.test: no Python found (set PYTHON); the real-interpreter cases are skipped");
 
-describe("spawn options and stdin (C03 case 1)", () => {
+describe("spawn options and stdin", () => {
   test("shell:false, windowsHide, three pipes, the workdir as cwd, and stdin ended at once", async () => {
     const spy = jest.spyOn(childProcess, "spawn");
     try {
@@ -133,7 +133,7 @@ describe("spawn options and stdin (C03 case 1)", () => {
 });
 
 describe("argv fidelity (case 2)", () => {
-  // The 15 required values and C03's extras; none may be expanded or re-split.
+  // The 15 required values and a few extras; none may be expanded or re-split.
   const values = [
     "[?name=='a'].id | [0]",
     '{"a":"b c","d":[1,2]}',
@@ -303,7 +303,7 @@ describe("timeouts and tree kills (cases 7-9)", () => {
     const result = await run(["sleep", "20000"], {}, 700);
     expect(result.timedOut).toBe(true);
     expect(Date.now() - started).toBeLessThan(700 + 5000);
-    if (isWin) expect(result.exitCode).toBe(1); // after taskkill: code=1, signal=null (C03 §6)
+    if (isWin) expect(result.exitCode).toBe(1); // after taskkill: code=1, signal=null
   });
 
   test("a grandchild holding the pipe is killed, and the promise resolves", async () => {
@@ -619,7 +619,7 @@ describe("the egress guard's fail-fast (with a fake guard)", () => {
   });
 });
 
-describe("the exit hook (review F27)", () => {
+describe("the exit hook", () => {
   // The tree sleeps a minute, far longer than the death wait: a pass means the kill worked,
   // never that the processes ended on their own. The generous waits only absorb a loaded
   // machine (the full suite, parallel workers).
@@ -675,7 +675,7 @@ const t = setInterval(() => { if (fs.existsSync(${JSON.stringify(pids)})) { clea
   }, 120_000);
 });
 
-describe("fail-fast with the real egress guard (U9, the runner integration)", () => {
+describe("fail-fast with the real egress guard (the runner integration)", () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { startEgressProxy } = require("./egress-proxy") as typeof import("./egress-proxy");
 

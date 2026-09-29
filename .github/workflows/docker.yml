@@ -58,7 +58,7 @@ jobs:
             docker run -i --rm \
               ${{ env.IMAGE_NAME }}:ci
 
-      # L5 (plan task 5.4). The absence checks run before any az command in the container.
+      # L5. The absence checks run before any az command in the container.
       - name: L5 image assertions (az, extensions, Bicep, no build leftovers)
         run: |
           docker run --rm --entrypoint /bin/sh \
@@ -211,7 +211,7 @@ jobs:
           path: emulator-logs/
           retention-days: 7
 
-  # L5 on arm64 before anything is published (review F14): the push job below is the
+  # L5 on arm64 before anything is published: the push job below is the
   # only other arm64 build, and it pushes. A native arm64 runner, so the az layers need
   # no QEMU.
   arm64-az:

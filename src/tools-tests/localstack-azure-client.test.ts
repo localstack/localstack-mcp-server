@@ -1,5 +1,5 @@
-// U3 (the handler), U8 (preflight precedence) and U11 (value-free analytics) for
-// localstack-azure-client (plan tasks 2.11-2.13). The real policy, output, preflight
+// The handler, the preflight precedence and the value-free analytics of
+// localstack-azure-client. The real policy, output, preflight
 // gates and analytics run; only the edges are mocked: the emulator status, gateway
 // health, the resolved az, Bicep, the bootstrap, the runner and PostHog.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
@@ -136,7 +136,7 @@ beforeEach(() => {
   });
 });
 
-describe("the handler (U3)", () => {
+describe("the handler", () => {
   test("the happy path runs the policy's argv in the workdir and returns az's output", async () => {
     const answer = await azure({ command: "az group list --query \"[?name=='rg1']\"" });
     expect(text(answer)).toContain("rg1");
@@ -264,7 +264,7 @@ describe("the handler (U3)", () => {
   });
 });
 
-describe("preflights and their precedence (U8)", () => {
+describe("preflights and their precedence", () => {
   test("the token check comes first", async () => {
     delete process.env.LOCALSTACK_AUTH_TOKEN;
     const answer = text(await azure({ command: "login" }));
@@ -330,8 +330,8 @@ describe("preflights and their precedence (U8)", () => {
   });
 });
 
-describe("Bicep (C08, Appendix G rows 19 and 20)", () => {
-  test("no Bicep binary: row 19, without spawning az", async () => {
+describe("Bicep", () => {
+  test("no Bicep binary: bicep-missing, without spawning az", async () => {
     mocked.bicep.mockResolvedValue(undefined);
     const answer = text(
       await azure({ command: "deployment group create -g rg --template-file main.bicep" })
@@ -352,7 +352,7 @@ describe("Bicep (C08, Appendix G rows 19 and 20)", () => {
     expect(mocked.runAzCommand).not.toHaveBeenCalled();
   });
 
-  test("a registry module in the template: row 20, without spawning", async () => {
+  test("a registry module in the template: bicep-registry, without spawning", async () => {
     writeFileSync(
       path.join(workdir, "reg.bicep"),
       "module st 'br/public:avm/res/storage/storage-account:0.9.0' = {\n  name: 'st'\n}\n"
@@ -389,7 +389,7 @@ describe("Bicep (C08, Appendix G rows 19 and 20)", () => {
   });
 });
 
-describe("analytics carry no values (U11, decision D6)", () => {
+describe("analytics carry no values", () => {
   const events = () =>
     mockCapture.mock.calls.map(
       (c) => c[0] as { event: string; properties: Record<string, unknown> }

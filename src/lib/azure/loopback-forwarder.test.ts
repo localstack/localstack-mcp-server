@@ -10,8 +10,8 @@ import {
   type ForwarderDeps,
 } from "./loopback-forwarder";
 
-// U15 (plan task 5.2). Ephemeral ports only: binding 127.0.0.1:4566 or 4510-4560 on
-// the owner's machine would collide with the shared emulator's published ports.
+// Ephemeral ports only: binding 127.0.0.1:4566 or 4510-4560 on a developer
+// machine would collide with a running emulator's published ports.
 
 async function echoServer(): Promise<{ port: number; close: () => Promise<void> }> {
   const sockets = new Set<net.Socket>();

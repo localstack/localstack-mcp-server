@@ -72,7 +72,7 @@ const AZURE_EXTENSIONS_BAKED = process.env.HARNESS_AZURE_EXTENSIONS === "1";
 const AZURE_FORWARDER_EXPECTED = process.env.HARNESS_AZURE_FORWARDER === "1";
 // The Azure emulator is started and stopped outside the harness (a CI job's own container).
 const AZURE_EXTERNAL = process.env.HARNESS_AZURE_EXTERNAL === "1";
-// Deploy a .bicep and a .bicepparam file through the tool (the image bundles Bicep, D11).
+// Deploy a .bicep and a .bicepparam file through the tool (the image bundles Bicep).
 const AZURE_BICEP = process.env.HARNESS_AZURE_BICEP === "1";
 // The server runs with LOCALSTACK_AZ_BICEP_PATH at a missing file: only that hard error is checked.
 const AZURE_BICEP_MISSING = process.env.HARNESS_AZURE_BICEP_MISSING === "1";
@@ -205,7 +205,7 @@ async function callToolUntil(
   return last;
 }
 
-// ---- which LocalStack containers this harness started (plan task 4.1, review F01) ----
+// ---- which LocalStack containers this harness started ----
 // The harness may stop or restart only a container that its own `start` created, so a
 // local run can never stop an emulator someone else started. A read-only `docker ps`
 // before and after each start tells: a new id means we own it; "already running" (no
@@ -1039,7 +1039,7 @@ async function main() {
     }
   }
 
-  // 11. Azure stack (L1, plan task 4.1) — placed like the Snowflake stage, after the AWS
+  // 11. Azure stack (L1) — placed like the Snowflake stage, after the AWS
   // stack is stopped: start → readiness gate → scenario → stop (only when we started it).
   if (enabled("azure")) await azureStage();
 }
@@ -1144,7 +1144,7 @@ async function azureStage() {
       [`login`, (r) => r.isError],
       // An extension-only command: it runs (the extension is present) or gets the
       // missing-extension / not-implemented hint, never a download. In the image all 26
-      // curated extensions are installed, so it must reach the emulator (review F10).
+      // curated extensions are installed, so it must reach the emulator.
       [
         `graph query -q "Resources | project name | limit 1"`,
         (r) =>
@@ -1157,7 +1157,7 @@ async function azureStage() {
       [`lock list`, (r) => !r.isError || /not-implemented/.test(r.text.split("\n")[0])],
     ];
     if (AZURE_BICEP) {
-      // L5 (D11): both deployment forms succeed with no extra flags, and the guard blocks
+      // L5: both deployment forms succeed with no extra flags, and the guard blocks
       // nothing but housekeeping (a real refusal adds an "egress guard blocked" note). The
       // identity each creates is named by the parameter, so reading it back shows that
       // the parameter arrived (the emulator returns no deployment outputs).
@@ -1202,7 +1202,7 @@ async function azureStage() {
     }
 
     // L5: the second call of a command family is fast, because the bytecode cache in
-    // LOCALSTACK_AZ_PYCACHE_DIR works (C05). Over 1 s warns; over 5 s fails.
+    // LOCALSTACK_AZ_PYCACHE_DIR works. Over 1 s warns; over 5 s fails.
     const t0 = Date.now();
     const again = await az(`group show --name ${rg} --query name -o tsv`);
     const elapsed = Date.now() - t0;
@@ -1213,8 +1213,7 @@ async function azureStage() {
       snip(again.text, 120)
     );
 
-    // L5: with the image's loopback forwarder, the traffic went through it (review R02,
-    // N20). The server runs with LOCALSTACK_AZ_TEST_ENVELOPE=1 for this check.
+    // L5: with the image's loopback forwarder, the traffic went through it. The server runs with LOCALSTACK_AZ_TEST_ENVELOPE=1 for this check.
     if (AZURE_FORWARDER_EXPECTED) {
       const probe = await az(`group show --name ${rg}`);
       const count = Number(/"forwarderConnections":(\d+)/.exec(probe.text)?.[1] ?? 0);

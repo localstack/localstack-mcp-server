@@ -5,7 +5,7 @@ import { Readable, Transform } from "stream";
 import { pipeline } from "stream/promises";
 
 /**
- * The Bicep step of `install-azure-addons` (plan task 5.3; check C08; Appendix E): the pinned Bicep
+ * The Bicep step of `install-azure-addons`: the pinned Bicep
  * release for this OS and architecture, downloaded from GitHub and checked against the
  * sha256 table below before it is moved into ~/.localstack/azure/bin, where the tool
  * looks second (after LOCALSTACK_AZ_BICEP_PATH). Never agent-triggered, and never

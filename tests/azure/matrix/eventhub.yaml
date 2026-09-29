@@ -1,7 +1,7 @@
 # Microsoft.EventHub: namespaces, event hubs, consumer groups, authorization rules, application
 # groups, schema groups, dedicated clusters, geo-recovery aliases, private endpoints.
-# R.1: the typed server's three skips (Namespaces Failover and the two network-security-perimeter
-# association operations) are known gaps: geo-replication and NSP associations are not emulated.
+# Namespaces Failover and the two network-security-perimeter association operations are known
+# gaps: geo-replication and NSP associations are not emulated.
 provider: Microsoft.EventHub
 cases:
   - id: eventhubs-namespace-hub
@@ -35,7 +35,7 @@ cases:
         Microsoft.EventHub Namespaces List,
         Microsoft.EventHub Namespaces CheckNameAvailability,
       ]
-    note: The benchmark's oracle (ta.py eventhub-namespaces-list-rg); samples eventhubs namespace show.
+    note: Samples eventhubs namespace show.
     setup:
       - group create --name {rg} --location {location}
       - eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Standard
@@ -74,7 +74,7 @@ cases:
         Microsoft.EventHub Namespaces RegenerateKeys,
         Microsoft.EventHub Namespaces DeleteAuthorizationRule,
       ]
-    note: The benchmark's oracle (ta.py eventhub-ns-auth-rule-delete); samples eventhubs namespace authorization-rule.
+    note: Samples eventhubs namespace authorization-rule.
     setup:
       - group create --name {rg} --location {location}
       - eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Standard
@@ -146,7 +146,7 @@ cases:
         Microsoft.EventHub EventHubs RegenerateKeys,
         Microsoft.EventHub EventHubs DeleteAuthorizationRule,
       ]
-    note: The benchmark's oracle (ta.py eventhub-hub-auth-rule-rights); samples eventhubs eventhub authorization-rule (20 uses).
+    note: Samples eventhubs eventhub authorization-rule (20 uses).
     setup:
       - group create --name {rg} --location {location}
       - eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Standard
@@ -268,7 +268,6 @@ cases:
         Microsoft.EventHub Clusters Update,
         Microsoft.EventHub Clusters ListAvailableClusterRegion,
       ]
-    note: The benchmark's oracles (ta.py eventhub-cluster-scale, eventhub-clusters-list).
     setup:
       - group create --name {rg} --location {location}
       - eventhubs cluster create --name {name:ehc} --resource-group {rg} --location {location} --capacity 1
@@ -372,7 +371,7 @@ cases:
 
   - id: eventhubs-georecovery-failover
     operations: [Microsoft.EventHub DisasterRecoveryConfigs FailOver]
-    note: The benchmark's oracle (ta.py eventhub-geo-failover) fails over from the secondary.
+    note: The case fails over from the secondary.
     setup:
       - group create --name {rg} --location {location}
       - eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Standard
@@ -463,7 +462,7 @@ cases:
       - group delete --name {rg} --yes --no-wait
     known_gap:
       reason: >-
-        Typed server COVERAGE_SKIPS: geo-replication is not emulated, so namespaces__failover always
+        Geo-replication is not emulated, so namespaces__failover always
         answers HTTP 400 "Namespace is not geo-replicated, failover cannot be performed" (as Azure
         does for a namespace without replication); there is no way to make it succeed.
       date: 2026-09-27
@@ -486,7 +485,7 @@ cases:
       - group delete --name {rg} --yes --no-wait
     known_gap:
       reason: >-
-        Typed server COVERAGE_SKIPS: network security perimeter associations are not emulated; the
+        Network security perimeter associations are not emulated; the
         reconcile POST and the per-association GET always answer 404 ResourceNotFound (the NSP
         configuration list is always empty).
       date: 2026-09-27

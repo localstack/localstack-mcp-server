@@ -3,8 +3,6 @@ import os from "os";
 import path from "path";
 import { buildAzChildEnv, ensurePrivateDirs, privateDirs, type ChildEnvOptions } from "./child-env";
 
-// U6 (plan task 2.3).
-
 const winConfig = {
   configDir: "C:\\Users\\me\\.localstack\\azure\\mcp-config-4566",
   homeDir: "C:\\Users\\me\\.localstack\\azure\\mcp-config-4566\\home",
@@ -125,7 +123,7 @@ describe("buildAzChildEnv: the allow-list", () => {
     expect(env.AZURE_CONFIG_DIR).not.toBe(POLLUTED.AZURE_CONFIG_DIR);
   });
 
-  test("with LOCALSTACK_AZ_EXTENSION_DIR set, the child's AZURE_EXTENSION_DIR equals it (F10)", () => {
+  test("with LOCALSTACK_AZ_EXTENSION_DIR set, the child's AZURE_EXTENSION_DIR equals it", () => {
     const env = buildAzChildEnv(
       POLLUTED,
       win({ config: { ...winConfig, extensionDir: "D:\\az-ext" } })
@@ -144,7 +142,7 @@ describe("buildAzChildEnv: the allow-list", () => {
     "AZURE_BICEP_USE_BINARY_FROM_PATH",
     "AZURE_BICEP_CHECK_VERSION",
     "BROWSER",
-  ])("%s in the parent is absent from the child (C08)", (name) => {
+  ])("%s in the parent is absent from the child", (name) => {
     expect(buildAzChildEnv({ ...POLLUTED, [name]: "x" }, win())).not.toHaveProperty(name);
     expect(buildAzChildEnv({ PATH: "/usr/bin", [name]: "x" }, posix())).not.toHaveProperty(name);
   });

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# `az` shim for the L4 samples replay (plan task 4.4). Put this directory first on PATH
+# `az` shim for the L4 samples replay. Put this directory first on PATH
 # and a sample's scripts drive the MCP tool `localstack-azure-client` instead of a real
 # az: each call runs `node dist/cli.js` over stdio and prints az's exact stdout (from
 # the tool's test envelope) on fd 1, az's stderr plus the tool's notes on fd 2, and

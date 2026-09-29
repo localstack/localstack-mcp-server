@@ -1,6 +1,6 @@
 import { CliSyntaxError, splitCliArgs, type CliArgsOptions } from "./argv";
 
-// The options the Azure client passes (check C06, "variant P").
+// The options the Azure client passes.
 const AZURE: CliArgsOptions = {
   quotedControlChars: true,
   keepEmptyQuoted: true,
@@ -105,7 +105,7 @@ describe("splitCliArgs: the AWS behaviour (no options)", () => {
   });
 });
 
-describe("splitCliArgs: the Azure options (C06 variant P)", () => {
+describe("splitCliArgs: the Azure options", () => {
   test("accepts multi-line JSON inside single quotes", () => {
     const command = "monitor diagnostic-settings create --logs '[\n  {\"enabled\": true}\n]'";
     expect(splitCliArgs(command, AZURE)).toEqual([

@@ -1,6 +1,6 @@
 // Tool tests live outside src/tools/ because xmcp registers every src/tools/*.ts as a
 // tool. These tests exercise the real tools with the real runPreflights/requireStack;
-// only the network, Docker and CLI edges are stubbed (plan task 1.5, U13d).
+// only the network, Docker and CLI edges are stubbed.
 import { readFileSync } from "fs";
 import { join } from "path";
 import localstackAwsClient from "../tools/localstack-aws-client";
@@ -153,7 +153,7 @@ describe("stack guards in the AWS-only tools, logs analysis and the Snowflake cl
     expect(text(result)).toContain("is LocalStack AWS");
   });
 
-  test("the Snowflake client is NOT refused on `pro` when the container is the Snowflake image (Q21 fail-open)", async () => {
+  test("the Snowflake client is NOT refused on `pro` when the container is the Snowflake image (fail-open)", async () => {
     mockedHealth.mockResolvedValue(PRO);
     mockDocker("localstack/snowflake:latest");
 

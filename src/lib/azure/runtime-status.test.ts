@@ -3,7 +3,7 @@ import { getAzureEmulatorStatus } from "./emulator";
 import { ensureLoopbackForwarder } from "./loopback-forwarder";
 import { azureConfig } from "./services";
 
-// Plan tasks 3.1/3.2: localstack-management's view of the Azure emulator.
+// localstack-management's view of the Azure emulator.
 jest.mock("./emulator", () => ({ getAzureEmulatorStatus: jest.fn() }));
 jest.mock("./loopback-forwarder", () => ({
   ensureLoopbackForwarder: jest.fn().mockResolvedValue(undefined),

@@ -49,7 +49,6 @@ cases:
         Microsoft.Authorization ManagementLocks ListAtResourceGroupLevel,
         Microsoft.Authorization ManagementLocks DeleteAtResourceGroupLevel,
       ]
-    note: The benchmark's oracles (ta.py locks-list, lock-delete).
     setup:
       - group create --name {rg} --location {location}
       - lock create --name l2-read-only --resource-group {rg} --lock-type ReadOnly
@@ -104,7 +103,7 @@ cases:
     operations:
       [Microsoft.Authorization RoleDefinitions List, Microsoft.Authorization RoleDefinitions Get]
     pr: true
-    note: The benchmark's oracle (ta.py role-definition-get); acdd72a7-... is the built-in Reader role.
+    note: acdd72a7-... is the built-in Reader role.
     setup:
       - >-
         rest --method get
@@ -164,7 +163,6 @@ cases:
 
   - id: role-assignment-delete
     operations: [Microsoft.Authorization RoleAssignments Delete]
-    note: The benchmark's oracle (ta.py role-assignment-delete).
     setup:
       - group create --name {rg} --location {location}
       - run: identity create --name {name:id} --resource-group {rg} --location {location} --query principalId -o tsv

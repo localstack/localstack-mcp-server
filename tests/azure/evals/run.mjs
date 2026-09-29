@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// E2: composition evals of the localstack-azure-client tool (plan section 5.6, tasks 6.1-6.3).
+// E2: composition evals of the localstack-azure-client tool.
 //
 //   node tests/azure/evals/run.mjs [options]
 //
-// Runs tasks drawn from the Azure MCP benchmark (T-A, T-B, T-APIM) against `node dist/cli.js`:
+// Runs the E2 tasks (tiers T-A, T-B, T-APIM; see README.md) against `node dist/cli.js`:
 // Claude calls the Azure tool over MCP until it ends its turn, then the task's verifier reads the
 // outcome from the emulator through a SEPARATE server session, then everything the run created is
 // removed. One JSONL record per run; see README.md.
@@ -14,8 +14,8 @@
 //   --out DIR                 results directory (default test-results/e2)
 //   --tasks id,id             only these tasks          --tier T-A,T-B,T-APIM   only these tiers
 //   --model M                 default $EVAL_MODEL or claude-opus-5-5
-//   --effort E                default $EVAL_EFFORT or high (the benchmark's setting)
-//   --variant v[,v]           compact (default), p1c, help-tool, no-test-data; several interleave
+//   --effort E                default $EVAL_EFFORT or high
+//   --variant v[,v]           compact (default), long, help-tool, no-test-data; several interleave
 //   --all-tools               offer every server tool (localstack-management is withheld), not only Azure
 //   --key-file PATH           the API key file (else ANTHROPIC_API_KEY_FILE, else ANTHROPIC_API_KEY)
 //   --phrasing alt|0|1        T-A phrasing: alternate by run index (default), or fixed
@@ -25,7 +25,7 @@
 //   --jobs N                  concurrent runs, each with its own two servers (default $EVAL_JOBS,
 //                             else 3 when CI=true, else 1: keep 1 on a shared emulator)
 //   --no-prewarm              skip the max_tokens:0 cache pre-warm per variant
-//   --oracle                  no model: run the benchmark's reference commands, the verifier must pass
+//   --oracle                  no model: run each task's reference commands, the verifier must pass
 //   --negative                no model: setup only, the verifier must fail
 //   --dry-run                 no emulator, no model: list the plan and the tool definitions per variant
 //   --list                    print the tasks and exit
@@ -68,7 +68,7 @@ function parseArgs(argv) {
     maxMinutes: undefined,
     // Concurrent runs, each with its own two server sessions. On a developer machine the
     // emulator may be shared, so one; CI's per-job emulator takes three, which leaves the
-    // weekly E2 job room inside its 180 minutes (plan section 7: at most 8 live commands).
+    // weekly E2 job room inside its 180 minutes.
     jobs: Number(env.EVAL_JOBS || (env.CI === "true" ? 3 : 1)),
     prewarm: true,
     oracle: false,
@@ -204,7 +204,7 @@ function helpText() {
     "       [--tasks id,id] [--tier T-A,T-B,T-APIM] [--model M] [--effort E] [--variant v[,v]] [--all-tools]",
     "       [--key-file PATH] [--phrasing alt|0|1] [--verify-wait S] [--seed N] [--max-minutes M] [--no-prewarm]",
     "       [--jobs N] [--oracle | --negative | --dry-run] [--list]",
-    "variants: compact (default), p1c, help-tool, no-test-data. See tests/azure/evals/README.md.",
+    "variants: compact (default), long, help-tool, no-test-data. See tests/azure/evals/README.md.",
   ].join("\n");
 }
 
@@ -252,9 +252,7 @@ async function main() {
   const cli = join(REPO, "dist", "cli.js");
   if (!existsSync(cli)) fail(`${cli} does not exist; run \`yarn build\` first`);
   if (mode !== "dry-run" && !process.env.LOCALSTACK_AUTH_TOKEN) {
-    fail(
-      "LOCALSTACK_AUTH_TOKEN is not set: the Azure tool refuses every call without it (plan D5)"
-    );
+    fail("LOCALSTACK_AUTH_TOKEN is not set: the Azure tool refuses every call without it");
   }
 
   const outDir = resolve(REPO, o.out);
@@ -428,8 +426,8 @@ async function main() {
     const t0 = performance.now();
     let stopped = null;
     let n = 0;
-    // The whole schedule first, each task visiting the variants in a fresh seeded order (the
-    // benchmark's arm order), so a rerun, and a run with more jobs, keeps the same order.
+    // The whole schedule first, each task visiting the variants in a fresh seeded order, so a
+    // rerun, and a run with more jobs, keeps the same order.
     const items = [];
     for (const task of tasks) {
       for (let run = 0; run < o.runs; run++) {

@@ -1,8 +1,6 @@
 # Microsoft.AppConfiguration: stores (ARM), key-values, locks, labels, revisions and snapshots
 # (the data plane, keyed `Microsoft.AppConfiguration Microsoft.AppConfiguration <Op>`), replicas.
 # A deleted store is soft-deleted, so every case that creates one deletes and purges it.
-# R.1: the typed server's three skips (ListKeyValue, and the private-endpoint connection Get and
-# CreateOrUpdate) all passed live on 2026-09-27: fixed upstream, so they are plain cases here.
 provider: Microsoft.AppConfiguration
 cases:
   - id: appconfig-create
@@ -52,7 +50,6 @@ cases:
         Microsoft.AppConfiguration ConfigurationStores ListKeys,
         Microsoft.AppConfiguration ConfigurationStores RegenerateKey,
       ]
-    note: The benchmark's oracle (ta.py appconfig-regenerate-key).
     setup:
       - group create --name {rg} --location {location}
       - appconfig create --name {name:appcs} --resource-group {rg} --location {location} --sku Standard
@@ -106,7 +103,7 @@ cases:
       - appconfig purge --name {name:appcs} --yes
       - group delete --name {rg} --yes --no-wait
 
-  # --- The data plane (samples appconfig kv set/list/show; ta.py appconfig-check-keys) ---
+  # --- The data plane (samples appconfig kv set/list/show) ---
 
   - id: appconfig-kv-set-show
     operations:
@@ -155,7 +152,6 @@ cases:
         Microsoft.AppConfiguration Microsoft.AppConfiguration DeleteLock,
         Microsoft.AppConfiguration Microsoft.AppConfiguration DeleteKeyValue,
       ]
-    note: The benchmark's oracle (ta.py appconfig-kv-unlock).
     setup:
       - group create --name {rg} --location {location}
       - appconfig create --name {name:appcs} --resource-group {rg} --location {location} --sku Standard
@@ -284,7 +280,6 @@ cases:
         Microsoft.AppConfiguration Replicas ListByConfigurationStore,
         Microsoft.AppConfiguration Replicas Delete,
       ]
-    note: The benchmark's oracles (ta.py appconfig-replica-create, appconfig-replicas-list).
     setup:
       - group create --name {rg} --location {location}
       - appconfig create --name {name:appcs} --resource-group {rg} --location {location} --sku Standard
@@ -347,8 +342,6 @@ cases:
       - appconfig purge --name {name:appcs} --yes
       - group delete --name {rg} --yes --no-wait
 
-  # R.1: the typed server skipped Get and CreateOrUpdate because no connection was registered on
-  # the store; on 2026-09-27 the private endpoint registers one (the gap is fixed upstream).
   - id: appconfig-private-endpoint-connection
     operations:
       [
@@ -385,8 +378,6 @@ cases:
       - appconfig purge --name {name:appcs} --yes
       - group delete --name {rg} --yes --no-wait
 
-  # R.1: the typed server skipped ListKeyValue (routed, no handler, HTTP 500); it passed live on
-  # 2026-09-27, so the gap is fixed upstream and this is a plain case.
   - id: appconfig-list-key-value
     operations: [Microsoft.AppConfiguration ConfigurationStores ListKeyValue]
     setup:

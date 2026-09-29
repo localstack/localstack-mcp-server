@@ -2,9 +2,6 @@
 # runs a real MySQL container (ls-mysql-flexible-*), so every server case is `backing: true`; the
 # runner waits for the group's resources to settle before deleting (an early delete was seen to
 # leave the container running).
-# R.1: the typed server's three skips (Maintenances Read and Update, Servers ResetGtid) were known
-# gaps: the emulator had no maintenance records and cannot enable GTID. A full run on 2026-09-28
-# saw a new server list a maintenance record, so only ResetGtid is still a known gap.
 provider: Microsoft.DBforMySQL
 cases:
   - id: mysql-catalogue
@@ -37,7 +34,7 @@ cases:
         Microsoft.DBforMySQL FlexibleServers Servers_Update,
       ]
     backing: true
-    note: Samples mysql flexible-server create/show; tb.py mysql-firewall.
+    note: Samples mysql flexible-server create/show.
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -67,7 +64,7 @@ cases:
         Microsoft.DBforMySQL FlexibleServers FirewallRules_Delete,
       ]
     backing: true
-    note: Samples mysql flexible-server db/firewall-rule create; tb.py mysql-firewall.
+    note: Samples mysql flexible-server db/firewall-rule create.
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -99,7 +96,6 @@ cases:
         Microsoft.DBforMySQL FlexibleServers Configurations_BatchUpdate,
       ]
     backing: true
-    note: The benchmark's oracle (ta.py mysql-parameters-batch).
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -130,7 +126,6 @@ cases:
         Microsoft.DBforMySQL FlexibleServers Servers_Delete,
       ]
     backing: true
-    note: The benchmark's oracles (ta.py mysql-server-start, mysql-server-delete).
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -165,8 +160,7 @@ cases:
       ]
     backing: true
     note: >-
-      The benchmark's oracles (ta.py mysql-threat-protection, mysql-private-link-resource; td.py
-      td-mysql-backup-get). The backup is read back by the name the PUT returned, not by manual1:
+      The backup is read back by the name the PUT returned, not by manual1:
       the service names an on-demand backup customer-<time>-<guid>-manual1. az's
       `backup create` and `backup list` call the long-running backupsV2 API, so Backups_* go
       through rest.
@@ -220,8 +214,7 @@ cases:
       ]
     backing: true
     note: >-
-      A known gap until a full run on 2026-09-28 saw a new server list a maintenance record (typed server: the
-      emulator created none). The case reads the listed record and reschedules it.
+      The case reads the listed maintenance record and reschedules it.
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -262,6 +255,6 @@ cases:
       - group delete --name {rg} --yes --no-wait
     known_gap:
       reason: >-
-        Typed server COVERAGE_SKIPS: resetGtid needs GTID enabled, and the emulator's create handler
+        ResetGtid needs GTID enabled, and the emulator's create handler
         exposes no property to enable it.
       date: 2026-09-27

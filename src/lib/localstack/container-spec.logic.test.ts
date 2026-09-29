@@ -191,7 +191,7 @@ describe("buildLocalStackContainerSpec", () => {
     expect(Object.keys(spec.ExposedPorts)).toHaveLength(53);
   });
 
-  test("stack azure uses LOCALSTACK_AZURE_IMAGE_NAME, and an AWS IMAGE_NAME never (plan task 3.1)", () => {
+  test("stack azure uses LOCALSTACK_AZURE_IMAGE_NAME, and an AWS IMAGE_NAME never", () => {
     const azure = buildLocalStackContainerSpec(
       baseInput({
         stack: "azure",

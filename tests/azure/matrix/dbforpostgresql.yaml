@@ -1,11 +1,6 @@
 # Microsoft.DBforPostgreSQL: flexible servers, databases, firewall rules, parameters, backups,
 # threat protection, and Cosmos DB for PostgreSQL clusters (ServerGroupsv2). A server runs a real
 # PostgreSQL container (ls-pg-flexible-*), so server cases are `backing: true`.
-# R.1: the typed server's fifteen skips were known gaps: the eleven ServerGroupsv2 operations (a
-# created cluster never persisted), CapturedLogs (404), and Stop, Start, Restart (the server state
-# thrashed back to Creating under its -n 8 load). A full run on 2026-09-28 saw them pass twice on
-# az 2.85 and a probe passed each operation, except the cluster Restart (az's poller fails on the
-# emulator's bare 202), which keeps a known-gap case of its own.
 provider: Microsoft.DBforPostgreSQL
 cases:
   - id: pg-catalogue
@@ -39,7 +34,7 @@ cases:
         Microsoft.DBforPostgreSQL FlexibleServers Servers_Update,
       ]
     backing: true
-    note: The benchmark's oracles (ta.py pg-server-create, pg-servers-list); samples postgres flexible-server create/show.
+    note: Samples postgres flexible-server create/show.
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -121,7 +116,6 @@ cases:
         Microsoft.DBforPostgreSQL FlexibleServers Configurations_Update,
       ]
     backing: true
-    note: The benchmark's oracles (ta.py pg-parameter-get, pg-parameter-set).
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -157,7 +151,7 @@ cases:
       ]
     backing: true
     note: >-
-      tb.py postgres-threat-protection; td.py td-pg-capabilities. The backup commands avoid the flags
+      The backup commands avoid the flags
       az 2.86 renamed (--name/--backup-name became --server-name/--name): rest creates, --ids reads.
     setup:
       - group create --name {rg} --location {location}
@@ -197,7 +191,6 @@ cases:
   - id: pg-delete
     operations: [Microsoft.DBforPostgreSQL FlexibleServers Servers_Delete]
     backing: true
-    note: The benchmark's oracle (ta.py pg-server-delete).
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -218,9 +211,6 @@ cases:
         Microsoft.DBforPostgreSQL FlexibleServers Servers_Restart,
       ]
     backing: true
-    note: >-
-      The benchmark's oracle (td.py td-pg-stop). A known gap until a full run on 2026-09-28 (typed server: Stop
-      answered 409 "in state Creating" under its -n 8 load); the case now runs all three.
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -244,8 +234,6 @@ cases:
   - id: pg-captured-logs
     operations: [Microsoft.DBforPostgreSQL FlexibleServers CapturedLogs_ListByServer]
     backing: true
-    note: >-
-      A known gap until a full run on 2026-09-28 (typed server: GET .../capturedLogs answered 404).
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -266,7 +254,7 @@ cases:
         Microsoft.DBforPostgreSQL ServerGroupsv2 Clusters_ListByResourceGroup,
       ]
     backing: true
-    note: Cosmos DB for PostgreSQL (td.py td-pg-cluster-server); the create answers without persisting.
+    note: Cosmos DB for PostgreSQL; the create answers without persisting.
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -296,8 +284,7 @@ cases:
       ]
     backing: true
     note: >-
-      A known gap until a full run on 2026-09-28 (typed server: the created cluster never persisted); a probe then
-      passed each of these operations. Restart is its own known gap below.
+      Restart is its own known gap below.
     setup:
       - group create --name {rg} --location {location}
       - >-

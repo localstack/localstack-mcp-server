@@ -1,10 +1,10 @@
 /**
- * The curated Azure CLI extensions (plan Appendix E) and the command groups they add, for the
- * missing-extension hint (Appendix G row 8).
+ * The curated Azure CLI extensions and the command groups they add, for the
+ * missing-extension hint.
  *
  * The tool runs `az` with `extension.use_dynamic_install=no`, so a command from an extension that
  * is not installed fails like a typo: `ERROR: 'graph' is misspelled or not recognized by the
- * system.` (C02). az never names the extension, so the hint needs this map.
+ * system.`. az never names the extension, so the hint needs this map.
  *
  * This file is also loaded, unbundled, by `scripts/install-azure-extensions.mjs` through Node's
  * built-in TypeScript type stripping. Keep it free of runtime imports of other local modules and of
@@ -60,10 +60,10 @@ export function parsePinList(text: string): PinnedExtension[] {
  * The command groups (or commands) each curated extension adds, keyed by extension name.
  *
  * Each entry is the shortest command path that core `az` does not know: the token az reports as
- * "misspelled or not recognized" when the extension is missing. Derived from the benchmark's
- * command tables for azure-cli 2.90.0 with the 26 extensions installed (`az_surface_ext.json`,
- * every command whose source is `ext:<name>`) against the core-only table (`az_surface_core.json`),
- * then checked against the core tables of az 2.85.0 (MSI) and 2.87.0 (pip), dumped offline on
+ * "misspelled or not recognized" when the extension is missing. Derived by comparing the
+ * command table of azure-cli 2.90.0 with the 26 extensions installed (every command whose
+ * source is `ext:<name>`) with the core-only table, then checked against the core tables of
+ * az 2.85.0 (MSI) and 2.87.0 (pip), dumped offline on
  * 2026-09-27. The keys agree across the three versions except for `cdn`, see below.
  *
  * `containerapp` is core in 2.85-2.90 (its extension overrides core commands and is not curated),
@@ -155,7 +155,7 @@ export function extensionFor(
 }
 
 /**
- * Appendix G row 8. On a host (npx) the extensions are installed once, by the user, with the
+ * The `extension` hint. On a host (npx) the extensions are installed once, by the user, with the
  * `install-azure-addons` command (spelled out here: this file has no runtime imports); in the
  * image all curated extensions are installed, so a miss there means the extension is not part of
  * the image.

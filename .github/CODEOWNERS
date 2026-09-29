@@ -32,7 +32,6 @@
 /scripts/ci/merge-op-catalogue.cjs                  @localstack/smurf @HarshCasper
 /scripts/install-azure-extensions.mjs               @localstack/smurf @HarshCasper
 /scripts/gen-az-file-args.py                        @localstack/smurf @HarshCasper
-/scripts/extract-leak-commands.mjs                  @localstack/smurf @HarshCasper
 
 # The image's Azure layers (the Azure CLI, its extensions and Bicep)
 /docker/azure-extensions.txt                        @localstack/smurf @HarshCasper

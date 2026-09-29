@@ -1,7 +1,6 @@
 # Microsoft.App: Container Apps environments, apps, revisions, replicas, jobs, session pools.
 # Environments and apps run on the emulator's Docker engine, so those cases are `backing: true`
-# (nginx:latest, the benchmark's T-B image); the subscription-scope catalogue calls are light.
-# The typed server had no Microsoft.App skips.
+# (nginx:latest); the subscription-scope catalogue calls are light.
 provider: Microsoft.App
 cases:
   - id: containerapp-catalogue
@@ -13,7 +12,6 @@ cases:
         Microsoft.App AvailableWorkloadProfiles Get,
         Microsoft.App Microsoft.App GetCustomDomainVerificationId,
       ]
-    note: The benchmark's oracle (td.py td-app-operations).
     setup:
       - rest --method get --url /providers/Microsoft.App/operations?api-version=2025-01-01
       - rest --method get --url /subscriptions/{sub}/providers/Microsoft.App/locations/{location}/usages?api-version=2025-01-01
@@ -38,7 +36,7 @@ cases:
         Microsoft.App ManagedEnvironmentUsages List,
       ]
     backing: true
-    note: Samples containerapp env create/show; tb.py containerapp-revision.
+    note: Samples containerapp env create/show.
     setup:
       - group create --name {rg} --location {location}
       - containerapp env create --name {name:env} --resource-group {rg} --location {location}
@@ -78,7 +76,6 @@ cases:
         Microsoft.App ManagedCertificates List,
       ]
     backing: true
-    note: The benchmark's oracle (ta.py app-http-route-configs-list).
     setup:
       - group create --name {rg} --location {location}
       - containerapp env create --name {name:env} --resource-group {rg} --location {location}
@@ -120,7 +117,6 @@ cases:
         Microsoft.App ManagedEnvironments Delete,
       ]
     backing: true
-    note: The benchmark's oracle (td.py td-aca-env-diagnostics).
     setup:
       - group create --name {rg} --location {location}
       - containerapp env create --name {name:env} --resource-group {rg} --location {location}
@@ -153,7 +149,7 @@ cases:
         Microsoft.App ContainerApps ListSecrets,
       ]
     backing: true
-    note: Samples containerapp create/show/update/secret list (tb.py containerapp-revision).
+    note: Samples containerapp create/show/update/secret list.
     setup:
       - group create --name {rg} --location {location}
       - containerapp env create --name {name:env} --resource-group {rg} --location {location}
@@ -222,7 +218,6 @@ cases:
         Microsoft.App ContainerAppsDiagnostics GetRoot,
       ]
     backing: true
-    note: The benchmark's oracle (ta.py app-auth-config).
     setup:
       - group create --name {rg} --location {location}
       - containerapp env create --name {name:env} --resource-group {rg} --location {location}
@@ -268,7 +263,7 @@ cases:
         Microsoft.App ContainerApps Delete,
       ]
     backing: true
-    note: Samples containerapp delete; ta.py app-source-control reads the GitHub action config.
+    note: Samples containerapp delete.
     setup:
       - group create --name {rg} --location {location}
       - containerapp env create --name {name:env} --resource-group {rg} --location {location}
@@ -306,7 +301,6 @@ cases:
         Microsoft.App Jobs Delete,
       ]
     backing: true
-    note: The benchmark's oracles (ta.py app-job-create, app-job-start).
     setup:
       - group create --name {rg} --location {location}
       - containerapp env create --name {name:env} --resource-group {rg} --location {location}
@@ -340,7 +334,7 @@ cases:
         Microsoft.App ContainerAppsSessionPools Delete,
       ]
     backing: true
-    note: The benchmark's oracle (td.py td-session-pool-update) patches the pool with rest.
+    note: The case patches the pool with rest.
     setup:
       - group create --name {rg} --location {location}
       - >-

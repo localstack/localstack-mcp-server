@@ -2,7 +2,7 @@
 // live tests. It spawns the server with the FULL parent environment: the SDK's
 // StdioClientTransport passes only a default safe list, which would drop
 // LOCALSTACK_PORT, MAIN_CONTAINER_NAME and the token, and a server started without
-// them targets the shared emulator on 4566 (plan review R02, gap C).
+// them targets the shared emulator on 4566.
 import { spawn } from "node:child_process";
 
 /**

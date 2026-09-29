@@ -17,9 +17,9 @@ import type { AzExecutable, AzRunner, AzRunOptions, AzRunResult, EgressProxy } f
 import { WORKER_CODE } from "./worker-script";
 
 /**
- * The warm az worker (plan task 7.1, optional; LOCALSTACK_AZ_RUNNER=worker). A long-running
- * Python child imports azure-cli once and runs each command in-process, so a call costs the
- * command, not the interpreter start and the imports (the benchmark's V2 arm).
+ * The warm az worker (optional; LOCALSTACK_AZ_RUNNER=worker). A long-running Python child
+ * imports azure-cli once and runs each command in-process, so a call costs the command, not
+ * the interpreter start and the imports.
  *
  * The containment is the subprocess runner's: the same child environment (private home,
  * the tool's own AZURE_CONFIG_DIR), one egress-guard call tag per command, the same timeout,
@@ -394,7 +394,7 @@ export class WorkerRunner implements AzRunner {
         setInterval(() => onProgress(Date.now() - started), this.timings.progressIntervalMs)
       );
     }
-    // Fail fast (review F06), as the subprocess runner does: after a refused host or a
+    // Fail fast, as the subprocess runner does: after a refused host or a
     // failed upstream, kill the worker's tree instead of waiting out the SDK's retries.
     const unsubscribe = proxy?.onEvent((id, event) => {
       if (id !== callId || failFast || (event.kind !== "refused" && event.kind !== "upstream"))

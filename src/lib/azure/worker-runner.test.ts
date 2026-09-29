@@ -5,7 +5,7 @@ import { startEgressProxy } from "./egress-proxy";
 import type { AzRunner, AzRunOptions, AzRunResult } from "./types";
 import { WorkerRunner, writesCliState, type WorkerRunnerOptions } from "./worker-runner";
 
-// U10's cases against the warm worker (plan task 7.1), plus its own: state isolation,
+// The runner's cases against the warm worker, plus its own: state isolation,
 // SystemExit, the fd 2 capture. The REAL worker code (worker-script.ts) runs under a real
 // Python, with a stand-in azure.cli.core (tests/fixtures/azure/fake-worker), so no
 // azure-cli is needed. Skipped when no Python is on PATH.

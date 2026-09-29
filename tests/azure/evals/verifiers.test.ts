@@ -1,7 +1,7 @@
 /**
  * The E2 verifier library against recorded answers (no emulator): each verifier with a
- * passing and a failing recording, the query helpers, and the benchmark's own offline
- * verifier checks (benchmark/harness/test_verifiers.py), ported case for case.
+ * passing and a failing recording, the query helpers, and offline checks of the answer
+ * readers, case by case.
  */
 import * as V from "./verifiers";
 import type { AzAnswer, Slots } from "./types";
@@ -413,9 +413,9 @@ describe("answer verifiers", () => {
   });
 });
 
-// ── the benchmark's test_verifiers.py, case for case ─────────────────────────
+// ── offline checks of the answer readers ────────────────────────────────────────
 
-describe("benchmark test_verifiers.py: exists_claims", () => {
+describe("offline checks: exists_claims", () => {
   const HAVE = "feature-flags-7a1";
   const MISSING = "legacy-timeout-3c9";
   const SLOTS = { key: HAVE, missing_key: MISSING };
@@ -467,7 +467,7 @@ describe("benchmark test_verifiers.py: exists_claims", () => {
   });
 });
 
-describe("benchmark test_verifiers.py: migration_verdict", () => {
+describe("offline checks: migration_verdict", () => {
   const MIGRATE = V.migrationVerdict("can_migrate");
   const CASES: Array<[boolean, string, boolean]> = [
     [
@@ -529,7 +529,7 @@ describe("benchmark test_verifiers.py: migration_verdict", () => {
   });
 });
 
-describe("benchmark test_verifiers.py: sql-elastic-pool and sql-db-audit-policy patterns", () => {
+describe("offline checks: sql-elastic-pool and sql-db-audit-policy patterns", () => {
   // ta.py's POOL_CAPACITY and AUDIT_RETENTION (the SQL tasks are not in E2; the patterns
   // exercise textMatches' Python-format escaping).
   const POOL_CAPACITY =

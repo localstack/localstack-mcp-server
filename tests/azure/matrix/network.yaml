@@ -3,8 +3,7 @@
 # experiment (Traffic Manager analytics) resources.
 # UpdateTags operations are PATCH calls that no az verb maps to one to one (`update` is a GET then
 # a PUT), so they go through `rest` with a relative URL.
-# R.1: the typed server's three PrivateLinkServices private-endpoint-connection skips are one
-# known gap here (network-pls-connection): a private endpoint to a link service never registers a
+# network-pls-connection is a known gap: a private endpoint to a link service never registers a
 # connection on the service.
 provider: Microsoft.Network
 cases:
@@ -33,7 +32,7 @@ cases:
         Microsoft.Network VirtualNetworks ListAll,
         Microsoft.Network VirtualNetworks UpdateTags,
       ]
-    note: The benchmark's oracle (ta.py vnet-address-space); samples network vnet show.
+    note: Samples network vnet show.
     setup:
       - group create --name {rg} --location {location}
       - network vnet create --name {name:vnet} --resource-group {rg} --address-prefixes 10.11.0.0/16
@@ -257,7 +256,6 @@ cases:
         Microsoft.Network Routes Get,
         Microsoft.Network Routes List,
       ]
-    note: The benchmark's oracles (ta.py route-get, routes-list).
     setup:
       - group create --name {rg} --location {location}
       - network route-table create --name {name:rt} --resource-group {rg} --location {location}
@@ -372,7 +370,6 @@ cases:
         Microsoft.Network LoadBalancerLoadBalancingRules Get,
         Microsoft.Network LoadBalancerOutboundRules List,
       ]
-    note: The benchmark's oracle (ta.py lb-outbound-rules).
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -451,7 +448,7 @@ cases:
     cleanup:
       - group delete --name {rg} --yes --no-wait
 
-  # --- Private DNS (samples network private-dns zone/link; ta.py private-dns-zones-list) ---
+  # --- Private DNS (samples network private-dns zone/link) ---
 
   - id: network-private-dns-zone
     operations:
@@ -530,7 +527,7 @@ cases:
         Microsoft.Network VirtualNetworkLinks Update,
         Microsoft.Network VirtualNetworkLinks Delete,
       ]
-    note: The benchmark's oracle (ta.py private-dns-vnet-links); samples network private-dns link vnet create.
+    note: Samples network private-dns link vnet create.
     setup:
       - group create --name {rg} --location {location}
       - network vnet create --name {name:vnet} --resource-group {rg} --address-prefixes 10.15.0.0/16
@@ -615,7 +612,7 @@ cases:
         Microsoft.Network PrivateDnsZoneGroups Delete,
         Microsoft.Network PrivateEndpoints Delete,
       ]
-    note: The benchmark's oracle (ta.py dns-zone-group); samples network private-endpoint dns-zone-group create.
+    note: Samples network private-endpoint dns-zone-group create.
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -689,7 +686,6 @@ cases:
         Microsoft.Network PrivateLinkServices UpdatePrivateEndpointConnection,
         Microsoft.Network PrivateLinkServices DeletePrivateEndpointConnection,
       ]
-    note: The benchmark's oracle (ta.py private-endpoint-create) targets a link service the same way.
     setup:
       - group create --name {rg} --location {location}
       - >-
@@ -716,7 +712,7 @@ cases:
       - group delete --name {rg} --yes --no-wait
     known_gap:
       reason: >-
-        Typed server COVERAGE_SKIPS: creating a private endpoint to a private link service never
+        Creating a private endpoint to a private link service never
         registers a private-endpoint connection on the service (private_endpoints__create_or_update
         does not add one), so the service-side Get, Update and Delete of the connection have nothing
         to act on.
@@ -823,7 +819,6 @@ cases:
         Microsoft.Network FrontDoors ValidateCustomDomain,
         Microsoft.Network FrontDoors Delete,
       ]
-    note: The benchmark's oracle (ta.py fd-disable-https).
     setup:
       - group create --name {rg} --location {location}
       - network front-door create --name {name:fd} --resource-group {rg} --backend-address www.example.com
@@ -891,7 +886,7 @@ cases:
         Microsoft.Network FrontDoorWafPolicies Delete,
         Microsoft.Network FrontDoorWafManagedRuleSets List,
       ]
-    note: The benchmark's oracle (td.py td-fd-waf-list-all) lists all policies with rest.
+    note: The case lists all policies with rest.
     setup:
       - group create --name {rg} --location {location}
       - network front-door waf-policy create --name {alnum:waf} --resource-group {rg} --mode Detection
@@ -909,7 +904,7 @@ cases:
     cleanup:
       - group delete --name {rg} --yes --no-wait
 
-  # --- Network experiments (td.py oracles, rest only: az has no command group for them) ---
+  # --- Network experiments (rest only: az has no command group for them) ---
 
   - id: network-experiment-profile
     operations:

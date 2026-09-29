@@ -1,9 +1,7 @@
 /**
- * E2 tasks drawn from the benchmark's T-A tier (benchmark/harness/ta.py): task ids, both
- * phrasings, oracle commands and verifiers as the benchmark had them. The fixtures came
- * from the typed server's builders (tests/coverage_mapping.py of the typed repo) and the
- * benchmark's setup steps; here they run as `az` commands through the harness's own server
- * session, with the benchmark's ARM bodies wherever it sent one (`az rest`).
+ * The E2 tasks of tier T-A, single operations: task ids, both phrasings, oracle commands
+ * and verifiers. The fixtures run as `az` commands through the harness's own server session,
+ * with an ARM body (`az rest`) where a resource has no `az` command for its setup.
  *
  * The verifier library arrives as a parameter (no runtime import of a local module: see
  * verifiers.ts), so run.mjs can load this file unbundled.
@@ -15,7 +13,7 @@ export function taTasks(v: typeof V): Task[] {
   const SUB = "/subscriptions/{sub}";
   const RG = SUB + "/resourceGroups/{rg}/providers";
 
-  // api-versions of the benchmark's verifiers (ta.py)
+  // api-versions the verifiers read with
   const APPCFG = "2024-06-01";
   const LOCKS = "2020-05-01";
   const ROLES = "2022-04-01";
@@ -71,7 +69,7 @@ export function taTasks(v: typeof V): Task[] {
     cdn: `Microsoft.Cdn/profiles@${CDN}`,
   };
 
-  // ── fixture builders (typed server's coverage_mapping.py, rebuilt with az) ──
+  // ── fixture builders ──
 
   /** _appcfg_args: a store, optionally a data-plane key-value and its lock. */
   async function appcfgStore(ctx: SetupContext, opts: { kv?: boolean; lock?: boolean } = {}) {
@@ -340,7 +338,7 @@ export function taTasks(v: typeof V): Task[] {
           ctx.q,
           v.fill(RG + "/Microsoft.Authorization/locks/" + String(n), ctx.slots),
           LOCKS,
-          { properties: { level: "CanNotDelete", notes: "benchmark fixture" } },
+          { properties: { level: "CanNotDelete", notes: "E2 fixture" } },
           "lock"
         );
       }
@@ -376,7 +374,7 @@ export function taTasks(v: typeof V): Task[] {
         {
           properties: {
             roleName,
-            description: "Benchmark fixture role",
+            description: "E2 fixture role",
             type: "CustomRole",
             permissions: [{ actions, notActions: [] }],
             assignableScopes: [`/subscriptions/${v.SUBSCRIPTION}`],

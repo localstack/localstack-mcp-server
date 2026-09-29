@@ -172,7 +172,7 @@ describe("requireStack", () => {
   });
 
   test("names the Snowflake emulator, not AWS, when a Snowflake image reports `pro`", async () => {
-    // Q21, settled 2026-09-28: the Snowflake emulator's health reports edition `pro`,
+    // The Snowflake emulator's health reports edition `pro` (checked 2026-09-28),
     // as AWS does, so the Azure tool met it and said "is LocalStack AWS".
     mockedGetGatewayHealth.mockResolvedValue(awsHealth);
     mockContainer({ image: "localstack/snowflake:latest" });
@@ -189,7 +189,7 @@ describe("requireStack", () => {
     expect(text).toContain("Use `localstack-aws-client`");
   });
 
-  describe("the Snowflake client until Q21 is answered", () => {
+  describe("the Snowflake client, whose edition reads like AWS's", () => {
     test("is refused on the Azure emulator", async () => {
       mockedGetGatewayHealth.mockResolvedValue(azureHealth);
       expect(await requireStack("snowflake", "localstack-snowflake-client")).not.toBeNull();

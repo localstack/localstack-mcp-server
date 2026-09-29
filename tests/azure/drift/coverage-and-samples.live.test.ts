@@ -1,4 +1,4 @@
-// Drift gates DR6 and DR8 (plan task 4.5).
+// Drift gates DR6 and DR8.
 // DR6: every provider in the emulator's coverage list has an L2 matrix row (or a known gap).
 // DR8: the samples corpus, regenerated from the samples repo, still tokenizes to bash's
 // argv and passes the policy; new commands are reported.

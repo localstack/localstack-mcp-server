@@ -14,7 +14,7 @@ import path from "path";
 import type { AzRunner, AzRunOptions, AzRunResult } from "./types";
 
 /**
- * The isolated CLI profile (plan task 2.6, Appendix B.5). Exactly five `az` calls
+ * The isolated CLI profile. Exactly five `az` calls
  * point the config dir at the emulator: `cloud list`, `cloud register|update`,
  * `cloud set`, `config set` and a dummy `login`. The bootstrap is the only caller of
  * those commands; the policy refuses them for the agent.
@@ -29,12 +29,12 @@ export const CLI_CONFIG = [
   "output.show_survey_link=no",
   "extension.use_dynamic_install=no",
   // az 2.85 sends failed command names, with their parameter names, to
-  // app.aladdin.microsoft.com (C01).
+  // app.aladdin.microsoft.com.
   "core.error_recommendation=off",
   "core.output=json",
-  // Removes `vm create`'s region cost notice (C08).
+  // Removes `vm create`'s region cost notice.
   "core.display_region_identified=false",
-  // Bicep from the child's PATH, and no aka.ms version lookups (C08).
+  // Bicep from the child's PATH, and no aka.ms version lookups.
   "bicep.use_binary_from_path=true",
   "bicep.check_version=false",
   // Never spawn `az upgrade` (read from the source).
@@ -80,7 +80,7 @@ const LOCK_POLL_MS = 250;
 
 /**
  * Failures that mean the profile is not (or no longer) pointed at the emulator: one
- * re-bootstrap and one retry (Appendix G row 1; the typed server's patterns). A
+ * re-bootstrap and one retry. A
  * genuine error, such as a missing resource, never matches.
  */
 export const SELF_HEAL_PATTERNS = [
@@ -107,7 +107,7 @@ export interface BootstrapTarget {
   endpoint: string;
   sessionId?: string;
   azVersion?: string;
-  /** The runner's cwd: always the workdir (review R02, N14). */
+  /** The runner's cwd: always the workdir. */
   cwd: string;
   timeoutMs: number;
 }
@@ -139,7 +139,7 @@ export class BootstrapError extends Error {
   }
 }
 
-/** Another server is using this config dir with another endpoint (review R02, N5). */
+/** Another server is using this config dir with another endpoint. */
 export class ConfigDirInUseError extends Error {
   constructor(configDir: string, endpoint: string) {
     super(
@@ -152,7 +152,7 @@ export class ConfigDirInUseError extends Error {
 }
 
 // ---------------------------------------------------------------------------
-// Locks: commands are readers, the bootstrap is the writer (review F26)
+// Locks: commands are readers, the bootstrap is the writer
 // ---------------------------------------------------------------------------
 
 /** A writer-preferring readers-writer lock, so a re-bootstrap never starves. */
@@ -269,11 +269,11 @@ export function markerMatches(
 }
 
 /**
- * The update-check seed (review F21). az reads `versions.core.local` on every
+ * The update-check seed. az reads `versions.core.local` on every
  * command and logs any failure as a WARNING, `versions['azure-cli']` for `az
  * version`, and parses both times with `%Y-%m-%d %H:%M:%S.%f`, adding 1 or 7 days
  * (so the year 9999 would overflow). With these values az never checks for
- * updates, which would reach azcliprod.blob.core.windows.net (C01, C02).
+ * updates, which would reach azcliprod.blob.core.windows.net.
  */
 export function versionCheckSeed(localVersions: Record<string, string>, azVersion?: string) {
   const versions: Record<string, string> = { ...localVersions };
@@ -291,7 +291,7 @@ export function versionCheckSeed(localVersions: Record<string, string>, azVersio
   };
 }
 
-/** `az version -o json` → the seed's keys (for a launcher spawned as-is; review R02, N16). */
+/** `az version -o json` → the seed's keys (for a launcher spawned as-is). */
 export function versionsFromAzVersionJson(text: string): Record<string, string> {
   const parsed = JSON.parse(text) as Record<string, unknown>;
   const out: Record<string, string> = {};
@@ -338,7 +338,7 @@ function lockCreatedAt(lockDir: string): number | undefined {
 /**
  * The cross-process lock: a directory created with mkdir, holding {createdAt,
  * hostname}. A lock older than 5 minutes is broken; a lock is never judged by
- * checking or killing a PID (review R02, N19).
+ * checking or killing a PID.
  */
 async function withLockDir<T>(
   configDir: string,
@@ -467,7 +467,7 @@ async function runBootstrap(
   // A marker is written last, so a partial bootstrap leaves none (the next call retries).
   rmSync(path.join(target.configDir, MARKER_FILE), { force: true });
   // The seed comes BEFORE the first az call: a fresh config dir checks for updates
-  // on its very first command (C01).
+  // on its very first command.
   const seed = versionCheckSeed(await deps.readLocalVersions(), target.azVersion);
   writeAtomic(path.join(target.configDir, VERSION_CHECK_FILE), JSON.stringify(seed));
 
@@ -475,7 +475,7 @@ async function runBootstrap(
     ["cloud", "list", "--query", `[?name=='${LOCALSTACK_CLOUD}'].name`, "-o", "tsv"],
     opts
   );
-  // The stdout, not the result object, says whether the cloud exists (review F21).
+  // The stdout, not the result object, says whether the cloud exists.
   const exists = listed.exitCode === 0 && listed.stdout.trim() === LOCALSTACK_CLOUD;
   const verb = exists ? "update" : "register";
   await mustSucceed(
@@ -559,7 +559,7 @@ export function runInProfile(
 
 /**
  * Run a command; if it fails because the profile is not logged in to the emulator,
- * re-bootstrap once and retry once (Appendix G row 1). A second failure is returned
+ * re-bootstrap once and retry once. A second failure is returned
  * as it is, and the output layer gives the row-1 hint.
  */
 export async function runWithSelfHeal(

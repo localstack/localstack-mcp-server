@@ -1,4 +1,4 @@
-// Helpers of the drift gates (plan task 4.5, DR1-DR8). Every request goes to 127.0.0.1
+// Helpers of the drift gates DR1-DR8. Every request goes to 127.0.0.1
 // with the ARM host as SNI, like the tool's own readiness check: no DNS is needed.
 import { mkdirSync, writeFileSync } from "fs";
 import http from "http";

@@ -339,7 +339,7 @@ async function handleRestart({
       : [];
   // A server-started container that an earlier restart made from an external one lists what it
   // carries (CARRIED_ENV_KEY): keep carrying exactly that, so a SECOND restart does not drop the
-  // external flags (seen live). Without the list, nothing is carried (upstream semantics).
+  // external flags. Without the list, nothing is carried (upstream semantics).
   const carriedList = (metadata?.env ?? [])
     .find((entry) => entry.startsWith(`${CARRIED_ENV_KEY}=`))
     ?.slice(CARRIED_ENV_KEY.length + 1)
@@ -371,7 +371,7 @@ async function handleRestart({
   return carriedKeys.length > 0 ? appendCarriedEnvNote(started, carriedKeys) : started;
 }
 
-/** Add a line to a restart response naming the settings carried from the old container (D-30). */
+/** Add a line to a restart response naming the settings carried from the old container. */
 function appendCarriedEnvNote(
   response: ReturnType<typeof ResponseBuilder.markdown>,
   carriedKeys: string[]
@@ -388,7 +388,7 @@ function appendCarriedEnvNote(
   return { ...response, content } as ReturnType<typeof ResponseBuilder.markdown>;
 }
 
-/** `Container: "<name>" (image <image>, gateway <HostIp>:<HostPort>)` (plan task 3.2). */
+/** `Container: "<name>" (image <image>, gateway <HostIp>:<HostPort>)`. */
 function describeContainer(running: ContainerMetadata): string {
   const bindings = running.portBindings ?? {};
   const configured = process.env.LOCALSTACK_PORT?.trim() || "4566";
@@ -428,13 +428,12 @@ async function handleStatus({ service }: { service: Service }) {
 
   const running = await inspectRunningContainer(azureSideBySide ? "azure" : undefined);
   const runningStack = running ? stackFromImage(running.image, running.labels) : undefined;
-  // Always name the container, so a caller can check it before a stop or restart
-  // (the phase 3 recipe; review R02, gap A).
+  // Always name the container, so a caller can check it before a stop or restart.
   if (running) result += `\n\n${describeContainer(running)}`;
 
   // Another stack's container is running. A Snowflake image may report the AWS
   // stack's `pro` edition, so for service: snowflake only a clear AWS or Azure image
-  // counts as foreign (Q21).
+  // counts as foreign.
   const foreign =
     running &&
     runningStack &&

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // CI: fail when any given file (or any file under a given directory) contains a secret,
-// before logs and artifacts are uploaded (plan section 8; review R02, N22). GitHub masks
+// before logs and artifacts are uploaded. GitHub masks
 // registered secrets in step logs, but not inside uploaded artifacts. The secret's value
 // is read from the environment and never printed.
 //

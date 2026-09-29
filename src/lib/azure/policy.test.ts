@@ -70,7 +70,7 @@ describe("evaluateAzCommand: strip, start rule and tokenizer", () => {
     expect(q.message).toBe("Command contains an unterminated quote.");
   });
 
-  test("keeps quoted control chars, empty quoted args and bash double-quote escapes (variant P)", () => {
+  test("keeps quoted control chars, empty quoted args and bash double-quote escapes", () => {
     // Newline inside single quotes is data, not a separator (the 72 corpus commands).
     expect(expectOk(evalCmd("monitor diagnostic-settings create --logs '[\n{}]'")).argv).toEqual([
       "monitor",
@@ -263,7 +263,7 @@ describe("evaluateAzCommand: URL rule (request targets only)", () => {
     ).toBe("url:blocked");
   });
 
-  test("IPv6 and odd spellings: the guard's own host check decides (F29)", () => {
+  test("IPv6 and odd spellings: the guard's own host check decides", () => {
     // A bracketed IPv6 host is parsed as a host, not skipped as "not a URL".
     expect(expectRefused(evalCmd("rest --url https://[2001:db8::1]/x")).ruleId).toBe("url:blocked");
     expect(evalCmd("rest --url https://[::1]:4566/subscriptions/0").ok).toBe(true);
@@ -639,7 +639,7 @@ describe("parseDenylistFile", () => {
   });
 });
 
-describe("analyticsFields (task 2.13): value-free", () => {
+describe("analyticsFields: value-free", () => {
   test("command_path and flag_names carry no values; each flag cut at first =", () => {
     const command = 'keyvault secret set --vault-name v --name pw --value "s3cr3t!" --tags a=b';
     const policy = evalCmd(command);

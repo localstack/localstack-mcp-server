@@ -308,9 +308,9 @@ export class DockerApiClient {
       const knownNames = this.findByKnownLocalStackNames(running || []);
       if (knownNames.length > 0 && !explicitPort) return knownNames[0].Id as string;
       if (knownNames.length > 0 && explicitPort) {
-        // With an explicit port, a known name alone is not enough: the owner's shared
+        // With an explicit port, a known name alone is not enough: a shared
         // `localstack-azure` on 4566 must never be picked by a server configured for a
-        // test emulator on another port (plan review F01).
+        // test emulator on another port.
         const onPort = knownNames.filter((c) => this.publishesConfiguredGatewayPort(c));
         if (onPort.length === 1) return onPort[0].Id as string;
         if (onPort.length > 1) {

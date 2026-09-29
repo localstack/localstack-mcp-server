@@ -1,4 +1,4 @@
-// SM: the runner's real `az`, no emulator (plan section 8; review F13, R02 N6/N21).
+// The runner's real `az`, no emulator.
 // Opt-in with AZ_SMOKE=1: it spawns the installed Azure CLI. Everything runs in a
 // temporary config dir, behind the egress guard, after the versionCheck.json seed, and
 // the test asserts that nothing but the housekeeping hosts was refused, so the smoke
@@ -88,7 +88,7 @@ describeSmoke("the real az (AZ_SMOKE=1)", () => {
       const [section, name] = [key.slice(0, key.indexOf(".")), key.slice(key.indexOf(".") + 1)];
       const found = sections[section]?.find((e) => e.name === name);
       // `config get` shows effective values: the child's AZURE_CORE_COLLECT_TELEMETRY=no
-      // (task 2.3) wins over the file's `false`, with the same effect.
+      // wins over the file's `false`, with the same effect.
       if (found?.source === "AZURE_CORE_COLLECT_TELEMETRY") expect(found.value).toBe("no");
       else expect(found?.value).toBe(value);
     }
@@ -114,7 +114,7 @@ describeSmoke("the real az (AZ_SMOKE=1)", () => {
     expect(JSON.parse(text.split("\n\n")[0])["azure-cli-core"]).toBe(az.version);
   });
 
-  test("group list fails offline with Appendix G row 1 (not logged in)", async () => {
+  test("group list fails offline with `login` (not logged in)", async () => {
     const argv = ["group", "list"];
     const result = await run(argv);
     expect(result.exitCode).not.toBe(0);

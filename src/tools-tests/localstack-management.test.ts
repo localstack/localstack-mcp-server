@@ -212,7 +212,7 @@ describe("localstack-management", () => {
   });
 });
 
-// Phase 3 (plan tasks 3.1-3.3): service "azure".
+// The Azure stack (service "azure").
 describe("localstack-management service=azure", () => {
   const mockedLaunch = launchRuntime as jest.MockedFunction<typeof launchRuntime>;
   const mockedAzureStatus = getAzureRuntimeStatus as jest.MockedFunction<
@@ -429,8 +429,8 @@ describe("localstack-management service=azure", () => {
   });
 
   test("restart refuses, before stopping, a container whose state folder this machine cannot mount", async () => {
-    // The owner's lstk emulator was started from WSL, so its bind is a WSL path. A Windows
-    // server stopped it (--rm deleted it) and then could not recreate it.
+    // An lstk emulator started from WSL has a WSL path as its bind. A Windows server that
+    // stopped it (--rm deletes it) could not recreate it.
     const stopContainer = jest.fn().mockResolvedValue(undefined);
     const source =
       process.platform === "win32"

@@ -1,11 +1,8 @@
 # Microsoft.Web: App Service plans, web apps, function apps. A site runs as a container on the
 # emulator's Docker engine, so site cases are `backing: true`; plans and the catalogue calls are
-# light. CI pins LS_AZURE_ORYX_BUILD_IMAGE_TO_USE (plan Appendix F); no case here deploys code.
-# R.1: the typed server skipped nine operations. Six shared one root cause (the handlers
-# dereferenced `WebApp.rules`, which the model lacked); the four function-trigger operations of
-# that family passed live on 2026-09-27 (fixed upstream, webapp-function-triggers is a plain
-# case), the rest are known gaps whose families are grouped, each case exercising one
-# representative operation, named in its reason.
+# light. CI pins LS_AZURE_ORYX_BUILD_IMAGE_TO_USE; no case here deploys code.
+# Known gaps are grouped by family: each case exercises one representative operation, named in
+# its reason.
 provider: Microsoft.Web
 cases:
   - id: web-plan
@@ -17,7 +14,7 @@ cases:
         Microsoft.Web AppServicePlans List,
         Microsoft.Web AppServicePlans Delete,
       ]
-    note: Samples appservice plan create/show; the benchmark's T-B webapp workflows.
+    note: Samples appservice plan create/show.
     setup:
       - group create --name {rg} --location {location}
       - appservice plan create --name {name:plan} --resource-group {rg} --location {location} --sku B1 --is-linux
@@ -52,7 +49,7 @@ cases:
   - id: webapp-create
     operations: [Microsoft.Web WebApps CreateOrUpdate, Microsoft.Web WebApps Get]
     backing: true
-    note: Samples webapp create/show; the benchmark's oracle (ta.py webapp-hostname).
+    note: Samples webapp create/show.
     setup:
       - group create --name {rg} --location {location}
       - appservice plan create --name {name:plan} --resource-group {rg} --location {location} --sku B1 --is-linux
@@ -105,7 +102,7 @@ cases:
         Microsoft.Web WebApps UpdateApplicationSettings,
       ]
     backing: true
-    note: Samples webapp config appsettings set (22 uses), webapp config set; tb.py webapp-settings.
+    note: Samples webapp config appsettings set (22 uses), webapp config set.
     setup:
       - group create --name {rg} --location {location}
       - appservice plan create --name {name:plan} --resource-group {rg} --location {location} --sku B1 --is-linux
@@ -166,7 +163,7 @@ cases:
   - id: webapp-ftp-scm-read
     operations: [Microsoft.Web WebApps GetFtpAllowed, Microsoft.Web WebApps GetScmAllowed]
     backing: true
-    note: The benchmark's oracle (td.py td-webapp-ftp-allowed) reads the policy with rest.
+    note: The case reads the policy with rest.
     setup:
       - group create --name {rg} --location {location}
       - appservice plan create --name {name:plan} --resource-group {rg} --location {location} --sku B1 --is-linux
@@ -191,7 +188,6 @@ cases:
         Microsoft.Web WebApps DeleteSourceControl,
       ]
     backing: true
-    note: The benchmark's oracle (ta.py webapp-sync-repository, blocked because the sync records nothing).
     setup:
       - group create --name {rg} --location {location}
       - appservice plan create --name {name:plan} --resource-group {rg} --location {location} --sku B1 --is-linux
@@ -247,7 +243,6 @@ cases:
   - id: webapp-delete
     operations: [Microsoft.Web WebApps Delete]
     backing: true
-    note: The benchmark's oracle (ta.py webapp-delete).
     setup:
       - group create --name {rg} --location {location}
       - appservice plan create --name {name:plan} --resource-group {rg} --location {location} --sku B1 --is-linux
@@ -267,9 +262,8 @@ cases:
       ]
     backing: true
     note: >-
-      Samples functionapp create (9 uses); the benchmark's oracle (td.py td-webapp-sync-functions)
-      posted `.../syncfunctions`, which is not an ARM route (404 now): SyncFunctions is
-      `.../host/default/sync`, SyncFunctionTriggers `.../syncfunctiontriggers`.
+      Samples functionapp create (9 uses). `.../syncfunctions` is not an ARM route (it answers 404):
+      SyncFunctions is `.../host/default/sync`, SyncFunctionTriggers `.../syncfunctiontriggers`.
       --disable-app-insights: without it az fetches appinsights.azureedge.net (functionapp-create-app-insights).
     setup:
       - group create --name {rg} --location {location}
@@ -347,7 +341,7 @@ cases:
     cleanup:
       - group delete --name {rg} --yes --no-wait
 
-  # --- Known gaps (typed server COVERAGE_SKIPS) ---
+  # --- Known gaps ---
 
   - id: webapp-connection-strings
     operations: [Microsoft.Web WebApps ListConnectionStrings]
@@ -363,7 +357,7 @@ cases:
       - group delete --name {rg} --yes --no-wait
     known_gap:
       reason: >-
-        Typed server COVERAGE_SKIPS: the handler fails with AttributeError "'WebApp' object has no
+        The handler fails with AttributeError "'WebApp' object has no
         attribute 'rules'".
       date: 2026-09-27
 
@@ -384,7 +378,7 @@ cases:
       - group delete --name {rg} --yes --no-wait
     known_gap:
       reason: >-
-        Typed server COVERAGE_SKIPS: UpdateFtpAllowed and UpdateScmAllowed fail with the same
+        UpdateFtpAllowed and UpdateScmAllowed fail with the same
         AttributeError "'WebApp' object has no attribute 'rules'" (the case PUTs the ftp policy).
       date: 2026-09-27
 
@@ -406,7 +400,7 @@ cases:
       - group delete --name {rg} --yes --no-wait
     known_gap:
       reason: >-
-        Typed server COVERAGE_SKIPS: the handler's AttributeError on 'WebApp.rules' hangs the proxy
+        The handler's AttributeError on 'WebApp.rules' hangs the proxy
         until the client's timeout (this case cancels it after 90 s).
       date: 2026-09-27
 
@@ -426,14 +420,10 @@ cases:
       - group delete --name {rg} --yes --no-wait
     known_gap:
       reason: >-
-        Typed server COVERAGE_SKIPS: the emulator needs the operation id of a real zip-deploy LRO; any
+        The emulator needs the operation id of a real zip-deploy LRO; any
         other id answers 404 "operation not found" (and no case here deploys code).
       date: 2026-09-27
 
-  # R.1: the typed server skipped these four (AttributeError "'WebApp' object has no attribute
-  # 'rules'"). ListFunctions passed live on 2026-09-27 and SyncFunctionTriggers passed in
-  # functionapp-create (fixed upstream), so this is a plain case; the two list steps were added
-  # after the local backing budget was spent, so their first live run is CI's.
   - id: webapp-function-triggers
     operations:
       [
