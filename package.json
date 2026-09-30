@@ -27,7 +27,7 @@
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
     "@clack/prompts": "^1.5.1",
-    "@gleanwork/mcp-server-tester": "1.0.0-beta.6",
+    "@gleanwork/mcp-server-tester": "1.1.1",
     "@playwright/test": "^1.58.2",
     "@types/dockerode": "^3.3.43",
     "@types/jest": "^30.0.0",
@@ -36,14 +36,14 @@
     "eslint-config-prettier": "^10.1.8",
     "jest": "^30.1.3",
     "jsonc-parser": "^3.3.1",
-    "posthog-node": "5.0.0",
+    "posthog-node": "5.54.1",
     "prettier": "^3.6.2",
     "swc-loader": "^0.2.6",
     "ts-jest": "^29.4.1",
     "typescript": "^5.9.2",
     "xmcp": "^0.6.13",
     "yaml": "2.9.1",
-    "zod": "4.3.6"
+    "zod": "4.6.5"
   },
   "resolutions": {
     "@hono/node-server": "^2.0.5",
