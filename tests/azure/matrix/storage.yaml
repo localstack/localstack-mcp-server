@@ -1,0 +1,408 @@
+# Microsoft.Storage: accounts, the ARM child resources, and the data plane through az.
+# The data plane (blobs, queues, tables through the account endpoints) is not in the coverage
+# list, so those cases carry `operations: []`. `storage account create` blocks until the account
+# is Succeeded, so children are never created while it is still Creating.
+# File shares run on the account's side-car and are `backing: true`.
+provider: Microsoft.Storage
+cases:
+  - id: storage-account-create
+    operations: [Microsoft.Storage StorageAccounts Create]
+    pr: true
+    setup:
+      - group create --name {rg} --location {location}
+    command: >-
+      storage account create --name {storage} --resource-group {rg} --location {location}
+      --sku Standard_LRS --kind StorageV2
+    expect:
+      json:
+        - { path: name, equals: "{storage}" }
+        - { path: provisioningState, equals: Succeeded }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: storage-account-check-name
+    operations: [Microsoft.Storage StorageAccounts CheckNameAvailability]
+    pr: true
+    command: storage account check-name --name {storage}
+    expect:
+      json: { path: nameAvailable, equals: true }
+
+  - id: storage-account-show-list
+    operations:
+      [
+        Microsoft.Storage StorageAccounts GetProperties,
+        Microsoft.Storage StorageAccounts ListByResourceGroup,
+        Microsoft.Storage StorageAccounts List,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
+      - run: storage account show --name {storage} --resource-group {rg}
+        until: { json: { path: primaryEndpoints.blob, contains: "{storage}" } }
+      - run: storage account list --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: ["{storage}"] } }
+    command: storage account list --query "[?name=='{storage}'].provisioningState"
+    expect:
+      json: { path: "", equals: [Succeeded] }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: storage-account-keys
+    operations:
+      [Microsoft.Storage StorageAccounts ListKeys, Microsoft.Storage StorageAccounts RegenerateKey]
+    pr: true
+    note: Samples read keys and the connection string (storage account keys list, show-connection-string).
+    setup:
+      - group create --name {rg} --location {location}
+      - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
+      - run: storage account keys list --account-name {storage} --resource-group {rg} --query "[0].keyName" -o tsv
+        until: { stdout: { equals: key1 } }
+      - run: storage account show-connection-string --name {storage} --resource-group {rg} --query connectionString -o tsv
+        until: { stdout: { contains: "AccountName={storage}" } }
+      - run: storage account keys list --account-name {storage} --resource-group {rg} --query "[0].value" -o tsv
+        capture: key_before
+      # The answer's key list is empty (storage-account-keys-renew-answer), so the case reads the
+      # keys again.
+      - storage account keys renew --account-name {storage} --resource-group {rg} --key key1
+    command: storage account keys list --account-name {storage} --resource-group {rg} --query "[0].value != '{key_before}'"
+    expect:
+      json: { path: "", equals: true }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: storage-account-keys-renew-answer
+    operations: [Microsoft.Storage StorageAccounts RegenerateKey]
+    setup:
+      - group create --name {rg} --location {location}
+      - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
+    command: storage account keys renew --account-name {storage} --resource-group {rg} --key key2 --query "[].keyName"
+    expect:
+      json: { path: "", equals: [key1, key2] }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        L2: RegenerateKey rotates the key but answers `{"keys": []}` (the CLI prints `[]`); Azure
+        answers with both keys, the new one included.
+      date: 2026-09-27
+
+  - id: storage-account-update
+    operations: [Microsoft.Storage StorageAccounts Update]
+    setup:
+      - group create --name {rg} --location {location}
+      - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
+    command: storage account update --name {storage} --resource-group {rg} --tags matrix=l2 --min-tls-version TLS1_2 --yes
+    expect:
+      json:
+        - { path: tags.matrix, equals: l2 }
+        - { path: minimumTlsVersion, equals: TLS1_2 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: storage-account-delete
+    operations: [Microsoft.Storage StorageAccounts Delete]
+    setup:
+      - group create --name {rg} --location {location}
+      - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
+    command: storage account delete --name {storage} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: storage-container-rm-create-list
+    operations: [Microsoft.Storage BlobContainers Create, Microsoft.Storage BlobContainers List]
+    pr: true
+    setup:
+      - group create --name {rg} --location {location}
+      - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
+      - >-
+        storage container-rm create --storage-account {storage} --resource-group {rg}
+        --name {container} --public-access off
+    command: storage container-rm list --storage-account {storage} --resource-group {rg} --query "[].name"
+    expect:
+      json: { path: "", contains: "{container}" }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: storage-container-rm-show
+    operations: [Microsoft.Storage BlobContainers Get]
+    setup:
+      - group create --name {rg} --location {location}
+      - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
+      - storage container-rm create --storage-account {storage} --resource-group {rg} --name {container}
+    command: storage container-rm show --storage-account {storage} --resource-group {rg} --name {container}
+    expect:
+      json: { path: name, equals: "{container}" }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: storage-container-rm-delete
+    operations: [Microsoft.Storage BlobContainers Delete]
+    setup:
+      - group create --name {rg} --location {location}
+      - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
+      - storage container-rm create --storage-account {storage} --resource-group {rg} --name {container}
+    command: storage container-rm delete --storage-account {storage} --resource-group {rg} --name {container} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: storage-blob-service-properties
+    operations: [Microsoft.Storage BlobServices GetServiceProperties]
+    setup:
+      - group create --name {rg} --location {location}
+      - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
+    command: storage account blob-service-properties show --account-name {storage} --resource-group {rg}
+    expect:
+      json: { path: name, equals: default }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: storage-blob-service-properties-update
+    operations: [Microsoft.Storage BlobServices SetServiceProperties]
+    setup:
+      - group create --name {rg} --location {location}
+      - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
+    command: >-
+      storage account blob-service-properties update --account-name {storage} --resource-group {rg}
+      --enable-delete-retention true --delete-retention-days 14
+    expect:
+      json:
+        - { path: deleteRetentionPolicy.enabled, equals: true }
+        - { path: deleteRetentionPolicy.days, equals: 14 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        The update answers 200 but applies nothing, and its body is an empty BlobServiceProperties
+        (every field null).
+      date: 2026-09-27
+
+  # --- The data plane (samples: storage container/blob/queue/table command groups) ---
+  # Each storage account runs in its own azurite side-car, so the data-plane checks share one
+  # account per case: fewer containers started and removed on a shared Docker engine.
+
+  - id: storage-blob-data-plane
+    operations: []
+    note: >-
+      The blob data plane is not in the coverage list (samples storage container create/exists/list,
+      storage blob upload/exists/download/list).
+    pr: true
+    setup:
+      - group create --name {rg} --location {location}
+      - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
+      - storage container create --name {container} --account-name {storage} --auth-mode key
+      - run: storage container exists --name {container} --account-name {storage} --auth-mode key
+        until: { json: { path: exists, equals: true } }
+      - run: storage container list --account-name {storage} --auth-mode key --query "[].name"
+        until: { json: { path: "", contains: "{container}" } }
+      - >-
+        storage blob upload --container-name {container} --name hello.txt --file hello.txt
+        --account-name {storage} --auth-mode key --overwrite
+      - run: >-
+          storage blob exists --container-name {container} --name hello.txt
+          --account-name {storage} --auth-mode key
+        until: { json: { path: exists, equals: true } }
+      - >-
+        storage blob download --container-name {container} --name hello.txt --file downloaded-{id}.txt
+        --account-name {storage} --auth-mode key
+    command: >-
+      storage blob list --container-name {container} --account-name {storage} --auth-mode key
+      --query "[].name"
+    expect:
+      json: { path: "", equals: [hello.txt] }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: storage-queue-table-data-plane
+    operations: []
+    note: >-
+      The queue and table data planes are not in the coverage list (samples storage queue
+      create/list, storage table create/list).
+    setup:
+      - group create --name {rg} --location {location}
+      - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
+      - storage queue create --name {name:q} --account-name {storage} --auth-mode key
+      - storage table create --name {alnum:tbl} --account-name {storage} --auth-mode key
+      - run: storage table list --account-name {storage} --auth-mode key --query "[].name"
+        until: { json: { path: "", contains: "{alnum:tbl}" } }
+    command: storage queue list --account-name {storage} --auth-mode key --query "[].name"
+    expect:
+      json: { path: "", contains: "{name:q}" }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  # --- Side-car backed ARM children: file shares, queues and tables (`backing: true`) ---
+
+  - id: storage-file-shares
+    operations:
+      [
+        Microsoft.Storage FileShares Create,
+        Microsoft.Storage FileShares List,
+        Microsoft.Storage FileServices GetServiceProperties,
+        Microsoft.Storage FileServices SetServiceProperties,
+        Microsoft.Storage FileServices List,
+        Microsoft.Storage FileShares Delete,
+      ]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
+      - storage share-rm create --storage-account {storage} --resource-group {rg} --name share1 --quota 10
+      - run: storage share-rm list --storage-account {storage} --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: [share1] } }
+      - storage account file-service-properties show --account-name {storage} --resource-group {rg}
+      - >-
+        storage account file-service-properties update --account-name {storage} --resource-group {rg}
+        --enable-delete-retention true --delete-retention-days 7
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Storage/storageAccounts/{storage}/fileServices?api-version=2023-05-01
+    command: storage share-rm delete --storage-account {storage} --resource-group {rg} --name share1 --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: storage-file-share-read
+    operations:
+      [
+        Microsoft.Storage FileShares Get,
+        Microsoft.Storage FileShares Update,
+        Microsoft.Storage FileShares Lease,
+      ]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
+      - storage share-rm create --storage-account {storage} --resource-group {rg} --name share1 --quota 10
+      - run: storage share-rm show --storage-account {storage} --resource-group {rg} --name share1 --query shareQuota
+        until: { json: { path: "", equals: 10 } }
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Storage/storageAccounts/{storage}/fileServices/default/shares/share1/lease?api-version=2023-05-01
+        --body '{"action": "Acquire", "leaseDuration": 15}'
+    command: storage share-rm update --storage-account {storage} --resource-group {rg} --name share1 --quota 20
+    expect:
+      json: { path: shareQuota, equals: 20 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: storage-file-share-restore
+    operations: [Microsoft.Storage FileShares Restore]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
+      - >-
+        storage account file-service-properties update --account-name {storage} --resource-group {rg}
+        --enable-delete-retention true --delete-retention-days 7
+      - storage share-rm create --storage-account {storage} --resource-group {rg} --name share1 --quota 10
+      - storage share-rm delete --storage-account {storage} --resource-group {rg} --name share1 --yes
+    # The restore needs the deleted share's version (`share-rm restore --deleted-version`).
+    command: >-
+      storage share-rm list --storage-account {storage} --resource-group {rg} --include-deleted
+      --query "[?name=='share1' && deleted].version | [0]" -o tsv
+    expect:
+      stdout: { matches: "." }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        L2: with share soft delete on, `share-rm list --include-deleted` lists the deleted share
+        (deleted: true) but without the `version` that `share-rm restore --deleted-version` needs
+        (empty in every poll for 2 minutes), so FileShares Restore cannot be exercised.
+      date: 2026-09-27
+
+  - id: storage-queue-table-services
+    operations:
+      [
+        Microsoft.Storage QueueServices GetServiceProperties,
+        Microsoft.Storage QueueServices SetServiceProperties,
+        Microsoft.Storage TableServices GetServiceProperties,
+        Microsoft.Storage TableServices SetServiceProperties,
+      ]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Storage/storageAccounts/{storage}/queueServices/default?api-version=2023-05-01
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Storage/storageAccounts/{storage}/queueServices/default?api-version=2023-05-01
+        --body '{"properties": {"cors": {"corsRules": []}}}'
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Storage/storageAccounts/{storage}/tableServices/default?api-version=2023-05-01
+    command: >-
+      rest --method put
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Storage/storageAccounts/{storage}/tableServices/default?api-version=2023-05-01
+      --body '{"properties": {"cors": {"corsRules": []}}}'
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: storage-queue-arm
+    operations: [Microsoft.Storage Queue Create, Microsoft.Storage Queue Get]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Storage/storageAccounts/{storage}/queueServices/default/queues/orders?api-version=2023-05-01
+        --body '{"properties": {"metadata": {"matrix": "l2"}}}'
+    command: >-
+      rest --method get
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Storage/storageAccounts/{storage}/queueServices/default/queues/orders?api-version=2023-05-01
+    expect:
+      json: { path: name, equals: orders }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: storage-table-arm
+    operations: [Microsoft.Storage Table Create, Microsoft.Storage Table Get]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Storage/storageAccounts/{storage}/tableServices/default/tables/{alnum:tbl}?api-version=2023-05-01
+        --body '{}'
+    command: >-
+      rest --method get
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Storage/storageAccounts/{storage}/tableServices/default/tables/{alnum:tbl}?api-version=2023-05-01
+    expect:
+      json: { path: name, equals: "{alnum:tbl}" }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: storage-table-arm-update
+    operations: [Microsoft.Storage Table Update]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - storage account create --name {storage} --resource-group {rg} --location {location} --sku Standard_LRS
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Storage/storageAccounts/{storage}/tableServices/default/tables/{alnum:tbl}?api-version=2023-05-01
+        --body '{}'
+    command: >-
+      rest --method patch
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Storage/storageAccounts/{storage}/tableServices/default/tables/{alnum:tbl}?api-version=2023-05-01
+      --body '{}'
+    expect:
+      json: { path: name, equals: "{alnum:tbl}" }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        PATCH of an ARM table answers
+        NotImplemented (Create and Get now work, storage-table-arm).
+      date: 2026-09-27

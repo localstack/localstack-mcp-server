@@ -1,10 +1,12 @@
 import {
+  AZURE_CLIENT_ENV_KEYS,
   buildLocalStackContainerSpec,
   detectAiAgent,
   parseGatewayListen,
   resolveContainerName,
   resolveImage,
   resolveVolume,
+  stackFromEdition,
   type ContainerSpecInput,
 } from "./container-spec.logic";
 
@@ -42,6 +44,17 @@ describe("resolveImage", () => {
     expect(resolveImage("snowflake", { IMAGE_NAME: "other/img:2" })).toBe(
       "localstack/snowflake:latest"
     );
+  });
+
+  test("azure stack defaults to the azure image and honors only LOCALSTACK_AZURE_IMAGE_NAME", () => {
+    expect(resolveImage("azure", {})).toBe("localstack/localstack-azure:latest");
+    expect(resolveImage("azure", { LOCALSTACK_AZURE_IMAGE_NAME: " my/azure:1 " })).toBe(
+      "my/azure:1"
+    );
+    // An AWS image override must not hijack the Azure stack.
+    expect(
+      resolveImage("azure", { LOCALSTACK_IMAGE_NAME: "my/img:1", IMAGE_NAME: "other/img:2" })
+    ).toBe("localstack/localstack-azure:latest");
   });
 });
 
@@ -176,6 +189,49 @@ describe("buildLocalStackContainerSpec", () => {
     expect(spec.HostConfig.PortBindings["4510/tcp"]).toBeDefined();
     expect(spec.HostConfig.PortBindings["4560/tcp"]).toBeDefined();
     expect(Object.keys(spec.ExposedPorts)).toHaveLength(53);
+  });
+
+  test("stack azure uses LOCALSTACK_AZURE_IMAGE_NAME, and an AWS IMAGE_NAME never", () => {
+    const azure = buildLocalStackContainerSpec(
+      baseInput({
+        stack: "azure",
+        hostEnv: {
+          LOCALSTACK_AZURE_IMAGE_NAME: "localstack/localstack-azure:2026.9",
+          IMAGE_NAME: "other/aws:1",
+        },
+      })
+    );
+    expect(azure.Image).toBe("localstack/localstack-azure:2026.9");
+    const byDefault = buildLocalStackContainerSpec(
+      baseInput({ stack: "azure", hostEnv: { IMAGE_NAME: "other/aws:1" } })
+    );
+    expect(byDefault.Image).toBe("localstack/localstack-azure:latest");
+  });
+
+  test("stack azure forwards the Azure emulator's own settings from the env block", () => {
+    const env = envMap(
+      buildLocalStackContainerSpec(
+        baseInput({
+          stack: "azure",
+          hostEnv: {
+            LS_AZURE_ENFORCE_RBAC: "1",
+            LS_AZURE_PORTAL: "1",
+            MSSQL_ACCEPT_EULA: "Y",
+            FRONT_DOOR_CLASSIC_ALLOW_CREATE: "1",
+            CDN_CLASSIC_ALLOW_CREATE: "1",
+            UNRELATED_HOST_VAR: "x",
+          },
+        })
+      )
+    );
+    expect(env).toMatchObject({
+      LS_AZURE_ENFORCE_RBAC: "1",
+      LS_AZURE_PORTAL: "1",
+      MSSQL_ACCEPT_EULA: "Y",
+      FRONT_DOOR_CLASSIC_ALLOW_CREATE: "1",
+      CDN_CLASSIC_ALLOW_CREATE: "1",
+    });
+    expect(env.UNRELATED_HOST_VAR).toBeUndefined();
   });
 
   test("binds to 0.0.0.0 when the server runs inside Docker (DooD reachability)", () => {
@@ -444,5 +500,79 @@ describe("stackFromImage", () => {
     expect(stackFromImage("localstack/localstack-pro:latest")).toBe("aws");
     expect(stackFromImage("localstack/localstack:4.5")).toBe("aws");
     expect(stackFromImage(undefined)).toBeUndefined();
+  });
+
+  test.each([
+    "localstack/localstack-azure:latest",
+    "localstack/localstack-azure-alpha:latest",
+    "localstack/localstack-azure@sha256:0123abcd",
+    "registry.example.com/localstack/localstack-azure:2026.9",
+    "localstack-azure:dev",
+  ])("classifies azure image %s", (image) => {
+    expect(stackFromImage(image)).toBe("azure");
+  });
+
+  test("keeps the aws default for other named images", () => {
+    expect(stackFromImage("my-registry/custom-runtime:1")).toBe("aws");
+    expect(stackFromImage("localstack/localstack-azure-tools:1")).toBe("aws");
+  });
+
+  test("uses the Azure description label for a container started from a bare image ID", () => {
+    expect(stackFromImage("f91897f1de85", { description: "LocalStack for Azure emulator" })).toBe(
+      "azure"
+    );
+    expect(stackFromImage("sha256:" + "a".repeat(64), { description: "Azure" })).toBe("azure");
+  });
+
+  test("reports a bare image ID without the label as unknown, not aws", () => {
+    expect(stackFromImage("f91897f1de85")).toBeUndefined();
+    expect(stackFromImage("f91897f1de85", { description: "something else" })).toBeUndefined();
+  });
+});
+
+describe("stackFromEdition", () => {
+  test.each([
+    ["azure-alpha", "azure"],
+    ["AZURE-ALPHA", "azure"],
+    ["pro", "aws"],
+    ["bigdata-pro", "aws"],
+    ["community", "aws"],
+    ["enterprise", "aws"],
+    ["snowflake", "snowflake"],
+    ["snowflake-pro", "snowflake"],
+  ])("maps %s to %s", (edition, stack) => {
+    expect(stackFromEdition(edition)).toBe(stack);
+  });
+
+  test.each(["unknown", "", "  ", undefined])("reports %p as unknown", (edition) => {
+    expect(stackFromEdition(edition as string | undefined)).toBeUndefined();
+  });
+});
+
+describe("Azure client settings are client-only", () => {
+  test("none of them, nor their unprefixed aliases, reaches the emulator container", () => {
+    const hostEnv = Object.fromEntries(
+      AZURE_CLIENT_ENV_KEYS.map((key) => [key, `value-of-${key}`])
+    );
+    const spec = buildLocalStackContainerSpec(baseInput({ stack: "azure", hostEnv }));
+    const env = envMap(spec);
+    for (const key of AZURE_CLIENT_ENV_KEYS) {
+      expect(env[key]).toBeUndefined();
+      expect(env[key.replace(/^LOCALSTACK_/, "")]).toBeUndefined();
+    }
+    expect(spec.Image).toBe("value-of-LOCALSTACK_AZURE_IMAGE_NAME");
+  });
+
+  test("an emulator setting passed as LOCALSTACK_AZURE_* still reaches the container", () => {
+    const spec = buildLocalStackContainerSpec(
+      baseInput({ stack: "azure", hostEnv: { LOCALSTACK_AZURE_SOME_EMULATOR_FLAG: "1" } })
+    );
+    expect(envMap(spec).LOCALSTACK_AZURE_SOME_EMULATOR_FLAG).toBe("1");
+  });
+
+  test("the Azure stack builds the default azure image spec", () => {
+    const spec = buildLocalStackContainerSpec(baseInput({ stack: "azure" }));
+    expect(spec.Image).toBe("localstack/localstack-azure:latest");
+    expect(spec.name).toBe("localstack-main");
   });
 });

@@ -1,0 +1,832 @@
+# Microsoft.Cdn: Front Door Standard/Premium (afd), classic CDN (cdn; CI starts the emulator with
+# CDN_CLASSIC_ALLOW_CREATE=1), WAF policies, log analytics, migration, edge actions. `afd` and
+# `cdn` are core (deprecated) in az 2.85-2.87 and extension-only from 2.90; the curated `cdn`
+# extension (1.0.0b3) replaces the core commands wherever it is installed, so the cases use its
+# syntax (shorthand --conditions/--actions, --parameters, --web-application-firewall,
+# --formatted-origins). Edge actions go through rest (the `edge-action` extension is a preview).
+provider: Microsoft.Cdn
+cases:
+  - id: afd-profile
+    operations:
+      [
+        Microsoft.Cdn Profiles Create,
+        Microsoft.Cdn Profiles Get,
+        Microsoft.Cdn Profiles ListByResourceGroup,
+        Microsoft.Cdn Profiles List,
+        Microsoft.Cdn Profiles Update,
+        Microsoft.Cdn Profiles ListResourceUsage,
+      ]
+    note: Samples afd profile create/show.
+    setup:
+      - group create --name {rg} --location {location}
+      - afd profile create --profile-name {name:afd} --resource-group {rg} --sku Standard_AzureFrontDoor
+      - run: afd profile show --profile-name {name:afd} --resource-group {rg} --query sku.name -o tsv
+        until: { stdout: { equals: Standard_AzureFrontDoor } }
+      - afd profile list --resource-group {rg}
+      - afd profile list --query "[?name=='{name:afd}'].name"
+      - afd profile usage --profile-name {name:afd} --resource-group {rg}
+    command: afd profile update --profile-name {name:afd} --resource-group {rg} --tags matrix=l2
+    expect:
+      json: { path: tags.matrix, equals: l2 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: afd-endpoint
+    operations:
+      [
+        Microsoft.Cdn AfdEndpoints Create,
+        Microsoft.Cdn AfdEndpoints Get,
+        Microsoft.Cdn AfdEndpoints ListByProfile,
+        Microsoft.Cdn AfdEndpoints Update,
+        Microsoft.Cdn AfdEndpoints PurgeContent,
+        Microsoft.Cdn AfdEndpoints ValidateCustomDomain,
+        Microsoft.Cdn AfdEndpoints ListResourceUsage,
+        Microsoft.Cdn AfdEndpoints Delete,
+      ]
+    note: Samples afd endpoint create/show/purge/update.
+    setup:
+      - group create --name {rg} --location {location}
+      - afd profile create --profile-name {name:afd} --resource-group {rg} --sku Standard_AzureFrontDoor
+      - afd endpoint create --endpoint-name {name:ep} --profile-name {name:afd} --resource-group {rg} --enabled-state Enabled
+      - run: afd endpoint show --endpoint-name {name:ep} --profile-name {name:afd} --resource-group {rg} --query enabledState -o tsv
+        until: { stdout: { equals: Enabled } }
+      - afd endpoint list --profile-name {name:afd} --resource-group {rg}
+      - afd endpoint update --endpoint-name {name:ep} --profile-name {name:afd} --resource-group {rg} --enabled-state Disabled
+      - afd endpoint purge --endpoint-name {name:ep} --profile-name {name:afd} --resource-group {rg} --content-paths "/*"
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/profiles/{name:afd}/afdEndpoints/{name:ep}/validateCustomDomain?api-version=2024-02-01
+        --body '{"hostName": "www.{id}.example.com"}'
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/profiles/{name:afd}/afdEndpoints/{name:ep}/usages?api-version=2024-02-01
+    command: afd endpoint delete --endpoint-name {name:ep} --profile-name {name:afd} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: afd-origins
+    operations:
+      [
+        Microsoft.Cdn AfdOriginGroups Create,
+        Microsoft.Cdn AfdOriginGroups Get,
+        Microsoft.Cdn AfdOriginGroups ListByProfile,
+        Microsoft.Cdn AfdOriginGroups Update,
+        Microsoft.Cdn AfdOriginGroups ListResourceUsage,
+        Microsoft.Cdn AfdOrigins Create,
+        Microsoft.Cdn AfdOrigins Get,
+        Microsoft.Cdn AfdOrigins ListByOriginGroup,
+        Microsoft.Cdn AfdOrigins Update,
+        Microsoft.Cdn AfdOrigins Delete,
+        Microsoft.Cdn AfdOriginGroups Delete,
+      ]
+    note: Samples afd origin-group/origin create.
+    setup:
+      - group create --name {rg} --location {location}
+      - afd profile create --profile-name {name:afd} --resource-group {rg} --sku Standard_AzureFrontDoor
+      - >-
+        afd origin-group create --origin-group-name og --profile-name {name:afd} --resource-group {rg}
+        --probe-request-type GET --probe-protocol Http --probe-interval-in-seconds 60 --probe-path /
+        --sample-size 4 --successful-samples-required 3 --additional-latency-in-milliseconds 50
+      - afd origin-group show --origin-group-name og --profile-name {name:afd} --resource-group {rg}
+      - afd origin-group list --profile-name {name:afd} --resource-group {rg}
+      - afd origin-group update --origin-group-name og --profile-name {name:afd} --resource-group {rg} --probe-path /health
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/profiles/{name:afd}/originGroups/og/usages?api-version=2024-02-01
+      - >-
+        afd origin create --origin-name web1 --origin-group-name og --profile-name {name:afd} --resource-group {rg}
+        --host-name www.example.com --origin-host-header www.example.com --http-port 80 --https-port 443
+        --priority 1 --weight 1000 --enabled-state Enabled
+      - run: afd origin show --origin-name web1 --origin-group-name og --profile-name {name:afd} --resource-group {rg} --query hostName -o tsv
+        until: { stdout: { equals: www.example.com } }
+      - afd origin list --origin-group-name og --profile-name {name:afd} --resource-group {rg}
+      - afd origin update --origin-name web1 --origin-group-name og --profile-name {name:afd} --resource-group {rg} --weight 500
+      - afd origin delete --origin-name web1 --origin-group-name og --profile-name {name:afd} --resource-group {rg} --yes
+    command: afd origin-group delete --origin-group-name og --profile-name {name:afd} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: afd-route
+    operations: [Microsoft.Cdn Routes Create, Microsoft.Cdn Routes ListByEndpoint]
+    note: Samples afd route create.
+    setup:
+      - group create --name {rg} --location {location}
+      - afd profile create --profile-name {name:afd} --resource-group {rg} --sku Standard_AzureFrontDoor
+      - afd endpoint create --endpoint-name {name:ep} --profile-name {name:afd} --resource-group {rg} --enabled-state Enabled
+      - >-
+        afd origin-group create --origin-group-name og --profile-name {name:afd} --resource-group {rg}
+        --probe-request-type GET --probe-protocol Http --probe-interval-in-seconds 60 --probe-path /
+        --sample-size 4 --successful-samples-required 3 --additional-latency-in-milliseconds 50
+      - >-
+        afd origin create --origin-name web1 --origin-group-name og --profile-name {name:afd} --resource-group {rg}
+        --host-name www.example.com --origin-host-header www.example.com --priority 1 --weight 1000 --enabled-state Enabled
+      - >-
+        afd route create --route-name r1 --endpoint-name {name:ep} --profile-name {name:afd} --resource-group {rg}
+        --origin-group og --supported-protocols Http Https --link-to-default-domain Enabled
+        --forwarding-protocol MatchRequest --https-redirect Enabled
+    command: afd route list --endpoint-name {name:ep} --profile-name {name:afd} --resource-group {rg} --query "[].name"
+    expect:
+      json: { path: "", equals: [r1] }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: afd-route-read
+    operations: [Microsoft.Cdn Routes Get, Microsoft.Cdn Routes Update, Microsoft.Cdn Routes Delete]
+    setup:
+      - group create --name {rg} --location {location}
+      - afd profile create --profile-name {name:afd} --resource-group {rg} --sku Standard_AzureFrontDoor
+      - afd endpoint create --endpoint-name {name:ep} --profile-name {name:afd} --resource-group {rg} --enabled-state Enabled
+      - >-
+        afd origin-group create --origin-group-name og --profile-name {name:afd} --resource-group {rg}
+        --probe-request-type GET --probe-protocol Http --probe-interval-in-seconds 60 --probe-path /
+        --sample-size 4 --successful-samples-required 3 --additional-latency-in-milliseconds 50
+      - >-
+        afd origin create --origin-name web1 --origin-group-name og --profile-name {name:afd} --resource-group {rg}
+        --host-name www.example.com --origin-host-header www.example.com --priority 1 --weight 1000 --enabled-state Enabled
+      - >-
+        afd route create --route-name r1 --endpoint-name {name:ep} --profile-name {name:afd} --resource-group {rg}
+        --origin-group og --supported-protocols Http Https --link-to-default-domain Enabled
+        --forwarding-protocol MatchRequest --https-redirect Enabled
+      - run: afd route show --route-name r1 --endpoint-name {name:ep} --profile-name {name:afd} --resource-group {rg} --query name -o tsv
+        until: { stdout: { equals: r1 } }
+      - run: >-
+          afd route update --route-name r1 --endpoint-name {name:ep} --profile-name {name:afd} --resource-group {rg}
+          --https-redirect Disabled --query httpsRedirect -o tsv
+        until: { stdout: { equals: Disabled } }
+    command: afd route delete --route-name r1 --endpoint-name {name:ep} --profile-name {name:afd} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: afd-rule-sets
+    operations:
+      [
+        Microsoft.Cdn RuleSets Create,
+        Microsoft.Cdn RuleSets Get,
+        Microsoft.Cdn RuleSets ListByProfile,
+        Microsoft.Cdn RuleSets ListResourceUsage,
+        Microsoft.Cdn Rules Create,
+        Microsoft.Cdn Rules Get,
+        Microsoft.Cdn Rules ListByRuleSet,
+        Microsoft.Cdn Rules Update,
+        Microsoft.Cdn Rules Delete,
+        Microsoft.Cdn RuleSets Delete,
+      ]
+    note: Samples afd rule-set create/show, afd rule create (7 uses).
+    setup:
+      - group create --name {rg} --location {location}
+      - afd profile create --profile-name {name:afd} --resource-group {rg} --sku Standard_AzureFrontDoor
+      - afd rule-set create --rule-set-name headers --profile-name {name:afd} --resource-group {rg}
+      - afd rule-set show --rule-set-name headers --profile-name {name:afd} --resource-group {rg}
+      - afd rule-set list --profile-name {name:afd} --resource-group {rg}
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/profiles/{name:afd}/ruleSets/headers/usages?api-version=2024-02-01
+      # The curated cdn extension (1.0.0b3) takes conditions and actions in shorthand syntax; the
+      # older --match-variable/--action-name flags are gone (L2 flag lint, 2026-09-27).
+      - >-
+        afd rule create --rule-name addheader --rule-set-name headers --profile-name {name:afd} --resource-group {rg}
+        --order 1 --conditions "[{request-method:{parameters:{operator:Equal,match-values:[GET]}}}]"
+        --actions "[{modify-response-header:{parameters:{header-action:Append,header-name:X-L2,value:matrix}}}]"
+      - run: afd rule show --rule-name addheader --rule-set-name headers --profile-name {name:afd} --resource-group {rg} --query order
+        until: { json: { path: "", equals: 1 } }
+      - afd rule list --rule-set-name headers --profile-name {name:afd} --resource-group {rg}
+      - afd rule update --rule-name addheader --rule-set-name headers --profile-name {name:afd} --resource-group {rg} --order 2
+      - afd rule delete --rule-name addheader --rule-set-name headers --profile-name {name:afd} --resource-group {rg} --yes
+    command: afd rule-set delete --rule-set-name headers --profile-name {name:afd} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: afd-custom-domain
+    operations:
+      [
+        Microsoft.Cdn AfdCustomDomains Create,
+        Microsoft.Cdn AfdCustomDomains Get,
+        Microsoft.Cdn AfdCustomDomains ListByProfile,
+        Microsoft.Cdn AfdCustomDomains Update,
+        Microsoft.Cdn AfdCustomDomains RefreshValidationToken,
+        Microsoft.Cdn AfdCustomDomains Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - afd profile create --profile-name {name:afd} --resource-group {rg} --sku Standard_AzureFrontDoor
+      - >-
+        afd custom-domain create --custom-domain-name www --profile-name {name:afd} --resource-group {rg}
+        --host-name www.{id}.example.com --minimum-tls-version TLS12 --certificate-type ManagedCertificate
+      - run: afd custom-domain show --custom-domain-name www --profile-name {name:afd} --resource-group {rg} --query hostName -o tsv
+        until: { stdout: { equals: "www.{id}.example.com" } }
+      - afd custom-domain list --profile-name {name:afd} --resource-group {rg}
+      - afd custom-domain update --custom-domain-name www --profile-name {name:afd} --resource-group {rg} --minimum-tls-version TLS12
+      - afd custom-domain regenerate-validation-token --custom-domain-name www --profile-name {name:afd} --resource-group {rg}
+    command: afd custom-domain delete --custom-domain-name www --profile-name {name:afd} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: afd-secret-security-policy
+    operations:
+      [
+        Microsoft.Cdn Secrets Create,
+        Microsoft.Cdn Secrets Get,
+        Microsoft.Cdn Secrets ListByProfile,
+        Microsoft.Cdn Secrets Update,
+        Microsoft.Cdn Secrets Delete,
+        Microsoft.Cdn SecurityPolicies Create,
+        Microsoft.Cdn SecurityPolicies Get,
+        Microsoft.Cdn SecurityPolicies ListByProfile,
+        Microsoft.Cdn SecurityPolicies Patch,
+        Microsoft.Cdn SecurityPolicies Delete,
+        Microsoft.Cdn AfdProfiles ValidateSecret,
+        Microsoft.Cdn Validate Secret,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - afd profile create --profile-name {name:afd} --resource-group {rg} --sku Premium_AzureFrontDoor
+      - run: afd endpoint create --endpoint-name {name:ep} --profile-name {name:afd} --resource-group {rg} --enabled-state Enabled --query id -o tsv
+        capture: endpoint_id
+      - keyvault create --name {vault} --resource-group {rg} --location {location}
+      - run: keyvault certificate get-default-policy -o json
+        capture: policy
+      - run: keyvault certificate create --vault-name {vault} --name tls --policy '{policy}' --query id -o tsv
+        capture: cert_id
+      - run: keyvault show --name {vault} --query id -o tsv
+        capture: vault_id
+      # Shorthand --parameters (cdn extension 1.0.0b3); the updates go through rest so that the
+      # PATCH operations (Secrets Update, SecurityPolicies Patch) are the ones exercised.
+      - >-
+        afd secret create --profile-name {name:afd} --resource-group {rg} --secret-name tls
+        --parameters "{customer-certificate:{secret-source:{id:{vault_id}/secrets/tls},use-latest-version:true}}"
+      - afd secret show --profile-name {name:afd} --resource-group {rg} --secret-name tls
+      - afd secret list --profile-name {name:afd} --resource-group {rg}
+      # The PATCH answers 200 but keeps the old parameters (afd-secret-patch).
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/profiles/{name:afd}/secrets/tls?api-version=2024-02-01
+        --body '{"properties": {"parameters": {"type": "CustomerCertificate", "secretSource": {"id": "{vault_id}/secrets/tls"}, "useLatestVersion": false}}}'
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/profiles/{name:afd}/validateSecret?api-version=2024-02-01
+        --body '{"secretType": "CustomerCertificate", "secretSource": {"id": "{vault_id}/secrets/tls"}}'
+      - >-
+        rest --method post --url /subscriptions/{sub}/providers/Microsoft.Cdn/validateSecret?api-version=2024-02-01
+        --body '{"secretType": "CustomerCertificate", "secretSource": {"id": "{vault_id}/secrets/tls"}}'
+      - run: >-
+          network front-door waf-policy create --name {alnum:waf} --resource-group {rg}
+          --sku Premium_AzureFrontDoor --mode Detection --query id -o tsv
+        capture: waf_id
+      - >-
+        afd security-policy create --security-policy-name waf --profile-name {name:afd} --resource-group {rg}
+        --web-application-firewall "{waf-policy:{id:{waf_id}},associations:[{domains:[{id:{endpoint_id}}],patterns-to-match:['/*']}]}"
+      - afd security-policy show --security-policy-name waf --profile-name {name:afd} --resource-group {rg}
+      - afd security-policy list --profile-name {name:afd} --resource-group {rg}
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/profiles/{name:afd}/securityPolicies/waf?api-version=2024-02-01
+        --body '{"properties": {"parameters": {"type": "WebApplicationFirewall", "wafPolicy": {"id": "{waf_id}"}, "associations": [{"domains": [{"id": "{endpoint_id}"}], "patternsToMatch": ["/*", "/l2/*"]}]}}}'
+      - afd security-policy delete --security-policy-name waf --profile-name {name:afd} --resource-group {rg} --yes
+    command: afd secret delete --profile-name {name:afd} --resource-group {rg} --secret-name tls --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - keyvault delete --name {vault}
+      - keyvault purge --name {vault}
+      - group delete --name {rg} --yes --no-wait
+
+  - id: afd-secret-patch
+    operations: [Microsoft.Cdn Secrets Update]
+    note: "`afd secret update` does a GET and a PUT, which applies; the PATCH is what does not."
+    setup:
+      - group create --name {rg} --location {location}
+      - afd profile create --profile-name {name:afd} --resource-group {rg} --sku Premium_AzureFrontDoor
+      - run: keyvault create --name {vault} --resource-group {rg} --location {location} --query id -o tsv
+        capture: vault_id
+      - >-
+        afd secret create --profile-name {name:afd} --resource-group {rg} --secret-name tls
+        --parameters "{customer-certificate:{secret-source:{id:{vault_id}/secrets/tls},use-latest-version:true}}"
+    command: >-
+      rest --method patch
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/profiles/{name:afd}/secrets/tls?api-version=2024-02-01
+      --body '{"properties": {"parameters": {"type": "CustomerCertificate", "secretSource": {"id": "{vault_id}/secrets/tls"}, "useLatestVersion": false}}}'
+      --query properties.parameters.useLatestVersion
+    expect:
+      json: { path: "", equals: false }
+    cleanup:
+      - keyvault delete --name {vault}
+      - keyvault purge --name {vault}
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        L2: Secrets_Update (PATCH) answers 200 with the old parameters and never applies the new
+        ones (useLatestVersion stayed true for 3 minutes of polling).
+      date: 2026-09-27
+
+  - id: afd-log-analytics
+    operations:
+      [
+        Microsoft.Cdn LogAnalytics GetLogAnalyticsMetrics,
+        Microsoft.Cdn LogAnalytics GetLogAnalyticsRankings,
+        Microsoft.Cdn LogAnalytics GetLogAnalyticsResources,
+        Microsoft.Cdn LogAnalytics GetLogAnalyticsLocations,
+        Microsoft.Cdn LogAnalytics GetWafLogAnalyticsMetrics,
+        Microsoft.Cdn LogAnalytics GetWafLogAnalyticsRankings,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - afd profile create --profile-name {name:afd} --resource-group {rg} --sku Premium_AzureFrontDoor
+      - >-
+        afd log-analytic metric list --profile-name {name:afd} --resource-group {rg} --metrics clientRequestCount
+        --custom-domains www.{id}.example.com --protocols https
+        --date-time-begin 2026-01-01T00:00:00Z --date-time-end 2026-01-08T00:00:00Z --granularity P1D
+      - >-
+        afd log-analytic ranking list --profile-name {name:afd} --resource-group {rg} --rankings url
+        --metrics clientRequestCount --max-ranking 5 --date-time-begin 2026-01-01T00:00:00Z --date-time-end 2026-01-08T00:00:00Z
+      - afd log-analytic resource list --profile-name {name:afd} --resource-group {rg}
+      - afd log-analytic location list --profile-name {name:afd} --resource-group {rg}
+      - >-
+        afd waf-log-analytic metric list --profile-name {name:afd} --resource-group {rg} --metrics clientRequestCount
+        --date-time-begin 2026-01-01T00:00:00Z --date-time-end 2026-01-08T00:00:00Z --granularity P1D
+    command: >-
+      afd waf-log-analytic ranking list --profile-name {name:afd} --resource-group {rg} --rankings action
+      --metrics clientRequestCount --max-ranking 5 --date-time-begin 2026-01-01T00:00:00Z --date-time-end 2026-01-08T00:00:00Z
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: cdn-catalogue
+    operations:
+      [
+        Microsoft.Cdn Microsoft.Cdn CheckNameAvailability,
+        Microsoft.Cdn Microsoft.Cdn CheckNameAvailabilityWithSubscription,
+        Microsoft.Cdn Microsoft.Cdn CheckEndpointNameAvailability,
+        Microsoft.Cdn Microsoft.Cdn ValidateProbe,
+        Microsoft.Cdn Operations List,
+        Microsoft.Cdn ResourceUsage List,
+        Microsoft.Cdn EdgeNodes List,
+        Microsoft.Cdn ManagedRuleSets List,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - cdn name-exists --name {name:cdn}
+      - >-
+        rest --method post --url /subscriptions/{sub}/providers/Microsoft.Cdn/checkNameAvailability?api-version=2024-02-01
+        --body '{"name": "{name:cdn}", "type": "Microsoft.Cdn/Profiles/Endpoints"}'
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/checkEndpointNameAvailability?api-version=2024-02-01
+        --body '{"name": "{name:cdn}", "type": "Microsoft.Cdn/Profiles/AfdEndpoints", "autoGeneratedDomainNameLabelScope": "TenantReuse"}'
+      - >-
+        rest --method post --url /subscriptions/{sub}/providers/Microsoft.Cdn/validateProbe?api-version=2024-02-01
+        --body '{"probeURL": "https://www.example.com/health"}'
+      - rest --method get --url /providers/Microsoft.Cdn/operations?api-version=2024-02-01
+      - rest --method post --url /subscriptions/{sub}/providers/Microsoft.Cdn/checkResourceUsage?api-version=2024-02-01
+      - rest --method get --url /providers/Microsoft.Cdn/edgenodes?api-version=2024-02-01
+    command: rest --method get --url /subscriptions/{sub}/providers/Microsoft.Cdn/CdnWebApplicationFirewallManagedRuleSets?api-version=2024-02-01
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: afd-host-name-check
+    operations:
+      [
+        Microsoft.Cdn AfdProfiles CheckHostNameAvailability,
+        Microsoft.Cdn AfdProfiles ListResourceUsage,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - afd profile create --profile-name {name:afd} --resource-group {rg} --sku Standard_AzureFrontDoor
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/profiles/{name:afd}/usages?api-version=2024-02-01
+    command: >-
+      rest --method post
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/profiles/{name:afd}/checkHostNameAvailability?api-version=2024-02-01
+      --body '{"hostName": "www.{id}.example.com"}'
+    expect:
+      json: { path: nameAvailable, equals: true }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: afd-endpoint-name-check
+    operations: [Microsoft.Cdn AfdProfiles CheckEndpointNameAvailability]
+    setup:
+      - group create --name {rg} --location {location}
+      - afd profile create --profile-name {name:afd} --resource-group {rg} --sku Standard_AzureFrontDoor
+    command: >-
+      rest --method post
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/profiles/{name:afd}/checkEndpointNameAvailability?api-version=2024-02-01
+      --body '{"name": "ep{id}", "type": "Microsoft.Cdn/Profiles/AfdEndpoints", "autoGeneratedDomainNameLabelScope": "TenantReuse"}'
+    expect:
+      json: { path: nameAvailable, equals: true }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: afd-profile-upgrade-delete
+    operations: [Microsoft.Cdn AfdProfiles Upgrade, Microsoft.Cdn Profiles Delete]
+    setup:
+      - group create --name {rg} --location {location}
+      - afd profile create --profile-name {name:afd} --resource-group {rg} --sku Standard_AzureFrontDoor
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/profiles/{name:afd}/upgrade?api-version=2024-02-01
+        --body '{"wafMappingList": []}'
+    command: afd profile delete --profile-name {name:afd} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: afd-generate-sso-uri
+    operations: [Microsoft.Cdn Profiles GenerateSsoUri]
+    setup:
+      - group create --name {rg} --location {location}
+      - afd profile create --profile-name {name:afd} --resource-group {rg} --sku Standard_AzureFrontDoor
+    command: >-
+      rest --method post
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/profiles/{name:afd}/generateSsoUri?api-version=2024-02-01
+    expect:
+      json: { path: ssoUriValue, exists: true }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        GenerateSsoUri exists only for classic Verizon SKUs, which are
+        retired; on a Front Door profile the emulator answers 400 "action isn't allowed on this
+        resource for this sku".
+      date: 2026-09-27
+
+  # --- Classic CDN (CDN_CLASSIC_ALLOW_CREATE=1) ---
+
+  - id: cdn-classic-endpoint
+    operations:
+      [
+        Microsoft.Cdn Endpoints Create,
+        Microsoft.Cdn Endpoints Get,
+        Microsoft.Cdn Endpoints ListByProfile,
+        Microsoft.Cdn Endpoints Update,
+        Microsoft.Cdn Endpoints Stop,
+        Microsoft.Cdn Endpoints Start,
+        Microsoft.Cdn Endpoints PurgeContent,
+        Microsoft.Cdn Endpoints LoadContent,
+        Microsoft.Cdn Endpoints ValidateCustomDomain,
+        Microsoft.Cdn Endpoints ListResourceUsage,
+        Microsoft.Cdn Profiles ListSupportedOptimizationTypes,
+        Microsoft.Cdn Endpoints Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - cdn profile create --name {name:cdn} --resource-group {rg} --sku Standard_Microsoft
+      - cdn endpoint create --name {name:ep} --profile-name {name:cdn} --resource-group {rg} --origin www.example.com
+      - run: cdn endpoint show --name {name:ep} --profile-name {name:cdn} --resource-group {rg} --query hostName -o tsv
+        until: { stdout: { contains: "{name:ep}" } }
+      - cdn endpoint list --profile-name {name:cdn} --resource-group {rg}
+      - cdn endpoint update --name {name:ep} --profile-name {name:cdn} --resource-group {rg} --no-http false
+      - cdn endpoint stop --name {name:ep} --profile-name {name:cdn} --resource-group {rg}
+      - cdn endpoint start --name {name:ep} --profile-name {name:cdn} --resource-group {rg}
+      - cdn endpoint purge --name {name:ep} --profile-name {name:cdn} --resource-group {rg} --content-paths "/*"
+      - cdn endpoint load --name {name:ep} --profile-name {name:cdn} --resource-group {rg} --content-paths /index.html
+      - cdn endpoint validate-custom-domain --name {name:ep} --profile-name {name:cdn} --resource-group {rg} --host-name www.{id}.example.com
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/profiles/{name:cdn}/endpoints/{name:ep}/checkResourceUsage?api-version=2024-02-01
+      # No `cdn profile list-supported-optimization-types` in the curated cdn extension (1.0.0b3).
+      - run: >-
+          rest --method post
+          --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/profiles/{name:cdn}/getSupportedOptimizationTypes?api-version=2024-02-01
+        until: { json: { path: supportedOptimizationTypes, contains: GeneralWebDelivery } }
+    command: cdn endpoint delete --name {name:ep} --profile-name {name:cdn} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: cdn-classic-origins-domains
+    operations:
+      [
+        Microsoft.Cdn Origins Get,
+        Microsoft.Cdn Origins ListByEndpoint,
+        Microsoft.Cdn Origins Update,
+        Microsoft.Cdn Origins Create,
+        Microsoft.Cdn Origins Delete,
+        Microsoft.Cdn OriginGroups Create,
+        Microsoft.Cdn OriginGroups Get,
+        Microsoft.Cdn OriginGroups ListByEndpoint,
+        Microsoft.Cdn OriginGroups Update,
+        Microsoft.Cdn OriginGroups Delete,
+        Microsoft.Cdn CustomDomains Create,
+        Microsoft.Cdn CustomDomains Get,
+        Microsoft.Cdn CustomDomains ListByEndpoint,
+        Microsoft.Cdn CustomDomains EnableCustomHttps,
+        Microsoft.Cdn CustomDomains DisableCustomHttps,
+        Microsoft.Cdn CustomDomains Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - cdn profile create --name {name:cdn} --resource-group {rg} --sku Standard_Microsoft
+      - cdn endpoint create --name {name:ep} --profile-name {name:cdn} --resource-group {rg} --origin www.example.com
+      - run: cdn origin list --endpoint-name {name:ep} --profile-name {name:cdn} --resource-group {rg} --query "[0].name" -o tsv
+        capture: origin
+      - cdn origin show --endpoint-name {name:ep} --profile-name {name:cdn} --resource-group {rg} --name {origin}
+      - cdn origin update --endpoint-name {name:ep} --profile-name {name:cdn} --resource-group {rg} --name {origin} --http-port 8080
+      - run: >-
+          cdn origin create --endpoint-name {name:ep} --profile-name {name:cdn} --resource-group {rg} --name backup
+          --host-name backup.example.com --query id -o tsv
+        capture: backup_id
+      # Shorthand --formatted-origins and --health-probe-settings (cdn extension 1.0.0b3; the
+      # older --origins and --probe-interval are gone).
+      - >-
+        cdn origin-group create --endpoint-name {name:ep} --profile-name {name:cdn} --resource-group {rg} --name og
+        --formatted-origins "[{id:{backup_id}}]"
+        --health-probe-settings "{probe-interval-in-seconds:120,probe-path:/,probe-protocol:Http,probe-request-type:GET}"
+      - cdn origin-group show --endpoint-name {name:ep} --profile-name {name:cdn} --resource-group {rg} --name og
+      - cdn origin-group list --endpoint-name {name:ep} --profile-name {name:cdn} --resource-group {rg}
+      - run: >-
+          cdn origin-group update --endpoint-name {name:ep} --profile-name {name:cdn} --resource-group {rg} --name og
+          --health-probe-settings "{probe-interval-in-seconds:60,probe-path:/health,probe-protocol:Http,probe-request-type:HEAD}"
+          --query healthProbeSettings.probeIntervalInSeconds
+        until: { json: { path: "", equals: 60 } }
+      - cdn origin-group delete --endpoint-name {name:ep} --profile-name {name:cdn} --resource-group {rg} --name og --yes
+      - cdn origin delete --endpoint-name {name:ep} --profile-name {name:cdn} --resource-group {rg} --name backup --yes
+      - >-
+        cdn custom-domain create --endpoint-name {name:ep} --profile-name {name:cdn} --resource-group {rg}
+        --name www --hostname www.{id}.example.com
+      - cdn custom-domain show --endpoint-name {name:ep} --profile-name {name:cdn} --resource-group {rg} --name www
+      - cdn custom-domain list --endpoint-name {name:ep} --profile-name {name:cdn} --resource-group {rg}
+      - cdn custom-domain enable-https --endpoint-name {name:ep} --profile-name {name:cdn} --resource-group {rg} --name www
+      - cdn custom-domain disable-https --endpoint-name {name:ep} --profile-name {name:cdn} --resource-group {rg} --name www
+    command: cdn custom-domain delete --endpoint-name {name:ep} --profile-name {name:cdn} --resource-group {rg} --name www
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: cdn-waf-policy
+    operations:
+      [
+        Microsoft.Cdn Policies CreateOrUpdate,
+        Microsoft.Cdn Policies Get,
+        Microsoft.Cdn Policies List,
+        Microsoft.Cdn Policies Update,
+        Microsoft.Cdn Policies Delete,
+      ]
+    note: >-
+      Through rest: az 2.85 with the curated cdn extension (1.0.0b3) has no `cdn waf policy` group
+      (L2 flag lint, 2026-09-27).
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/CdnWebApplicationFirewallPolicies/{alnum:waf}?api-version=2024-02-01
+        --body '{"location": "Global", "sku": {"name": "Standard_Microsoft"}, "properties": {"policySettings": {"enabledState": "Enabled", "mode": "Detection"}}}'
+      - run: >-
+          rest --method get
+          --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/CdnWebApplicationFirewallPolicies/{alnum:waf}?api-version=2024-02-01
+        until: { json: { path: properties.policySettings.mode, equals: Detection } }
+      - run: >-
+          rest --method get
+          --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/CdnWebApplicationFirewallPolicies?api-version=2024-02-01
+          --query "value[].name"
+        until: { json: { path: "", equals: ["{alnum:waf}"] } }
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/CdnWebApplicationFirewallPolicies/{alnum:waf}?api-version=2024-02-01
+        --body '{"tags": {"matrix": "l2"}}'
+    command: >-
+      rest --method delete
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/CdnWebApplicationFirewallPolicies/{alnum:waf}?api-version=2024-02-01
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: cdn-migration
+    operations: [Microsoft.Cdn Profiles CdnCanMigrateToAfd, Microsoft.Cdn Profiles CdnMigrateToAfd]
+    setup:
+      - group create --name {rg} --location {location}
+      - cdn profile create --name {name:cdn} --resource-group {rg} --sku Standard_Microsoft
+      # The emulator refuses to migrate a profile without endpoints ("has no endpoints to migrate").
+      - cdn endpoint create --name {name:ep} --profile-name {name:cdn} --resource-group {rg} --origin www.example.com
+      - cdn profile-migration check-compatibility --profile-name {name:cdn} --resource-group {rg}
+    command: cdn profile-migration migrate --profile-name {name:cdn} --resource-group {rg} --sku Standard_AzureFrontDoor
+    expect:
+      json: { path: migratedProfileResourceId.id, contains: "{name:cdn}" }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: cdn-migration-abort
+    operations: [Microsoft.Cdn Profiles MigrationAbort]
+    setup:
+      - group create --name {rg} --location {location}
+      - cdn profile create --name {name:cdn} --resource-group {rg} --sku Standard_Microsoft
+      - cdn endpoint create --name {name:ep} --profile-name {name:cdn} --resource-group {rg} --origin www.example.com
+      - cdn profile-migration migrate --profile-name {name:cdn} --resource-group {rg} --sku Standard_AzureFrontDoor
+    command: cdn profile-migration abort --profile-name {name:cdn} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        L2: POST .../migrationAbort answers 202 with a Location header, and polling that Location
+        answers 200 with `{"status": "Succeeded"}`. A 200 from a Location URL is the operation's
+        final result, and abort has none (ARM: 204), so the CLI's poller (cdn extension 1.0.0b3)
+        crashes with TypeError "'NoneType' object is not callable" (seen in --debug).
+      date: 2026-09-27
+
+  - id: cdn-migration-commit
+    operations: [Microsoft.Cdn Profiles MigrationCommit]
+    setup:
+      - group create --name {rg} --location {location}
+      - cdn profile create --name {name:cdn} --resource-group {rg} --sku Standard_Microsoft
+      # The emulator refuses to migrate a profile without endpoints ("has no endpoints to migrate").
+      - cdn endpoint create --name {name:ep} --profile-name {name:cdn} --resource-group {rg} --origin www.example.com
+      - cdn profile-migration migrate --profile-name {name:cdn} --resource-group {rg} --sku Standard_AzureFrontDoor
+    command: cdn profile-migration commit --profile-name {name:cdn} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: afd-classic-migration
+    operations: [Microsoft.Cdn Profiles CanMigrate, Microsoft.Cdn Profiles Migrate]
+    note: Classic Front Door (Microsoft.Network) to Front Door Standard; CI sets FRONT_DOOR_CLASSIC_ALLOW_CREATE=1.
+    setup:
+      - group create --name {rg} --location {location}
+      - run: network front-door create --name {name:fd} --resource-group {rg} --backend-address www.example.com --query id -o tsv
+        capture: fd_id
+      - >-
+        rest --method post --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/canMigrate?api-version=2024-02-01
+        --body '{"classicResourceReference": {"id": "{fd_id}"}}'
+    command: >-
+      rest --method post --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/migrate?api-version=2024-02-01
+      --body '{"sku": {"name": "Standard_AzureFrontDoor"}, "classicResourceReference": {"id": "{fd_id}"}, "profileName": "{name:afd}"}'
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  # --- Edge actions (rest; no stable az command group) ---
+
+  - id: cdn-edge-action
+    operations:
+      [
+        Microsoft.Cdn EdgeActions Create,
+        Microsoft.Cdn EdgeActions Get,
+        Microsoft.Cdn EdgeActions ListByResourceGroup,
+        Microsoft.Cdn EdgeActions ListBySubscription,
+        Microsoft.Cdn EdgeActions Update,
+        Microsoft.Cdn EdgeActionVersions Create,
+        Microsoft.Cdn EdgeActionVersions Get,
+        Microsoft.Cdn EdgeActionVersions ListByEdgeAction,
+        Microsoft.Cdn EdgeActionVersions Update,
+        Microsoft.Cdn EdgeActionVersions DeployVersionCode,
+        Microsoft.Cdn EdgeActionVersions GetVersionCode,
+        Microsoft.Cdn EdgeActionVersions SwapDefault,
+        Microsoft.Cdn EdgeActionExecutionFilters Create,
+        Microsoft.Cdn EdgeActionExecutionFilters Get,
+        Microsoft.Cdn EdgeActionExecutionFilters ListByEdgeAction,
+        Microsoft.Cdn EdgeActionExecutionFilters Update,
+        Microsoft.Cdn EdgeActionExecutionFilters Delete,
+        Microsoft.Cdn EdgeActionVersions Delete,
+        Microsoft.Cdn EdgeActions Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}?api-version=2025-09-01-preview
+        --body '{"location": "global", "sku": {"name": "Standard", "tier": "Standard"}, "properties": {}}'
+      - run: >-
+          rest --method get
+          --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}?api-version=2025-09-01-preview
+        until: { json: { path: name, equals: "{alnum:ea}" } }
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions?api-version=2025-09-01-preview
+      - rest --method get --url /subscriptions/{sub}/providers/Microsoft.Cdn/edgeActions?api-version=2025-09-01-preview
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}?api-version=2025-09-01-preview
+        --body '{"tags": {"matrix": "l2"}}'
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}/versions/v1?api-version=2025-09-01-preview
+        --body '{"location": "global", "properties": {"deploymentType": "file", "isDefaultVersion": "True"}}'
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}/versions/v1?api-version=2025-09-01-preview
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}/versions?api-version=2025-09-01-preview
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}/versions/v1?api-version=2025-09-01-preview
+        --body '{"tags": {"matrix": "l2"}}'
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}/versions/v1/deployVersionCode?api-version=2025-09-01-preview
+        --body '{"content": "ZXhwb3J0IGRlZmF1bHQge30=", "name": "index.js"}'
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}/versions/v1/getVersionCode?api-version=2025-09-01-preview
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}/versions/v1/swapDefault?api-version=2025-09-01-preview
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}/executionFilters/f1?api-version=2025-09-01-preview
+        --body '{"location": "global", "properties": {"versionId": "v1", "executionFilterIdentifierHeaderName": "x-l2",
+        "executionFilterIdentifierHeaderValue": "on"}}'
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}/executionFilters/f1?api-version=2025-09-01-preview
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}/executionFilters?api-version=2025-09-01-preview
+      # The PATCH is validated as a full PUT (cdn-edge-action-filter-patch-tags), so this one
+      # repeats every required property.
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}/executionFilters/f1?api-version=2025-09-01-preview
+        --body '{"tags": {"matrix": "l2"}, "properties": {"versionId": "v1", "executionFilterIdentifierHeaderName": "x-l2",
+        "executionFilterIdentifierHeaderValue": "on"}}'
+      - >-
+        rest --method delete
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}/executionFilters/f1?api-version=2025-09-01-preview
+      - >-
+        rest --method delete
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}/versions/v1?api-version=2025-09-01-preview
+    command: >-
+      rest --method delete
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}?api-version=2025-09-01-preview
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: cdn-edge-action-filter-patch-tags
+    operations: [Microsoft.Cdn EdgeActionExecutionFilters Update]
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}?api-version=2025-09-01-preview
+        --body '{"location": "global", "sku": {"name": "Standard", "tier": "Standard"}, "properties": {}}'
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}/versions/v1?api-version=2025-09-01-preview
+        --body '{"location": "global", "properties": {"deploymentType": "file", "isDefaultVersion": "True"}}'
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}/executionFilters/f1?api-version=2025-09-01-preview
+        --body '{"location": "global", "properties": {"versionId": "v1", "executionFilterIdentifierHeaderName": "x-l2",
+        "executionFilterIdentifierHeaderValue": "on"}}'
+    command: >-
+      rest --method patch
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}/executionFilters/f1?api-version=2025-09-01-preview
+      --body '{"tags": {"matrix": "l2"}}'
+    expect:
+      json: { path: tags.matrix, equals: l2 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        L2: the execution filter PATCH is validated as a full PUT: tags alone answer 400 "Property
+        'EdgeActionExecutionFilter.Properties.VersionId' is required but it was not set", and with
+        the version id the next required property is asked for. A PATCH is partial (the edge action
+        and version PATCHes accept tags alone).
+      date: 2026-09-27
+
+  - id: cdn-edge-action-attachment
+    operations:
+      [Microsoft.Cdn EdgeActions AddAttachment, Microsoft.Cdn EdgeActions DeleteAttachment]
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}?api-version=2025-09-01-preview
+        --body '{"location": "global", "sku": {"name": "Standard", "tier": "Standard"}, "properties": {}}'
+    command: >-
+      rest --method post
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/edgeActions/{alnum:ea}/addAttachment?api-version=2025-09-01-preview
+      --body '{"attachedResourceId": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Cdn/profiles/p/ruleSets/rs/rules/r"}'
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        The handler dereferences its request model unguarded
+        (`A=parameters; D.require_edge_action(A.subscription_id, ...)`) and the parser passes None, so
+        AddAttachment and DeleteAttachment answer HTTP 500 AttributeError for every body and
+        api-version (verified 2026-09-22 with four bodies and four api-versions).
+      date: 2026-09-27

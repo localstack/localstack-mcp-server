@@ -1,0 +1,402 @@
+# Microsoft.ContainerService: AKS managed clusters, agent pools, maintenance configurations,
+# snapshots, and Fleet (extension fleet). A cluster runs a k3d cluster on the emulator's Docker
+# engine (about 3 minutes to start), so every cluster case is `backing: true` and among the
+# heaviest; fleet cases are too, to be safe on a shared engine.
+# `aks get-credentials` writes the kubeconfig into the tool's private home, never the real ~/.kube.
+provider: Microsoft.ContainerService
+cases:
+  - id: aks-catalogue
+    operations:
+      [
+        Microsoft.ContainerService Operations List,
+        Microsoft.ContainerService ContainerService ListNodeImageVersions,
+      ]
+    setup:
+      - rest --method get --url /providers/Microsoft.ContainerService/operations?api-version=2025-02-01
+    command: >-
+      rest --method get
+      --url /subscriptions/{sub}/providers/Microsoft.ContainerService/locations/{location}/nodeImageVersions?api-version=2025-02-01
+    expect:
+      exitCode: 0
+
+  - id: aks-cluster
+    operations:
+      [
+        Microsoft.ContainerService ManagedClusters CreateOrUpdate,
+        Microsoft.ContainerService ManagedClusters Get,
+        Microsoft.ContainerService ManagedClusters ListByResourceGroup,
+        Microsoft.ContainerService ManagedClusters List,
+        Microsoft.ContainerService ManagedClusters ListKubernetesVersions,
+        Microsoft.ContainerService ManagedClusters GetUpgradeProfile,
+        Microsoft.ContainerService ManagedClusters ListClusterUserCredentials,
+        Microsoft.ContainerService ManagedClusters ListClusterAdminCredentials,
+      ]
+    backing: true
+    note: The kubeconfig lands in the private home.
+    setup:
+      - group create --name {rg} --location {location}
+      - aks create --name {name:aks} --resource-group {rg} --node-count 1 --generate-ssh-keys --no-wait --yes
+      - run: aks show --name {name:aks} --resource-group {rg} --query provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+        wait: 900
+      - aks list --resource-group {rg}
+      - aks list --query "[?name=='{name:aks}'].name"
+      - aks get-versions --location {location}
+      - aks get-upgrades --name {name:aks} --resource-group {rg}
+      - aks get-credentials --name {name:aks} --resource-group {rg} --overwrite-existing
+    command: aks get-credentials --name {name:aks} --resource-group {rg} --admin --file kubeconfig-{id}.yaml
+    expect:
+      exitCode: 0
+    cleanup:
+      - aks delete --name {name:aks} --resource-group {rg} --yes --no-wait
+      - group delete --name {rg} --yes --no-wait
+
+  - id: aks-nodepool
+    operations:
+      [
+        Microsoft.ContainerService AgentPools CreateOrUpdate,
+        Microsoft.ContainerService AgentPools List,
+        Microsoft.ContainerService AgentPools GetAvailableAgentPoolVersions,
+      ]
+    backing: true
+    note: GetUpgradeProfile is its own known gap below.
+    setup:
+      - group create --name {rg} --location {location}
+      - aks create --name {name:aks} --resource-group {rg} --node-count 1 --generate-ssh-keys --no-wait --yes
+      - run: aks show --name {name:aks} --resource-group {rg} --query provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+        wait: 900
+      - aks nodepool add --cluster-name {name:aks} --resource-group {rg} --name np2 --node-count 1
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ContainerService/managedClusters/{name:aks}/availableAgentPoolVersions?api-version=2025-02-01
+    command: aks nodepool list --cluster-name {name:aks} --resource-group {rg} --query "sort([].name)"
+    expect:
+      json: { path: "", contains: np2 }
+    cleanup:
+      - aks delete --name {name:aks} --resource-group {rg} --yes --no-wait
+      - group delete --name {rg} --yes --no-wait
+
+  - id: aks-nodepool-upgrade-profile
+    operations: [Microsoft.ContainerService AgentPools GetUpgradeProfile]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - aks create --name {name:aks} --resource-group {rg} --node-count 1 --generate-ssh-keys --no-wait --yes
+      - run: aks show --name {name:aks} --resource-group {rg} --query provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+        wait: 900
+    command: aks nodepool get-upgrades --cluster-name {name:aks} --resource-group {rg} --nodepool-name nodepool1
+    expect:
+      json: { path: name, equals: default }
+    cleanup:
+      - aks delete --name {name:aks} --resource-group {rg} --yes --no-wait
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        HTTP 500 for every Linux pool. agent_pools__get_upgrade_profile raises
+        "ValueError: <ManagedClusterAgentPoolProfilePropertiesOsType.LINUX: 'Linux'> is not a valid
+        AgentPoolUpgradeProfilePropertiesOsType" (it passes the pool's enum to another enum type).
+      date: 2026-09-28
+
+  - id: aks-nodepool-read-delete
+    operations:
+      [Microsoft.ContainerService AgentPools Get, Microsoft.ContainerService AgentPools Delete]
+    backing: true
+    note: >-
+      The matrix waits for the cluster before it adds the pool.
+    setup:
+      - group create --name {rg} --location {location}
+      - aks create --name {name:aks} --resource-group {rg} --node-count 1 --generate-ssh-keys --no-wait --yes
+      - run: aks show --name {name:aks} --resource-group {rg} --query provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+        wait: 900
+      - aks nodepool add --cluster-name {name:aks} --resource-group {rg} --name np2 --node-count 1
+      - aks nodepool show --cluster-name {name:aks} --resource-group {rg} --name np2
+    command: aks nodepool delete --cluster-name {name:aks} --resource-group {rg} --name np2
+    expect:
+      exitCode: 0
+    cleanup:
+      - aks delete --name {name:aks} --resource-group {rg} --yes --no-wait
+      - group delete --name {rg} --yes --no-wait
+
+  - id: aks-maintenance-configuration
+    operations:
+      [
+        Microsoft.ContainerService MaintenanceConfigurations CreateOrUpdate,
+        Microsoft.ContainerService MaintenanceConfigurations ListByManagedCluster,
+      ]
+    backing: true
+    note: >-
+      The auto-upgrade schedule (a
+      maintenanceWindow), not `default` (timeInWeek), which is its own known gap below.
+    setup:
+      - group create --name {rg} --location {location}
+      - aks create --name {name:aks} --resource-group {rg} --node-count 1 --generate-ssh-keys --no-wait --yes
+      - run: aks show --name {name:aks} --resource-group {rg} --query provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+        wait: 900
+      - >-
+        aks maintenanceconfiguration add --cluster-name {name:aks} --resource-group {rg}
+        --name aksManagedAutoUpgradeSchedule --schedule-type Weekly --day-of-week Monday
+        --interval-weeks 1 --start-time 01:00 --duration 4
+    command: aks maintenanceconfiguration list --cluster-name {name:aks} --resource-group {rg} --query "[].name"
+    expect:
+      json: { path: "", equals: [aksManagedAutoUpgradeSchedule] }
+    cleanup:
+      - aks delete --name {name:aks} --resource-group {rg} --yes --no-wait
+      - group delete --name {rg} --yes --no-wait
+
+  - id: aks-maintenance-configuration-default-window
+    operations: [Microsoft.ContainerService MaintenanceConfigurations CreateOrUpdate]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - aks create --name {name:aks} --resource-group {rg} --node-count 1 --generate-ssh-keys --no-wait --yes
+      - run: aks show --name {name:aks} --resource-group {rg} --query provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+        wait: 900
+    command: aks maintenanceconfiguration add --cluster-name {name:aks} --resource-group {rg} --name default --weekday Monday --start-hour 1
+    expect:
+      json: { path: name, equals: default }
+    cleanup:
+      - aks delete --name {name:aks} --resource-group {rg} --yes --no-wait
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        HTTP 500 for the `default` configuration (timeInWeek, from --weekday and
+        --start-hour). MaintenanceConfiguration.__init__ assumes a maintenanceWindow:
+        "AttributeError: 'NoneType' object has no attribute 'not_allowed_dates'".
+      date: 2026-09-28
+
+  - id: aks-maintenance-configuration-read-delete
+    operations:
+      [
+        Microsoft.ContainerService MaintenanceConfigurations Get,
+        Microsoft.ContainerService MaintenanceConfigurations Delete,
+      ]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - aks create --name {name:aks} --resource-group {rg} --node-count 1 --generate-ssh-keys --no-wait --yes
+      - run: aks show --name {name:aks} --resource-group {rg} --query provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+        wait: 900
+      - >-
+        aks maintenanceconfiguration add --cluster-name {name:aks} --resource-group {rg}
+        --name aksManagedAutoUpgradeSchedule --schedule-type Weekly --day-of-week Monday
+        --interval-weeks 1 --start-time 01:00 --duration 4
+      - aks maintenanceconfiguration show --cluster-name {name:aks} --resource-group {rg} --name aksManagedAutoUpgradeSchedule
+    command: aks maintenanceconfiguration delete --cluster-name {name:aks} --resource-group {rg} --name aksManagedAutoUpgradeSchedule
+    expect:
+      exitCode: 0
+    cleanup:
+      - aks delete --name {name:aks} --resource-group {rg} --yes --no-wait
+      - group delete --name {rg} --yes --no-wait
+
+  - id: aks-stop-and-snapshots
+    operations:
+      [
+        Microsoft.ContainerService ManagedClusters Stop,
+        Microsoft.ContainerService Snapshots CreateOrUpdate,
+        Microsoft.ContainerService Snapshots Get,
+        Microsoft.ContainerService Snapshots ListByResourceGroup,
+        Microsoft.ContainerService Snapshots List,
+        Microsoft.ContainerService Snapshots UpdateTags,
+        Microsoft.ContainerService Snapshots Delete,
+      ]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - aks create --name {name:aks} --resource-group {rg} --node-count 1 --generate-ssh-keys --no-wait --yes
+      - run: aks show --name {name:aks} --resource-group {rg} --query provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+        wait: 900
+      - run: aks nodepool show --cluster-name {name:aks} --resource-group {rg} --name nodepool1 --query id -o tsv
+        capture: pool_id
+      - aks nodepool snapshot create --name {name:snap} --resource-group {rg} --nodepool-id {pool_id}
+      - aks nodepool snapshot show --name {name:snap} --resource-group {rg}
+      - aks nodepool snapshot list --resource-group {rg}
+      - aks nodepool snapshot list --query "[?name=='{name:snap}'].name"
+      - aks nodepool snapshot update --name {name:snap} --resource-group {rg} --tags owner=l2
+      - aks nodepool snapshot delete --name {name:snap} --resource-group {rg} --yes
+    command: aks stop --name {name:aks} --resource-group {rg} --no-wait
+    expect:
+      exitCode: 0
+    cleanup:
+      - aks delete --name {name:aks} --resource-group {rg} --yes --no-wait
+      - group delete --name {rg} --yes --no-wait
+
+  - id: aks-start-run-command
+    operations:
+      [
+        Microsoft.ContainerService ManagedClusters Start,
+        Microsoft.ContainerService ManagedClusters RunCommand,
+      ]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - aks create --name {name:aks} --resource-group {rg} --node-count 1 --generate-ssh-keys --no-wait --yes
+      - run: aks show --name {name:aks} --resource-group {rg} --query provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+        wait: 900
+      # --no-wait and a power-state poll: a waited stop fails on az 2.90's api-version (aks-stop-wait).
+      - aks stop --name {name:aks} --resource-group {rg} --no-wait
+      - run: aks show --name {name:aks} --resource-group {rg} --query powerState.code -o tsv
+        until: { stdout: { equals: Stopped } }
+    command: aks start --name {name:aks} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - aks delete --name {name:aks} --resource-group {rg} --yes --no-wait
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        The ARM start route is synchronous and the cluster's power state
+        never reaches Running, so Start does not complete and RunCommand is always refused with 400
+        "PowerState=Stopped" (the case starts the cluster).
+      date: 2026-09-27
+
+  - id: aks-stop-wait
+    operations: [Microsoft.ContainerService ManagedClusters Stop]
+    backing: true
+    note: >-
+      A waited stop (aks-stop-and-snapshots stops with --no-wait, which never reads the outcome).
+      API-version specific: az 2.85 (api-version 2026-01-01) gets 204 from the operation result, so a
+      local 2.85 run reports this case gap_fixed; CI's az 2.90 (2026-05-01) meets the gap.
+    setup:
+      - group create --name {rg} --location {location}
+      - aks create --name {name:aks} --resource-group {rg} --node-count 1 --generate-ssh-keys --no-wait --yes
+      - run: aks show --name {name:aks} --resource-group {rg} --query provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+        wait: 900
+    command: aks stop --name {name:aks} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - aks delete --name {name:aks} --resource-group {rg} --yes --no-wait
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        With api-version 2026-05-01 (az 2.90) the stop's operation result answers
+        500 OperationFailed "Cluster ... not tracked" on every poll, so a waited `aks stop` fails; with
+        2026-01-01 (az 2.85) it answers 204. A new cluster also reports powerState Stopped at once.
+      date: 2026-09-28
+
+  - id: aks-machines
+    operations: [Microsoft.ContainerService Machines List, Microsoft.ContainerService Machines Get]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - aks create --name {name:aks} --resource-group {rg} --node-count 1 --generate-ssh-keys --no-wait --yes
+      - run: aks show --name {name:aks} --resource-group {rg} --query provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+        wait: 900
+    # One node, so Azure lists one machine; a machine name would then let the case read it.
+    command: >-
+      rest --method get
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ContainerService/managedClusters/{name:aks}/agentPools/nodepool1/machines?api-version=2025-02-01
+      --query "length(value)"
+    expect:
+      json: { path: "", equals: 1 }
+    cleanup:
+      - aks delete --name {name:aks} --resource-group {rg} --yes --no-wait
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        The list of a one-node pool's machines is empty (Azure lists one machine per
+        node), so Get has nothing to read.
+      date: 2026-09-28
+
+  - id: aks-machines-create
+    operations: [Microsoft.ContainerService Machines CreateOrUpdate]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - aks create --name {name:aks} --resource-group {rg} --node-count 1 --generate-ssh-keys --no-wait --yes
+      - run: aks show --name {name:aks} --resource-group {rg} --query provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+        wait: 900
+    command: >-
+      rest --method put
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ContainerService/managedClusters/{name:aks}/agentPools/nodepool1/machines/uatmachine1?api-version=2025-02-01
+      --body '{"properties": {}}'
+    expect:
+      json: { path: name, equals: uatmachine1 }
+    cleanup:
+      - aks delete --name {name:aks} --resource-group {rg} --yes --no-wait
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        The AKS emulator has no scale-set-backed machines, and
+        CreateOrUpdate fails with HTTP 500 ConfigException "Invalid kube-config file".
+      date: 2026-09-28
+
+  - id: aks-delete
+    operations: [Microsoft.ContainerService ManagedClusters Delete]
+    backing: true
+    note: >-
+      The delete can take minutes, so the case allows 600 s.
+    timeout: 600
+    setup:
+      - group create --name {rg} --location {location}
+      - aks create --name {name:aks} --resource-group {rg} --node-count 1 --generate-ssh-keys --no-wait --yes
+      - run: aks show --name {name:aks} --resource-group {rg} --query provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+        wait: 900
+    command: aks delete --name {name:aks} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - aks delete --name {name:aks} --resource-group {rg} --yes --no-wait
+      - group delete --name {rg} --yes --no-wait
+
+  - id: fleet
+    operations:
+      [
+        Microsoft.ContainerService Fleets CreateOrUpdate,
+        Microsoft.ContainerService Fleets Get,
+        Microsoft.ContainerService Fleets ListByResourceGroup,
+        Microsoft.ContainerService Fleets ListBySubscription,
+        Microsoft.ContainerService Fleets Update,
+        Microsoft.ContainerService Fleets Delete,
+      ]
+    backing: true
+    note: Extension fleet. A hubless fleet.
+    setup:
+      - group create --name {rg} --location {location}
+      - fleet create --name {name:fleet} --resource-group {rg} --location {location}
+      - run: fleet show --name {name:fleet} --resource-group {rg} --query provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+      - fleet list --resource-group {rg}
+      - fleet list --query "[?name=='{name:fleet}'].name"
+      - fleet update --name {name:fleet} --resource-group {rg} --tags matrix=l2
+    command: fleet delete --name {name:fleet} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: fleet-update-strategy
+    operations:
+      [
+        Microsoft.ContainerService FleetUpdateStrategies CreateOrUpdate,
+        Microsoft.ContainerService FleetUpdateStrategies Get,
+        Microsoft.ContainerService FleetUpdateStrategies ListByFleet,
+        Microsoft.ContainerService FleetUpdateStrategies Delete,
+      ]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - fleet create --name {name:fleet} --resource-group {rg} --location {location}
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ContainerService/fleets/{name:fleet}/updateStrategies/staged?api-version=2025-03-01
+        --body '{"properties": {"strategy": {"stages": [{"name": "stage1", "groups": [{"name": "group1"}]}]}}}'
+      - fleet updatestrategy show --fleet-name {name:fleet} --resource-group {rg} --name staged
+      - fleet updatestrategy list --fleet-name {name:fleet} --resource-group {rg}
+    command: fleet updatestrategy delete --fleet-name {name:fleet} --resource-group {rg} --name staged --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait

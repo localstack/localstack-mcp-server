@@ -1,0 +1,45 @@
+name: Azure live setup
+description: >-
+  Node, the build, the pinned azure-cli in its own venv, the curated extensions and the
+  pinned Bicep. The calling job sets LOCALSTACK_AZ_PATH and
+  LOCALSTACK_AZ_BICEP_PATH to /home/runner/az/bin/python3 and /home/runner/bicep-bin/bicep.
+inputs:
+  az-version:
+    description: azure-cli version (the image pins 2.90.0; DR3 also runs the minimum)
+    default: "2.90.0"
+  extensions:
+    description: install the curated extensions (docker/azure-extensions.txt)
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22.x
+
+    - shell: bash
+      run: yarn install --frozen-lockfile && yarn build
+
+    - name: Pinned azure-cli in its own venv (never the runner's /usr/bin/az)
+      shell: bash
+      run: |
+        python3 -m venv ~/az
+        if [ "${{ inputs.az-version }}" = "latest" ]; then
+          ~/az/bin/pip install --quiet azure-cli
+        else
+          ~/az/bin/pip install --quiet "azure-cli==${{ inputs.az-version }}"
+        fi
+        ~/az/bin/python3 -c "import azure.cli.core as c; print('azure-cli-core', c.__version__)"
+
+    - name: Curated extensions
+      if: inputs.extensions == 'true'
+      shell: bash
+      run: node scripts/install-azure-extensions.mjs --az-python ~/az/bin/python3 --dir ~/.localstack/azure/mcp-extensions
+
+    - name: Pinned Bicep v0.47.16, sha256-checked
+      shell: bash
+      run: |
+        mkdir -p ~/bicep-bin
+        curl -fsSL -o ~/bicep-bin/bicep https://github.com/Azure/bicep/releases/download/v0.47.16/bicep-linux-x64
+        echo "64c345a58e0c3e48b1bc98a4e62d6b3adb1d238281297de3400aeafb2697aa5a  ${HOME}/bicep-bin/bicep" | sha256sum -c -
+        chmod +x ~/bicep-bin/bicep

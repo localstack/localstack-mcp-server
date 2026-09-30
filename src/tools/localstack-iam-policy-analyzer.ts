@@ -15,6 +15,7 @@ import {
   requireAuthToken,
   requireLocalStackRunning,
   requireProFeature,
+  requireStack,
 } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { withToolAnalytics } from "../core/analytics";
@@ -57,6 +58,7 @@ export default async function localstackIamPolicyAnalyzer({
   return withToolAnalytics("localstack-iam-policy-analyzer", { action, mode }, async () => {
     const preflightError = await runPreflights([
       requireAuthToken(),
+      requireStack("aws", "localstack-iam-policy-analyzer"),
       requireLocalStackRunning(),
       requireProFeature(ProFeature.IAM_ENFORCEMENT),
     ]);

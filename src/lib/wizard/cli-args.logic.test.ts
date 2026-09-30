@@ -1,6 +1,16 @@
 import { parseInitFlags, parseRemoveFlags } from "./cli-args.logic";
 
 describe("parseInitFlags", () => {
+  it("has no flag that installs a tool's CLI: the Azure add-ons are not init options", () => {
+    // Like the Snowflake CLI, the Azure tool's extensions and Bicep are the user's to install,
+    // with their own command (install-azure-addons), never through the setup wizard.
+    for (const flag of ["--azure-extensions", "--bicep"]) {
+      const { flags, errors } = parseInitFlags([flag]);
+      expect(flags).toBeUndefined();
+      expect(errors.join(" ")).toMatch(/Unknown option/);
+    }
+  });
+
   it("parses a full non-interactive invocation", () => {
     const { flags, errors } = parseInitFlags([
       "--method",

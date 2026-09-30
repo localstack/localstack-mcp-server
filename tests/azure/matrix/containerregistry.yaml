@@ -1,0 +1,454 @@
+# Microsoft.ContainerRegistry: registries (control plane), credentials, webhooks, replications,
+# scope maps and tokens, cache rules, credential sets, connected registries, private link.
+# `acr login` is allowed only with --expose-token (the policy), which returns a token instead of
+# running `docker login` on this machine. Task runs and image imports can make the emulator start
+# containers or pull images, so those cases are `backing: true`.
+provider: Microsoft.ContainerRegistry
+cases:
+  - id: acr-create
+    operations: [Microsoft.ContainerRegistry Registries Create]
+    pr: true
+    note: Samples acr create (web-app-custom-image).
+    setup:
+      - group create --name {rg} --location {location}
+    command: acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Basic --admin-enabled true
+    expect:
+      json:
+        - { path: name, equals: "{alnum:acr}" }
+        - { path: loginServer, contains: "{alnum:acr}" }
+        - { path: adminUserEnabled, equals: true }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: acr-read
+    operations:
+      [
+        Microsoft.ContainerRegistry Registries Get,
+        Microsoft.ContainerRegistry Registries ListByResourceGroup,
+        Microsoft.ContainerRegistry Registries List,
+        Microsoft.ContainerRegistry Registries CheckNameAvailability,
+      ]
+    note: Samples acr show.
+    setup:
+      - group create --name {rg} --location {location}
+      - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Basic
+      - run: acr show --name {alnum:acr} --resource-group {rg} --query loginServer -o tsv
+        until: { stdout: { contains: "{alnum:acr}" } }
+      - run: acr list --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: ["{alnum:acr}"] } }
+      - acr list --query "[?name=='{alnum:acr}'].name"
+    command: acr check-name --name {alnum:acr}
+    expect:
+      json: { path: nameAvailable, equals: false }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: acr-credentials
+    operations:
+      [
+        Microsoft.ContainerRegistry Registries ListCredentials,
+        Microsoft.ContainerRegistry Registries RegenerateCredential,
+      ]
+    pr: true
+    note: Samples acr credential show.
+    setup:
+      - group create --name {rg} --location {location}
+      - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Basic --admin-enabled true
+      - run: acr credential show --name {alnum:acr} --resource-group {rg} --query username -o tsv
+        until: { stdout: { equals: "{alnum:acr}" } }
+    command: acr credential renew --name {alnum:acr} --resource-group {rg} --password-name password2
+    expect:
+      json: { path: "passwords[1].name", equals: password2 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: acr-update
+    operations: [Microsoft.ContainerRegistry Registries Update]
+    setup:
+      - group create --name {rg} --location {location}
+      - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Premium
+    command: acr update --name {alnum:acr} --resource-group {rg} --tags matrix=l2
+    expect:
+      json: { path: tags.matrix, equals: l2 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        Found by L2: `acr update` (the PATCH az 2.85 sends for a Premium registry) answers HTTP 500
+        InternalServerError "An unexpected error occurred while processing 'PATCH .../registries/...'".
+      date: 2026-09-27
+
+  - id: acr-usage-policies
+    operations:
+      [
+        Microsoft.ContainerRegistry Registries ListUsages,
+        Microsoft.ContainerRegistry Registries UpdatePolicies,
+      ]
+    note: >-
+      The case posts updatePolicies with rest; this
+      enables the trust policy (disabled is the default) and reads it back from the registry.
+    setup:
+      - group create --name {rg} --location {location}
+      - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Premium
+      - acr show-usage --name {alnum:acr} --resource-group {rg}
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ContainerRegistry/registries/{alnum:acr}/updatePolicies?api-version=2017-10-01
+        --body '{"trustPolicy": {"type": "Notary", "status": "enabled"}}'
+    command: acr show --name {alnum:acr} --resource-group {rg} --query policies.trustPolicy.status -o tsv
+    expect:
+      stdout: { equals: enabled }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: acr-list-policies
+    operations: [Microsoft.ContainerRegistry Registries ListPolicies]
+    setup:
+      - group create --name {rg} --location {location}
+      - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Premium
+    command: >-
+      rest --method post
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ContainerRegistry/registries/{alnum:acr}/listPolicies?api-version=2017-10-01
+    expect:
+      json: { path: trustPolicy.type, equals: Notary }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        L2: the emulator routes Registries_ListPolicies as GET; the 2017-10-01 spec and its SDK
+        send POST .../listPolicies, which answers 404 (no route). The GET answers the policies.
+      date: 2026-09-27
+
+  - id: acr-login-expose-token
+    operations: []
+    note: >-
+      The registry's token exchange is data plane (not in the coverage list); the policy requires
+      --expose-token so no `docker login` runs on this machine.
+    setup:
+      - group create --name {rg} --location {location}
+      - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Basic --admin-enabled true
+    command: acr login --name {alnum:acr} --expose-token
+    expect:
+      json:
+        - { path: accessToken, exists: true }
+        - { path: loginServer, contains: "{alnum:acr}" }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: acr-webhooks
+    operations:
+      [
+        Microsoft.ContainerRegistry Webhooks Create,
+        Microsoft.ContainerRegistry Webhooks Get,
+        Microsoft.ContainerRegistry Webhooks List,
+        Microsoft.ContainerRegistry Webhooks Update,
+        Microsoft.ContainerRegistry Webhooks Ping,
+        Microsoft.ContainerRegistry Webhooks GetCallbackConfig,
+        Microsoft.ContainerRegistry Webhooks ListEvents,
+        Microsoft.ContainerRegistry Webhooks Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Standard
+      - >-
+        acr webhook create --name {alnum:hook} --registry {alnum:acr} --resource-group {rg}
+        --uri https://example.com/hooks/{id} --actions push delete
+      - run: acr webhook show --name {alnum:hook} --registry {alnum:acr} --resource-group {rg} --query "sort(actions)"
+        until: { json: { path: "", equals: [delete, push] } }
+      - acr webhook list --registry {alnum:acr} --resource-group {rg}
+      - acr webhook update --name {alnum:hook} --registry {alnum:acr} --resource-group {rg} --status disabled
+      - acr webhook ping --name {alnum:hook} --registry {alnum:acr} --resource-group {rg}
+      - acr webhook get-config --name {alnum:hook} --registry {alnum:acr} --resource-group {rg}
+      - acr webhook list-events --name {alnum:hook} --registry {alnum:acr} --resource-group {rg}
+    command: acr webhook delete --name {alnum:hook} --registry {alnum:acr} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: acr-replications
+    operations:
+      [
+        Microsoft.ContainerRegistry Replications Create,
+        Microsoft.ContainerRegistry Replications Get,
+        Microsoft.ContainerRegistry Replications List,
+        Microsoft.ContainerRegistry Replications Update,
+        Microsoft.ContainerRegistry Replications Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Premium
+      - acr replication create --registry {alnum:acr} --resource-group {rg} --location northeurope --name northeurope
+      - run: acr replication show --registry {alnum:acr} --resource-group {rg} --name northeurope --query location -o tsv
+        until: { stdout: { equals: northeurope } }
+      - acr replication list --registry {alnum:acr} --resource-group {rg}
+      - acr replication update --registry {alnum:acr} --resource-group {rg} --name northeurope --tags matrix=l2
+    command: acr replication delete --registry {alnum:acr} --resource-group {rg} --name northeurope
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: acr-scope-maps-tokens
+    operations:
+      [
+        Microsoft.ContainerRegistry ScopeMaps Create,
+        Microsoft.ContainerRegistry ScopeMaps Get,
+        Microsoft.ContainerRegistry ScopeMaps List,
+        Microsoft.ContainerRegistry ScopeMaps Update,
+        Microsoft.ContainerRegistry Tokens Create,
+        Microsoft.ContainerRegistry Tokens Get,
+        Microsoft.ContainerRegistry Tokens List,
+        Microsoft.ContainerRegistry Tokens Update,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Premium
+      - >-
+        acr scope-map create --name readers --registry {alnum:acr} --resource-group {rg}
+        --repository app content/read --description l2
+      - acr scope-map show --name readers --registry {alnum:acr} --resource-group {rg}
+      - acr scope-map list --registry {alnum:acr} --resource-group {rg}
+      - acr scope-map update --name readers --registry {alnum:acr} --resource-group {rg} --add-repository app metadata/read
+      - acr token create --name ci --registry {alnum:acr} --resource-group {rg} --scope-map readers --no-passwords
+      - acr token show --name ci --registry {alnum:acr} --resource-group {rg}
+      - acr token list --registry {alnum:acr} --resource-group {rg}
+    command: acr token update --name ci --registry {alnum:acr} --resource-group {rg} --status disabled
+    expect:
+      json: { path: status, equals: disabled }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: acr-token-credential-generate
+    operations: [Microsoft.ContainerRegistry Registries GenerateCredentials]
+    setup:
+      - group create --name {rg} --location {location}
+      - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Premium
+      - acr scope-map create --name readers --registry {alnum:acr} --resource-group {rg} --repository app content/read
+      - acr token create --name ci --registry {alnum:acr} --resource-group {rg} --scope-map readers --no-passwords
+    command: acr token credential generate --name ci --registry {alnum:acr} --resource-group {rg} --password1
+    expect:
+      json: { path: "passwords[0].name", equals: password1 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        Found by L2: POST .../generateCredentials answers 200 with an empty body, so az prints
+        {"passwords": null, "username": null}: no password is generated for the token.
+      date: 2026-09-27
+
+  - id: acr-scope-map-token-delete
+    operations:
+      [Microsoft.ContainerRegistry Tokens Delete, Microsoft.ContainerRegistry ScopeMaps Delete]
+    setup:
+      - group create --name {rg} --location {location}
+      - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Premium
+      - acr scope-map create --name readers --registry {alnum:acr} --resource-group {rg} --repository app content/read
+      - acr token create --name ci --registry {alnum:acr} --resource-group {rg} --scope-map readers --no-passwords
+      - acr token delete --name ci --registry {alnum:acr} --resource-group {rg} --yes
+    command: acr scope-map delete --name readers --registry {alnum:acr} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: acr-cache-credential-sets
+    operations:
+      [
+        Microsoft.ContainerRegistry CacheRules Create,
+        Microsoft.ContainerRegistry CacheRules Get,
+        Microsoft.ContainerRegistry CacheRules List,
+        Microsoft.ContainerRegistry CacheRules Update,
+        Microsoft.ContainerRegistry CacheRules Delete,
+        Microsoft.ContainerRegistry CredentialSets Create,
+        Microsoft.ContainerRegistry CredentialSets Get,
+        Microsoft.ContainerRegistry CredentialSets List,
+        Microsoft.ContainerRegistry CredentialSets Update,
+        Microsoft.ContainerRegistry CredentialSets Delete,
+      ]
+    note: The credential set only names Key Vault secret URIs; nothing is pulled.
+    setup:
+      - group create --name {rg} --location {location}
+      - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Standard
+      - >-
+        acr credential-set create --registry {alnum:acr} --resource-group {rg} --name dockerhub
+        --login-server docker.io --username-id https://{vault}.vault.azure.net/secrets/user
+        --password-id https://{vault}.vault.azure.net/secrets/pass
+      - acr credential-set show --registry {alnum:acr} --resource-group {rg} --name dockerhub
+      - acr credential-set list --registry {alnum:acr} --resource-group {rg}
+      - >-
+        acr cache create --registry {alnum:acr} --resource-group {rg} --name nginx
+        --source-repo docker.io/library/nginx --target-repo cached/nginx --cred-set dockerhub
+      - acr cache show --registry {alnum:acr} --resource-group {rg} --name nginx
+      - acr cache list --registry {alnum:acr} --resource-group {rg}
+      - acr cache update --registry {alnum:acr} --resource-group {rg} --name nginx --remove-cred-set
+      - acr cache delete --registry {alnum:acr} --resource-group {rg} --name nginx --yes
+      - >-
+        acr credential-set update --registry {alnum:acr} --resource-group {rg} --name dockerhub
+        --password-id https://{vault}.vault.azure.net/secrets/pass2
+    command: acr credential-set delete --registry {alnum:acr} --resource-group {rg} --name dockerhub --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: acr-connected-registry
+    operations:
+      [
+        Microsoft.ContainerRegistry ConnectedRegistries Create,
+        Microsoft.ContainerRegistry ConnectedRegistries Get,
+        Microsoft.ContainerRegistry ConnectedRegistries List,
+        Microsoft.ContainerRegistry ConnectedRegistries Update,
+        Microsoft.ContainerRegistry ConnectedRegistries Deactivate,
+        Microsoft.ContainerRegistry ConnectedRegistries Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Premium
+      - acr update --name {alnum:acr} --resource-group {rg} --data-endpoint-enabled true
+      - acr connected-registry create --registry {alnum:acr} --resource-group {rg} --name edge1 --repository hello-world --yes
+      - acr connected-registry show --registry {alnum:acr} --resource-group {rg} --name edge1
+      - acr connected-registry list --registry {alnum:acr} --resource-group {rg}
+      - acr connected-registry update --registry {alnum:acr} --resource-group {rg} --name edge1 --log-level Warning
+      - acr connected-registry deactivate --registry {alnum:acr} --resource-group {rg} --name edge1 --yes
+    command: acr connected-registry delete --registry {alnum:acr} --resource-group {rg} --name edge1 --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: acr-private-link
+    operations:
+      [
+        Microsoft.ContainerRegistry Registries ListPrivateLinkResources,
+        Microsoft.ContainerRegistry Registries GetPrivateLinkResource,
+        Microsoft.ContainerRegistry PrivateEndpointConnections List,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Premium
+      - acr private-link-resource list --name {alnum:acr} --resource-group {rg}
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ContainerRegistry/registries/{alnum:acr}/privateLinkResources/registry?api-version=2023-07-01
+    command: acr private-endpoint-connection list --registry-name {alnum:acr} --resource-group {rg}
+    expect:
+      json: { path: "", length: 0 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: acr-private-endpoint-connection
+    operations:
+      [
+        Microsoft.ContainerRegistry PrivateEndpointConnections Get,
+        Microsoft.ContainerRegistry PrivateEndpointConnections CreateOrUpdate,
+        Microsoft.ContainerRegistry PrivateEndpointConnections Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        network vnet create --name {name:vnet} --resource-group {rg} --address-prefixes 10.32.0.0/16
+        --subnet-name endpoints --subnet-prefixes 10.32.1.0/24
+      - run: acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Premium --query id -o tsv
+        capture: acr_id
+      - >-
+        network private-endpoint create --name {name:pe} --resource-group {rg} --vnet-name {name:vnet}
+        --subnet endpoints --private-connection-resource-id {acr_id} --group-id registry --connection-name acr
+    command: acr private-endpoint-connection list --registry-name {alnum:acr} --resource-group {rg} --query "length(@)"
+    expect:
+      json: { path: "", equals: 1 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        Found by L2: a private endpoint to a registry (group id registry) succeeds, but no connection
+        is registered on the registry (its list stays empty), so Get, approve (CreateOrUpdate) and
+        Delete of the connection have nothing to act on (the case lists the connections).
+      date: 2026-09-27
+
+  - id: acr-operations-delete
+    operations:
+      [Microsoft.ContainerRegistry Operations List, Microsoft.ContainerRegistry Registries Delete]
+    note: Samples acr delete.
+    setup:
+      - group create --name {rg} --location {location}
+      - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Basic
+      - rest --method get --url /providers/Microsoft.ContainerRegistry/operations?api-version=2023-07-01
+    command: acr delete --name {alnum:acr} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: acr-run
+    operations:
+      [
+        Microsoft.ContainerRegistry Registries ScheduleRun,
+        Microsoft.ContainerRegistry Registries GetBuildSourceUploadUrl,
+        Microsoft.ContainerRegistry Runs GetLogSasUrl,
+      ]
+    backing: true
+    note: >-
+      /dev/null is ACR's empty context. The run id comes from a rest scheduleRun: `acr run
+      --no-wait` prints it only in a stderr warning, so a capture of its output is empty. The encoded
+      task is "version: v1.1.0, steps: - cmd: echo hello from l2".
+    setup:
+      - group create --name {rg} --location {location}
+      - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Standard
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ContainerRegistry/registries/{alnum:acr}/listBuildSourceUploadUrl?api-version=2019-06-01-preview
+      # --no-wait: waiting polls Runs Get, which is NotImplemented (acr-run-wait).
+      - acr run --registry {alnum:acr} --cmd "echo hello from l2" /dev/null --no-logs --no-wait
+      - run: >-
+          rest --method post
+          --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ContainerRegistry/registries/{alnum:acr}/scheduleRun?api-version=2019-06-01-preview
+          --body '{"type": "EncodedTaskRunRequest", "encodedTaskContent": "dmVyc2lvbjogdjEuMS4wCnN0ZXBzOgogIC0gY21kOiBlY2hvIGhlbGxvIGZyb20gbDIK", "platform": {"os": "linux"}}'
+          --query properties.runId -o tsv
+        capture: run_id
+    command: >-
+      rest --method post
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ContainerRegistry/registries/{alnum:acr}/runs/{run_id}/listLogSasUrl?api-version=2019-06-01-preview
+    expect:
+      json: { path: logLink, contains: "/logs/{run_id}/" }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: acr-run-wait
+    operations: [Microsoft.ContainerRegistry Runs Get]
+    backing: true
+    note: A plain `acr run` queues the run and then polls it until it finishes.
+    setup:
+      - group create --name {rg} --location {location}
+      - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Standard
+    command: acr run --registry {alnum:acr} --cmd "echo hello from l2" /dev/null --no-logs --query status -o tsv
+    expect:
+      stdout: { equals: Succeeded }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        L2: ScheduleRun queues the run ("Queued a run with ID: qs1"), but polling it,
+        GET .../registries/{registry}/runs/{runId}, answers NotImplemented (the coverage list marks
+        Runs Get not implemented), so a waiting `acr run` fails after "Waiting for an agent...".
+      date: 2026-09-27
+
+  - id: acr-import
+    operations: [Microsoft.ContainerRegistry Registries ImportImage]
+    backing: true
+    note: The emulator would pull the source image itself; the tool never contacts docker.io.
+    setup:
+      - group create --name {rg} --location {location}
+      - acr create --name {alnum:acr} --resource-group {rg} --location {location} --sku Standard
+    command: >-
+      acr import --name {alnum:acr} --resource-group {rg} --source docker.io/library/hello-world:latest
+      --image hello:l2
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        L2: ImportImage (marked implemented in the coverage list) answers an error with code
+        NotImplementedError and an empty message.
+      date: 2026-09-27

@@ -1,0 +1,212 @@
+# Microsoft.Compute: managed disks, the image catalogue, sizes and SKUs, virtual machines and
+# scale sets. VMs and scale sets are `backing: true` (the emulator may run them as containers).
+# `--generate-ssh-keys` writes into the tool's private home, never the real ~/.ssh.
+provider: Microsoft.Compute
+cases:
+  - id: compute-disk
+    operations: [Microsoft.Compute Disks CreateOrUpdate, Microsoft.Compute Disks Get]
+    pr: true
+    setup:
+      - group create --name {rg} --location {location}
+      - disk create --name {name:disk} --resource-group {rg} --location {location} --size-gb 8 --sku StandardSSD_LRS
+    command: disk show --name {name:disk} --resource-group {rg}
+    expect:
+      json:
+        - { path: diskSizeGB, equals: 8 }
+        - { path: sku.name, equals: StandardSSD_LRS }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: compute-disk-manage
+    operations:
+      [
+        Microsoft.Compute Disks ListByResourceGroup,
+        Microsoft.Compute Disks List,
+        Microsoft.Compute Disks Update,
+        Microsoft.Compute Disks Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - disk create --name {name:disk} --resource-group {rg} --location {location} --size-gb 8
+      - run: disk list --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: ["{name:disk}"] } }
+      - rest --method get --url /subscriptions/{sub}/providers/Microsoft.Compute/disks?api-version=2023-10-02
+      - run: disk update --name {name:disk} --resource-group {rg} --size-gb 16
+        until: { json: { path: diskSizeGB, equals: 16 } }
+    command: disk delete --name {name:disk} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: compute-image-catalogue
+    operations:
+      [
+        Microsoft.Compute VirtualMachineImages ListPublishers,
+        Microsoft.Compute VirtualMachineImages ListOffers,
+        Microsoft.Compute VirtualMachineImages ListSkus,
+        Microsoft.Compute VirtualMachineImages List,
+      ]
+    setup:
+      - run: vm image list-publishers --location {location} --query "[?name=='Canonical'].name"
+        until: { json: { path: "", equals: [Canonical] } }
+      - vm image list-offers --location {location} --publisher Canonical --query "[].name"
+      - vm image list-skus --location {location} --publisher Canonical --offer 0001-com-ubuntu-server-jammy --query "[].name"
+    command: >-
+      vm image list --location {location} --publisher Canonical --offer 0001-com-ubuntu-server-jammy
+      --sku 22_04-lts-gen2 --all --query "length(@) > `0`"
+    expect:
+      json: { path: "", equals: true }
+
+  - id: compute-image-get
+    operations: [Microsoft.Compute VirtualMachineImages Get]
+    setup:
+      - run: >-
+          vm image list --location {location} --publisher Canonical --offer 0001-com-ubuntu-server-jammy
+          --sku 22_04-lts-gen2 --all --query "[0].version" -o tsv
+        capture: version
+    command: vm image show --location {location} --urn Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:{version}
+    expect:
+      json: { path: name, equals: "{version}" }
+
+  - id: compute-sizes-skus
+    operations: [Microsoft.Compute VirtualMachineSizes List, Microsoft.Compute ResourceSkus List]
+    setup:
+      - run: vm list-sizes --location {location} --query "[?name=='Standard_B2s'].name"
+        until: { json: { path: "", equals: [Standard_B2s] } }
+    command: vm list-skus --location {location} --resource-type virtualMachines --query "length(@) > `0`"
+    expect:
+      json: { path: "", equals: true }
+
+  - id: compute-vm
+    operations:
+      [
+        Microsoft.Compute VirtualMachines CreateOrUpdate,
+        Microsoft.Compute VirtualMachines Get,
+        Microsoft.Compute VirtualMachines List,
+        Microsoft.Compute VirtualMachines InstanceView,
+        Microsoft.Compute VirtualMachines ListAvailableSizes,
+      ]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        vm create --name {name:vm} --resource-group {rg} --location {location}
+        --image Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest --size Standard_B1s
+        --admin-username azureuser --generate-ssh-keys --public-ip-address "" --nsg ""
+      - run: vm show --name {name:vm} --resource-group {rg} --query provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+      - vm list --resource-group {rg}
+      - vm list-vm-resize-options --name {name:vm} --resource-group {rg} --query "length(@)"
+    command: vm get-instance-view --name {name:vm} --resource-group {rg} --query "instanceView.statuses[].code"
+    expect:
+      json: { path: "", contains: ProvisioningState/succeeded }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: compute-vm-delete
+    operations: [Microsoft.Compute VirtualMachines Delete]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        vm create --name {name:vm} --resource-group {rg} --location {location}
+        --image Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest --size Standard_B1s
+        --admin-username azureuser --generate-ssh-keys --public-ip-address "" --nsg ""
+    command: vm delete --name {name:vm} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: compute-vm-attach-detach-disks
+    operations: [Microsoft.Compute VirtualMachines AttachDetachDataDisks]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        vm create --name {name:vm} --resource-group {rg} --location {location}
+        --image Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest --size Standard_B1s
+        --admin-username azureuser --generate-ssh-keys --public-ip-address "" --nsg ""
+      - run: disk create --name {name:disk} --resource-group {rg} --location {location} --size-gb 8 --query id -o tsv
+        capture: disk_id
+    command: >-
+      rest --method post
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Compute/virtualMachines/{name:vm}/attachDetachDataDisks?api-version=2024-03-01
+      --body '{"dataDisksToAttach": [{"lun": 1, "diskId": "{disk_id}"}]}'
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: compute-vmss
+    operations:
+      [
+        Microsoft.Compute VirtualMachineScaleSets CreateOrUpdate,
+        Microsoft.Compute VirtualMachineScaleSets Get,
+        Microsoft.Compute VirtualMachineScaleSets List,
+        Microsoft.Compute VirtualMachineScaleSets ListSkus,
+        Microsoft.Compute VirtualMachineScaleSets UpdateInstances,
+        Microsoft.Compute VirtualMachineScaleSetVMs List,
+      ]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        vmss create --name {name:vmss} --resource-group {rg} --location {location}
+        --image Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest --vm-sku Standard_B1s
+        --instance-count 1 --admin-username azureuser --generate-ssh-keys --lb "" --public-ip-address ""
+      - run: vmss show --name {name:vmss} --resource-group {rg} --query provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+      - vmss list --resource-group {rg}
+      - vmss list-instances --name {name:vmss} --resource-group {rg}
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Compute/virtualMachineScaleSets/{name:vmss}/skus?api-version=2024-03-01
+    command: vmss update-instances --name {name:vmss} --resource-group {rg} --instance-ids "*"
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: compute-vmss-delete
+    operations: [Microsoft.Compute VirtualMachineScaleSets Delete]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        vmss create --name {name:vmss} --resource-group {rg} --location {location}
+        --image Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest --vm-sku Standard_B1s
+        --instance-count 1 --admin-username azureuser --generate-ssh-keys --lb "" --public-ip-address ""
+    command: vmss delete --name {name:vmss} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: compute-vmss-instances
+    operations:
+      [
+        Microsoft.Compute VirtualMachineScaleSetVMs Get,
+        Microsoft.Compute VirtualMachineScaleSetVMs Update,
+        Microsoft.Compute NetworkInterfaces ListVirtualMachineScaleSetVMNetworkInterfaces,
+        Microsoft.Compute NetworkInterfaces GetVirtualMachineScaleSetNetworkInterface,
+      ]
+    backing: true
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        vmss create --name {name:vmss} --resource-group {rg} --location {location}
+        --image Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest --vm-sku Standard_B1s
+        --instance-count 1 --admin-username azureuser --generate-ssh-keys --lb "" --public-ip-address ""
+    command: vmss show --name {name:vmss} --resource-group {rg} --instance-id 0
+    expect:
+      json: { path: instanceId, equals: "0" }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        The emulator's scale sets never materialize VM instances, so
+        GET/PATCH .../virtualMachines/{instanceId} and the per-instance network-interface calls answer
+        404 (the instance list is empty).
+      date: 2026-09-27

@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
-import { runPreflights, requireLocalStackRunning, requireAuthToken } from "../core/preflight";
+import {
+  runPreflights,
+  requireLocalStackRunning,
+  requireAuthToken,
+  requireStack,
+} from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { withToolAnalytics } from "../core/analytics";
 import { DockerApiClient } from "../lib/docker/docker.client";
@@ -29,12 +34,16 @@ export const metadata: ToolMetadata = {
 
 export default async function localstackAwsClient({ command }: InferSchema<typeof schema>) {
   return withToolAnalytics("localstack-aws-client", { command }, async () => {
-    const preflightError = await runPreflights([requireAuthToken(), requireLocalStackRunning()]);
+    const preflightError = await runPreflights([
+      requireAuthToken(),
+      requireStack("aws", "localstack-aws-client"),
+      requireLocalStackRunning(),
+    ]);
     if (preflightError) return preflightError;
 
     try {
       const dockerClient = new DockerApiClient();
-      const containerId = await dockerClient.findLocalStackContainer();
+      const containerId = await dockerClient.findLocalStackContainer({ stack: "aws" });
 
       const sanitized = sanitizeAwsCliCommand(command);
 

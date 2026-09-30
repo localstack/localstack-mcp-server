@@ -1,0 +1,491 @@
+# Microsoft.EventHub: namespaces, event hubs, consumer groups, authorization rules, application
+# groups, schema groups, dedicated clusters, geo-recovery aliases, private endpoints.
+# Namespaces Failover and the two network-security-perimeter association operations are known
+# gaps: geo-replication and NSP associations are not emulated.
+provider: Microsoft.EventHub
+cases:
+  - id: eventhubs-namespace-hub
+    operations:
+      [
+        Microsoft.EventHub Namespaces CreateOrUpdate,
+        Microsoft.EventHub EventHubs CreateOrUpdate,
+        Microsoft.EventHub EventHubs Get,
+      ]
+    pr: true
+    note: Samples eventhubs namespace create, eventhubs eventhub create/show.
+    setup:
+      - group create --name {rg} --location {location}
+      - eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Standard
+      - >-
+        eventhubs eventhub create --name telemetry --namespace-name {name:eh} --resource-group {rg}
+        --partition-count 4 --cleanup-policy Delete --retention-time-in-hours 24
+    command: eventhubs eventhub show --name telemetry --namespace-name {name:eh} --resource-group {rg}
+    expect:
+      json:
+        - { path: name, equals: telemetry }
+        - { path: partitionCount, equals: 4 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventhubs-namespace-read
+    operations:
+      [
+        Microsoft.EventHub Namespaces Get,
+        Microsoft.EventHub Namespaces ListByResourceGroup,
+        Microsoft.EventHub Namespaces List,
+        Microsoft.EventHub Namespaces CheckNameAvailability,
+      ]
+    note: Samples eventhubs namespace show.
+    setup:
+      - group create --name {rg} --location {location}
+      - eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Standard
+      - run: eventhubs namespace show --name {name:eh} --resource-group {rg} --query serviceBusEndpoint -o tsv
+        until: { stdout: { contains: "{name:eh}" } }
+      - run: eventhubs namespace list --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: ["{name:eh}"] } }
+      - eventhubs namespace list --query "[?name=='{name:eh}'].name"
+    command: eventhubs namespace exists --name {name:eh}
+    expect:
+      json: { path: nameAvailable, equals: false }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventhubs-namespace-update-delete
+    operations: [Microsoft.EventHub Namespaces Update, Microsoft.EventHub Namespaces Delete]
+    note: Samples eventhubs namespace delete.
+    setup:
+      - group create --name {rg} --location {location}
+      - eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Standard
+      - run: eventhubs namespace update --name {name:eh} --resource-group {rg} --tags matrix=l2
+        until: { json: { path: tags.matrix, equals: l2 } }
+    command: eventhubs namespace delete --name {name:eh} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventhubs-namespace-auth-rules
+    operations:
+      [
+        Microsoft.EventHub Namespaces CreateOrUpdateAuthorizationRule,
+        Microsoft.EventHub Namespaces GetAuthorizationRule,
+        Microsoft.EventHub Namespaces ListAuthorizationRules,
+        Microsoft.EventHub Namespaces ListKeys,
+        Microsoft.EventHub Namespaces RegenerateKeys,
+        Microsoft.EventHub Namespaces DeleteAuthorizationRule,
+      ]
+    note: Samples eventhubs namespace authorization-rule.
+    setup:
+      - group create --name {rg} --location {location}
+      - eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Standard
+      - >-
+        eventhubs namespace authorization-rule create --namespace-name {name:eh} --resource-group {rg}
+        --name sender --rights Send
+      - eventhubs namespace authorization-rule show --namespace-name {name:eh} --resource-group {rg} --name sender
+      - run: eventhubs namespace authorization-rule list --namespace-name {name:eh} --resource-group {rg} --query "[].name"
+        until: { json: { path: "", contains: sender } }
+      - run: >-
+          eventhubs namespace authorization-rule keys list --namespace-name {name:eh} --resource-group {rg}
+          --name RootManageSharedAccessKey --query primaryConnectionString -o tsv
+        until: { stdout: { contains: "SharedAccessKeyName=RootManageSharedAccessKey" } }
+      - >-
+        eventhubs namespace authorization-rule keys renew --namespace-name {name:eh} --resource-group {rg}
+        --name sender --key PrimaryKey
+    command: eventhubs namespace authorization-rule delete --namespace-name {name:eh} --resource-group {rg} --name sender
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventhubs-network-rules
+    operations:
+      [
+        Microsoft.EventHub Namespaces CreateOrUpdateNetworkRuleSet,
+        Microsoft.EventHub Namespaces GetNetworkRuleSet,
+        Microsoft.EventHub Namespaces ListNetworkRuleSet,
+        Microsoft.EventHub NetworkSecurityPerimeterConfiguration List,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Standard
+      - >-
+        eventhubs namespace network-rule-set ip-rule add --namespace-name {name:eh} --resource-group {rg}
+        --ip-rule ip-address=10.2.2.2 action=Allow
+      - run: eventhubs namespace network-rule-set show --namespace-name {name:eh} --resource-group {rg}
+        until: { json: { path: "ipRules[0].ipMask", matches: "^10\\.2\\.2\\.2" } }
+      - eventhubs namespace network-rule-set list --namespace-name {name:eh} --resource-group {rg}
+    command: >-
+      rest --method get
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.EventHub/namespaces/{name:eh}/networkSecurityPerimeterConfigurations?api-version=2024-01-01
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventhubs-hub-read-delete
+    operations: [Microsoft.EventHub EventHubs ListByNamespace, Microsoft.EventHub EventHubs Delete]
+    setup:
+      - group create --name {rg} --location {location}
+      - eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Standard
+      - eventhubs eventhub create --name telemetry --namespace-name {name:eh} --resource-group {rg}
+      - eventhubs eventhub create --name old --namespace-name {name:eh} --resource-group {rg}
+      - eventhubs eventhub delete --name old --namespace-name {name:eh} --resource-group {rg}
+    command: eventhubs eventhub list --namespace-name {name:eh} --resource-group {rg} --query "[].name"
+    expect:
+      json: { path: "", equals: [telemetry] }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventhubs-hub-auth-rules
+    operations:
+      [
+        Microsoft.EventHub EventHubs CreateOrUpdateAuthorizationRule,
+        Microsoft.EventHub EventHubs GetAuthorizationRule,
+        Microsoft.EventHub EventHubs ListAuthorizationRules,
+        Microsoft.EventHub EventHubs ListKeys,
+        Microsoft.EventHub EventHubs RegenerateKeys,
+        Microsoft.EventHub EventHubs DeleteAuthorizationRule,
+      ]
+    note: Samples eventhubs eventhub authorization-rule (20 uses).
+    setup:
+      - group create --name {rg} --location {location}
+      - eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Standard
+      - eventhubs eventhub create --name telemetry --namespace-name {name:eh} --resource-group {rg}
+      - >-
+        eventhubs eventhub authorization-rule create --eventhub-name telemetry --namespace-name {name:eh}
+        --resource-group {rg} --name reader --rights Listen
+      - run: >-
+          eventhubs eventhub authorization-rule show --eventhub-name telemetry --namespace-name {name:eh}
+          --resource-group {rg} --name reader --query rights
+        until: { json: { path: "", equals: [Listen] } }
+      - eventhubs eventhub authorization-rule list --eventhub-name telemetry --namespace-name {name:eh} --resource-group {rg}
+      - >-
+        eventhubs eventhub authorization-rule keys list --eventhub-name telemetry --namespace-name {name:eh}
+        --resource-group {rg} --name reader
+      - >-
+        eventhubs eventhub authorization-rule keys renew --eventhub-name telemetry --namespace-name {name:eh}
+        --resource-group {rg} --name reader --key SecondaryKey
+    command: >-
+      eventhubs eventhub authorization-rule delete --eventhub-name telemetry --namespace-name {name:eh}
+      --resource-group {rg} --name reader
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventhubs-consumer-groups
+    operations:
+      [
+        Microsoft.EventHub ConsumerGroups CreateOrUpdate,
+        Microsoft.EventHub ConsumerGroups Get,
+        Microsoft.EventHub ConsumerGroups ListByEventHub,
+        Microsoft.EventHub ConsumerGroups Delete,
+      ]
+    pr: true
+    note: Samples eventhubs eventhub consumer-group create/show/list.
+    setup:
+      - group create --name {rg} --location {location}
+      - eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Standard
+      - eventhubs eventhub create --name telemetry --namespace-name {name:eh} --resource-group {rg}
+      - >-
+        eventhubs eventhub consumer-group create --eventhub-name telemetry --namespace-name {name:eh}
+        --resource-group {rg} --name analytics --user-metadata l2
+      - run: >-
+          eventhubs eventhub consumer-group show --eventhub-name telemetry --namespace-name {name:eh}
+          --resource-group {rg} --name analytics --query userMetadata -o tsv
+        until: { stdout: { equals: l2 } }
+      - >-
+        eventhubs eventhub consumer-group create --eventhub-name telemetry --namespace-name {name:eh}
+        --resource-group {rg} --name old
+      - >-
+        eventhubs eventhub consumer-group delete --eventhub-name telemetry --namespace-name {name:eh}
+        --resource-group {rg} --name old
+    command: >-
+      eventhubs eventhub consumer-group list --eventhub-name telemetry --namespace-name {name:eh}
+      --resource-group {rg} --query "sort([].name)"
+    expect:
+      json: { path: "", contains: analytics }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventhubs-application-group
+    operations:
+      [
+        Microsoft.EventHub ApplicationGroup CreateOrUpdateApplicationGroup,
+        Microsoft.EventHub ApplicationGroup Get,
+        Microsoft.EventHub ApplicationGroup ListByNamespace,
+        Microsoft.EventHub ApplicationGroup Delete,
+      ]
+    note: Samples eventhubs namespace application-group create/show/list.
+    setup:
+      - group create --name {rg} --location {location}
+      - eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Premium
+      - >-
+        eventhubs namespace application-group create --namespace-name {name:eh} --resource-group {rg}
+        --name producers --client-app-group-identifier SASKeyName=RootManageSharedAccessKey
+      - run: eventhubs namespace application-group show --namespace-name {name:eh} --resource-group {rg} --name producers
+        until: { json: { path: name, equals: producers } }
+      - run: eventhubs namespace application-group list --namespace-name {name:eh} --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: [producers] } }
+    command: eventhubs namespace application-group delete --namespace-name {name:eh} --resource-group {rg} --name producers
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventhubs-schema-registry
+    operations:
+      [
+        Microsoft.EventHub SchemaRegistry CreateOrUpdate,
+        Microsoft.EventHub SchemaRegistry Get,
+        Microsoft.EventHub SchemaRegistry ListByNamespace,
+        Microsoft.EventHub SchemaRegistry Delete,
+      ]
+    note: Samples eventhubs namespace schema-registry create/show/list.
+    setup:
+      - group create --name {rg} --location {location}
+      - eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Standard
+      - >-
+        eventhubs namespace schema-registry create --namespace-name {name:eh} --resource-group {rg}
+        --name contracts --schema-compatibility Forward --schema-type Avro
+      - run: eventhubs namespace schema-registry show --namespace-name {name:eh} --resource-group {rg} --name contracts
+        until: { json: { path: schemaCompatibility, equals: Forward } }
+      - run: eventhubs namespace schema-registry list --namespace-name {name:eh} --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: [contracts] } }
+    command: eventhubs namespace schema-registry delete --namespace-name {name:eh} --resource-group {rg} --name contracts
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventhubs-cluster
+    operations:
+      [
+        Microsoft.EventHub Clusters CreateOrUpdate,
+        Microsoft.EventHub Clusters Get,
+        Microsoft.EventHub Clusters ListByResourceGroup,
+        Microsoft.EventHub Clusters ListBySubscription,
+        Microsoft.EventHub Clusters Update,
+        Microsoft.EventHub Clusters ListAvailableClusterRegion,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - eventhubs cluster create --name {name:ehc} --resource-group {rg} --location {location} --capacity 1
+      - run: eventhubs cluster show --name {name:ehc} --resource-group {rg} --query sku.capacity
+        until: { json: { path: "", equals: 1 } }
+      - eventhubs cluster list --resource-group {rg}
+      - eventhubs cluster list --query "[?name=='{name:ehc}'].name"
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/providers/Microsoft.EventHub/availableClusterRegions?api-version=2018-01-01-preview
+    command: eventhubs cluster update --name {name:ehc} --resource-group {rg} --capacity 2
+    expect:
+      json: { path: sku.capacity, equals: 2 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventhubs-cluster-available-region-cli
+    operations: [Microsoft.EventHub Clusters ListAvailableClusterRegion]
+    command: eventhubs cluster available-region
+    expect:
+      exitCode: 0
+    known_gap:
+      reason: >-
+        Found by L2: `az eventhubs cluster available-region` (az 2.85) calls api-version
+        2023-01-01-preview, which the emulator refuses (InvalidResourceType: "The supported
+        api-versions are '2018-01-01-preview'"); rest with 2018-01-01-preview works (eventhubs-cluster).
+      date: 2026-09-27
+
+  - id: eventhubs-cluster-namespaces-config
+    operations:
+      [
+        Microsoft.EventHub Clusters ListNamespaces,
+        Microsoft.EventHub Configuration Get,
+        Microsoft.EventHub Configuration Patch,
+        Microsoft.EventHub Clusters Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - run: eventhubs cluster create --name {name:ehc} --resource-group {rg} --location {location} --capacity 1 --query id -o tsv
+        capture: cluster_id
+      - >-
+        eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location}
+        --sku Premium --cluster-arm-id {cluster_id}
+      - run: eventhubs cluster namespace list --name {name:ehc} --resource-group {rg} --query "value[].id"
+        until: { json: { path: "", length: 1 } }
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.EventHub/clusters/{name:ehc}/quotaConfiguration/default?api-version=2024-01-01
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.EventHub/clusters/{name:ehc}/quotaConfiguration/default?api-version=2024-01-01
+        --body '{"properties": {"settings": {"eventhub-per-namespace-quota": "20"}}}'
+      - eventhubs namespace delete --name {name:eh} --resource-group {rg}
+    command: eventhubs cluster delete --name {name:ehc} --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventhubs-georecovery
+    operations:
+      [
+        Microsoft.EventHub DisasterRecoveryConfigs CheckNameAvailability,
+        Microsoft.EventHub DisasterRecoveryConfigs CreateOrUpdate,
+        Microsoft.EventHub DisasterRecoveryConfigs Get,
+        Microsoft.EventHub DisasterRecoveryConfigs List,
+        Microsoft.EventHub DisasterRecoveryConfigs ListAuthorizationRules,
+        Microsoft.EventHub DisasterRecoveryConfigs GetAuthorizationRule,
+        Microsoft.EventHub DisasterRecoveryConfigs ListKeys,
+        Microsoft.EventHub DisasterRecoveryConfigs BreakPairing,
+        Microsoft.EventHub DisasterRecoveryConfigs Delete,
+      ]
+    note: Samples eventhubs georecovery-alias create/show/break-pair/delete.
+    setup:
+      - group create --name {rg} --location {location}
+      - eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Standard
+      - run: eventhubs namespace create --name {name:eh2} --resource-group {rg} --location northeurope --sku Standard --query id -o tsv
+        capture: partner_id
+      - eventhubs georecovery-alias exists --alias {name:alias} --namespace-name {name:eh} --resource-group {rg}
+      - >-
+        eventhubs georecovery-alias set --alias {name:alias} --namespace-name {name:eh} --resource-group {rg}
+        --partner-namespace {partner_id}
+      - run: eventhubs georecovery-alias show --alias {name:alias} --namespace-name {name:eh} --resource-group {rg}
+        until: { json: { path: partnerNamespace, contains: "{name:eh2}" } }
+      - eventhubs georecovery-alias list --namespace-name {name:eh} --resource-group {rg}
+      - >-
+        eventhubs georecovery-alias authorization-rule list --alias {name:alias} --namespace-name {name:eh}
+        --resource-group {rg}
+      - >-
+        eventhubs georecovery-alias authorization-rule show --alias {name:alias} --namespace-name {name:eh}
+        --resource-group {rg} --name RootManageSharedAccessKey
+      - >-
+        eventhubs georecovery-alias authorization-rule keys list --alias {name:alias} --namespace-name {name:eh}
+        --resource-group {rg} --name RootManageSharedAccessKey
+      - eventhubs georecovery-alias break-pair --alias {name:alias} --namespace-name {name:eh} --resource-group {rg}
+    command: eventhubs georecovery-alias delete --alias {name:alias} --namespace-name {name:eh} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventhubs-georecovery-failover
+    operations: [Microsoft.EventHub DisasterRecoveryConfigs FailOver]
+    note: The case fails over from the secondary.
+    setup:
+      - group create --name {rg} --location {location}
+      - eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Standard
+      - run: eventhubs namespace create --name {name:eh2} --resource-group {rg} --location northeurope --sku Standard --query id -o tsv
+        capture: partner_id
+      - >-
+        eventhubs georecovery-alias set --alias {name:alias} --namespace-name {name:eh} --resource-group {rg}
+        --partner-namespace {partner_id}
+      - run: eventhubs georecovery-alias show --alias {name:alias} --namespace-name {name:eh} --resource-group {rg}
+        until: { json: { path: role, equals: Primary } }
+    command: eventhubs georecovery-alias fail-over --alias {name:alias} --namespace-name {name:eh2} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        Found by L2: the alias is not visible on the secondary namespace (ResourceNotFound
+        "namespaces/disasterRecoveryConfigs ... could not be found"), so a fail-over, which Azure runs
+        on the secondary, has no alias to act on.
+      date: 2026-09-27
+
+  - id: eventhubs-private-link-resources
+    operations:
+      [
+        Microsoft.EventHub PrivateLinkResources Get,
+        Microsoft.EventHub PrivateEndpointConnections List,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Premium
+      - eventhubs namespace private-link-resource show --namespace-name {name:eh} --resource-group {rg}
+    command: eventhubs namespace private-endpoint-connection list --namespace-name {name:eh} --resource-group {rg}
+    expect:
+      json: { path: "", length: 0 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: eventhubs-private-endpoint-connection
+    operations:
+      [
+        Microsoft.EventHub PrivateEndpointConnections Get,
+        Microsoft.EventHub PrivateEndpointConnections CreateOrUpdate,
+        Microsoft.EventHub PrivateEndpointConnections Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        network vnet create --name {name:vnet} --resource-group {rg} --address-prefixes 10.30.0.0/16
+        --subnet-name endpoints --subnet-prefixes 10.30.1.0/24
+      - run: eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Premium --query id -o tsv
+        capture: ns_id
+      - >-
+        network private-endpoint create --name {name:pe} --resource-group {rg} --vnet-name {name:vnet}
+        --subnet endpoints --private-connection-resource-id {ns_id} --group-id namespace --connection-name eh
+    command: >-
+      eventhubs namespace private-endpoint-connection list --namespace-name {name:eh} --resource-group {rg}
+      --query "length(@)"
+    expect:
+      json: { path: "", equals: 1 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        Found by L2: a private endpoint to a namespace (group id namespace) succeeds, but no
+        connection is registered on the namespace (its list stays empty), so Get, approve
+        (CreateOrUpdate) and Delete have nothing to act on (the case lists the connections).
+      date: 2026-09-27
+
+  - id: eventhubs-operations
+    operations: [Microsoft.EventHub Operations List]
+    command: rest --method get --url /providers/Microsoft.EventHub/operations?api-version=2024-01-01
+    expect:
+      json: { path: value, exists: true }
+
+  - id: eventhubs-namespace-failover
+    operations: [Microsoft.EventHub Namespaces Failover]
+    setup:
+      - group create --name {rg} --location {location}
+      - eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Premium
+    command: >-
+      rest --method post
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.EventHub/namespaces/{name:eh}/failover?api-version=2024-05-01-preview
+      --body '{"properties": {"primaryLocation": "northeurope", "maximumGracePeriodInMins": 1, "force": true}}'
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        Geo-replication is not emulated, so namespaces__failover always
+        answers HTTP 400 "Namespace is not geo-replicated, failover cannot be performed" (as Azure
+        does for a namespace without replication); there is no way to make it succeed.
+      date: 2026-09-27
+
+  - id: eventhubs-nsp-association
+    operations:
+      [
+        Microsoft.EventHub NetworkSecurityPerimeterConfigurations CreateOrUpdate,
+        Microsoft.EventHub NetworkSecurityPerimeterConfigurations GetResourceAssociationName,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - eventhubs namespace create --name {name:eh} --resource-group {rg} --location {location} --sku Premium
+    command: >-
+      rest --method post
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.EventHub/namespaces/{name:eh}/networkSecurityPerimeterConfigurations/perimeter.assoc/reconcile?api-version=2024-01-01
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        Network security perimeter associations are not emulated; the
+        reconcile POST and the per-association GET always answer 404 ResourceNotFound (the NSP
+        configuration list is always empty).
+      date: 2026-09-27

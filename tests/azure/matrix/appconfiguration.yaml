@@ -1,0 +1,396 @@
+# Microsoft.AppConfiguration: stores (ARM), key-values, locks, labels, revisions and snapshots
+# (the data plane, keyed `Microsoft.AppConfiguration Microsoft.AppConfiguration <Op>`), replicas.
+# A deleted store is soft-deleted, so every case that creates one deletes and purges it.
+provider: Microsoft.AppConfiguration
+cases:
+  - id: appconfig-create
+    operations: [Microsoft.AppConfiguration ConfigurationStores Create]
+    pr: true
+    note: Samples appconfig create.
+    setup:
+      - group create --name {rg} --location {location}
+    command: appconfig create --name {name:appcs} --resource-group {rg} --location {location} --sku Standard
+    expect:
+      json:
+        - { path: name, equals: "{name:appcs}" }
+        - { path: provisioningState, equals: Succeeded }
+    cleanup:
+      - appconfig delete --name {name:appcs} --resource-group {rg} --yes
+      - appconfig purge --name {name:appcs} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  - id: appconfig-read-update
+    operations:
+      [
+        Microsoft.AppConfiguration ConfigurationStores Get,
+        Microsoft.AppConfiguration ConfigurationStores ListByResourceGroup,
+        Microsoft.AppConfiguration ConfigurationStores List,
+        Microsoft.AppConfiguration ConfigurationStores Update,
+      ]
+    note: Samples appconfig show/update.
+    setup:
+      - group create --name {rg} --location {location}
+      - appconfig create --name {name:appcs} --resource-group {rg} --location {location} --sku Standard
+      - run: appconfig show --name {name:appcs} --resource-group {rg} --query endpoint -o tsv
+        until: { stdout: { contains: "{name:appcs}" } }
+      - run: appconfig list --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: ["{name:appcs}"] } }
+      - appconfig list --query "[?name=='{name:appcs}'].name"
+    command: appconfig update --name {name:appcs} --resource-group {rg} --tags matrix=l2
+    expect:
+      json: { path: tags.matrix, equals: l2 }
+    cleanup:
+      - appconfig delete --name {name:appcs} --resource-group {rg} --yes
+      - appconfig purge --name {name:appcs} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  - id: appconfig-credentials
+    operations:
+      [
+        Microsoft.AppConfiguration ConfigurationStores ListKeys,
+        Microsoft.AppConfiguration ConfigurationStores RegenerateKey,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - appconfig create --name {name:appcs} --resource-group {rg} --location {location} --sku Standard
+      - run: appconfig credential list --name {name:appcs} --resource-group {rg} --query "[0].id" -o tsv
+        capture: key_id
+    command: appconfig credential regenerate --name {name:appcs} --resource-group {rg} --id {key_id}
+    expect:
+      json: { path: id, exists: true }
+    cleanup:
+      - appconfig delete --name {name:appcs} --resource-group {rg} --yes
+      - appconfig purge --name {name:appcs} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  - id: appconfig-soft-delete
+    operations:
+      [
+        Microsoft.AppConfiguration ConfigurationStores Delete,
+        Microsoft.AppConfiguration ConfigurationStores ListDeleted,
+        Microsoft.AppConfiguration ConfigurationStores GetDeleted,
+        Microsoft.AppConfiguration ConfigurationStores PurgeDeleted,
+      ]
+    note: Samples appconfig list-deleted/recover.
+    setup:
+      - group create --name {rg} --location {location}
+      - appconfig create --name {name:appcs} --resource-group {rg} --location {location} --sku Standard
+      - appconfig delete --name {name:appcs} --resource-group {rg} --yes
+      - run: appconfig list-deleted --query "[?name=='{name:appcs}'].name"
+        until: { json: { path: "", equals: ["{name:appcs}"] } }
+      - appconfig show-deleted --name {name:appcs}
+    command: appconfig purge --name {name:appcs} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - appconfig delete --name {name:appcs} --resource-group {rg} --yes
+      - appconfig purge --name {name:appcs} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  - id: appconfig-recover
+    operations: [Microsoft.AppConfiguration ConfigurationStores Create]
+    note: Samples appconfig recover (a create with createMode Recover).
+    setup:
+      - group create --name {rg} --location {location}
+      - appconfig create --name {name:appcs} --resource-group {rg} --location {location} --sku Standard
+      - appconfig delete --name {name:appcs} --resource-group {rg} --yes
+      - appconfig recover --name {name:appcs} --resource-group {rg} --yes
+    command: appconfig show --name {name:appcs} --resource-group {rg} --query name -o tsv
+    expect:
+      stdout: { equals: "{name:appcs}" }
+    cleanup:
+      - appconfig delete --name {name:appcs} --resource-group {rg} --yes
+      - appconfig purge --name {name:appcs} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  # --- The data plane (samples appconfig kv set/list/show) ---
+
+  - id: appconfig-kv-set-show
+    operations:
+      [
+        Microsoft.AppConfiguration Microsoft.AppConfiguration PutKeyValue,
+        Microsoft.AppConfiguration Microsoft.AppConfiguration GetKeyValue,
+      ]
+    pr: true
+    setup:
+      - group create --name {rg} --location {location}
+      - appconfig create --name {name:appcs} --resource-group {rg} --location {location} --sku Standard
+      - appconfig kv set --name {name:appcs} --key ui:color --value teal --label prod --yes
+    command: appconfig kv show --name {name:appcs} --key ui:color --label prod --query value -o tsv
+    expect:
+      stdout: { equals: teal }
+    cleanup:
+      - appconfig delete --name {name:appcs} --resource-group {rg} --yes
+      - appconfig purge --name {name:appcs} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  - id: appconfig-kv-list
+    operations:
+      [
+        Microsoft.AppConfiguration Microsoft.AppConfiguration GetKeyValues,
+        Microsoft.AppConfiguration Microsoft.AppConfiguration GetRevisions,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - appconfig create --name {name:appcs} --resource-group {rg} --location {location} --sku Standard
+      - appconfig kv set --name {name:appcs} --key app:one --value 1 --yes
+      - appconfig kv set --name {name:appcs} --key app:two --value 2 --yes
+      - run: appconfig kv list --name {name:appcs} --key "app:*" --query "sort([].key)"
+        until: { json: { path: "", equals: ["app:one", "app:two"] } }
+    command: appconfig revision list --name {name:appcs} --key app:one --query "[].value"
+    expect:
+      json: { path: "", contains: "1" }
+    cleanup:
+      - appconfig delete --name {name:appcs} --resource-group {rg} --yes
+      - appconfig purge --name {name:appcs} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  - id: appconfig-kv-lock-delete
+    operations:
+      [
+        Microsoft.AppConfiguration Microsoft.AppConfiguration PutLock,
+        Microsoft.AppConfiguration Microsoft.AppConfiguration DeleteLock,
+        Microsoft.AppConfiguration Microsoft.AppConfiguration DeleteKeyValue,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - appconfig create --name {name:appcs} --resource-group {rg} --location {location} --sku Standard
+      - appconfig kv set --name {name:appcs} --key feature:beta --value on --yes
+      - run: appconfig kv lock --name {name:appcs} --key feature:beta --yes
+        until: { json: { path: locked, equals: true } }
+      - run: appconfig kv unlock --name {name:appcs} --key feature:beta --yes
+        until: { json: { path: locked, equals: false } }
+    command: appconfig kv delete --name {name:appcs} --key feature:beta --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - appconfig delete --name {name:appcs} --resource-group {rg} --yes
+      - appconfig purge --name {name:appcs} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  - id: appconfig-dp-keys-labels
+    operations:
+      [
+        Microsoft.AppConfiguration Microsoft.AppConfiguration GetKeys,
+        Microsoft.AppConfiguration Microsoft.AppConfiguration GetLabels,
+        Microsoft.AppConfiguration Microsoft.AppConfiguration CheckKeys,
+        Microsoft.AppConfiguration Microsoft.AppConfiguration CheckLabels,
+        Microsoft.AppConfiguration Microsoft.AppConfiguration CheckKeyValues,
+        Microsoft.AppConfiguration Microsoft.AppConfiguration CheckKeyValue,
+        Microsoft.AppConfiguration Microsoft.AppConfiguration CheckRevisions,
+      ]
+    note: The data-plane REST calls az has no verb for, against the store endpoint (a local host).
+    setup:
+      - group create --name {rg} --location {location}
+      - run: appconfig create --name {name:appcs} --resource-group {rg} --location {location} --sku Standard --query endpoint -o tsv
+        capture: endpoint
+      - appconfig kv set --name {name:appcs} --key app:one --value 1 --label prod --yes
+      - rest --method head --url {endpoint}/keys?api-version=2023-10-01 --resource https://azconfig.io
+      - rest --method head --url {endpoint}/labels?api-version=2023-10-01 --resource https://azconfig.io
+      - rest --method head --url {endpoint}/kv?api-version=2023-10-01 --resource https://azconfig.io
+      - rest --method head --url "{endpoint}/kv/app:one?api-version=2023-10-01&label=prod" --resource https://azconfig.io
+      - rest --method head --url {endpoint}/revisions?api-version=2023-10-01 --resource https://azconfig.io
+      - run: rest --method get --url {endpoint}/labels?api-version=2023-10-01 --resource https://azconfig.io
+        until: { stdout: { contains: prod } }
+    command: rest --method get --url {endpoint}/keys?api-version=2023-10-01 --resource https://azconfig.io
+    expect:
+      json: { path: "items[0].name", equals: "app:one" }
+    cleanup:
+      - appconfig delete --name {name:appcs} --resource-group {rg} --yes
+      - appconfig purge --name {name:appcs} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  - id: appconfig-snapshots
+    operations:
+      [
+        Microsoft.AppConfiguration Microsoft.AppConfiguration CreateSnapshot,
+        Microsoft.AppConfiguration Microsoft.AppConfiguration GetOperationDetails,
+        Microsoft.AppConfiguration Microsoft.AppConfiguration GetSnapshot,
+        Microsoft.AppConfiguration Microsoft.AppConfiguration GetSnapshots,
+        Microsoft.AppConfiguration Microsoft.AppConfiguration CheckSnapshot,
+        Microsoft.AppConfiguration Microsoft.AppConfiguration CheckSnapshots,
+        Microsoft.AppConfiguration Microsoft.AppConfiguration UpdateSnapshot,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - run: appconfig create --name {name:appcs} --resource-group {rg} --location {location} --sku Standard --query endpoint -o tsv
+        capture: endpoint
+      - appconfig kv set --name {name:appcs} --key app:one --value 1 --yes
+      - >-
+        appconfig snapshot create --name {name:appcs} --snapshot-name release-1 --filters '{"key": "app:*"}'
+      - run: appconfig snapshot show --name {name:appcs} --snapshot-name release-1 --query status -o tsv
+        until: { stdout: { equals: ready } }
+      - run: appconfig snapshot list --name {name:appcs} --query "[].name"
+        until: { json: { path: "", equals: [release-1] } }
+      - rest --method head --url {endpoint}/snapshots/release-1?api-version=2023-10-01 --resource https://azconfig.io
+      - rest --method head --url {endpoint}/snapshots?api-version=2023-10-01 --resource https://azconfig.io
+    command: appconfig snapshot archive --name {name:appcs} --snapshot-name release-1
+    expect:
+      json: { path: status, equals: archived }
+    cleanup:
+      - appconfig delete --name {name:appcs} --resource-group {rg} --yes
+      - appconfig purge --name {name:appcs} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  # --- ARM children ---
+
+  - id: appconfig-arm-keyvalues-snapshots
+    operations:
+      [
+        Microsoft.AppConfiguration KeyValues CreateOrUpdate,
+        Microsoft.AppConfiguration KeyValues Get,
+        Microsoft.AppConfiguration KeyValues Delete,
+        Microsoft.AppConfiguration Snapshots Create,
+        Microsoft.AppConfiguration Snapshots Get,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - appconfig create --name {name:appcs} --resource-group {rg} --location {location} --sku Standard
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.AppConfiguration/configurationStores/{name:appcs}/keyValues/arm-key?api-version=2023-03-01
+        --body '{"properties": {"value": "from-arm", "contentType": "text/plain"}}'
+      - run: >-
+          rest --method get
+          --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.AppConfiguration/configurationStores/{name:appcs}/keyValues/arm-key?api-version=2023-03-01
+        until: { json: { path: properties.value, equals: from-arm } }
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.AppConfiguration/configurationStores/{name:appcs}/snapshots/arm-snap?api-version=2023-03-01
+        --body '{"properties": {"filters": [{"key": "*"}]}}'
+      - run: >-
+          rest --method get
+          --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.AppConfiguration/configurationStores/{name:appcs}/snapshots/arm-snap?api-version=2023-03-01
+        until: { json: { path: name, equals: arm-snap } }
+    command: >-
+      rest --method delete
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.AppConfiguration/configurationStores/{name:appcs}/keyValues/arm-key?api-version=2023-03-01
+    expect:
+      exitCode: 0
+    cleanup:
+      - appconfig delete --name {name:appcs} --resource-group {rg} --yes
+      - appconfig purge --name {name:appcs} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  - id: appconfig-replicas
+    operations:
+      [
+        Microsoft.AppConfiguration Replicas Create,
+        Microsoft.AppConfiguration Replicas Get,
+        Microsoft.AppConfiguration Replicas ListByConfigurationStore,
+        Microsoft.AppConfiguration Replicas Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - appconfig create --name {name:appcs} --resource-group {rg} --location {location} --sku Standard
+      - appconfig replica create --store-name {name:appcs} --resource-group {rg} --name neu --location northeurope
+      - run: appconfig replica show --store-name {name:appcs} --resource-group {rg} --name neu --query location -o tsv
+        until: { stdout: { equals: northeurope } }
+      - run: appconfig replica list --store-name {name:appcs} --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: [neu] } }
+    command: appconfig replica delete --store-name {name:appcs} --resource-group {rg} --name neu --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - appconfig delete --name {name:appcs} --resource-group {rg} --yes
+      - appconfig purge --name {name:appcs} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  - id: appconfig-operations-names
+    operations:
+      [
+        Microsoft.AppConfiguration Operations CheckNameAvailability,
+        Microsoft.AppConfiguration Operations RegionalCheckNameAvailability,
+        Microsoft.AppConfiguration Operations List,
+      ]
+    setup:
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/providers/Microsoft.AppConfiguration/locations/{location}/checkNameAvailability?api-version=2023-03-01
+        --body '{"name": "{name:appcs}", "type": "Microsoft.AppConfiguration/configurationStores"}'
+      - rest --method get --url /providers/Microsoft.AppConfiguration/operations?api-version=2023-03-01
+    command: >-
+      rest --method post
+      --url /subscriptions/{sub}/providers/Microsoft.AppConfiguration/checkNameAvailability?api-version=2023-03-01
+      --body '{"name": "{name:appcs}", "type": "Microsoft.AppConfiguration/configurationStores"}'
+    expect:
+      json: { path: nameAvailable, equals: true }
+
+  - id: appconfig-private-link-resources
+    operations:
+      [
+        Microsoft.AppConfiguration PrivateLinkResources ListByConfigurationStore,
+        Microsoft.AppConfiguration PrivateLinkResources Get,
+        Microsoft.AppConfiguration PrivateEndpointConnections ListByConfigurationStore,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - appconfig create --name {name:appcs} --resource-group {rg} --location {location} --sku Standard
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.AppConfiguration/configurationStores/{name:appcs}/privateLinkResources?api-version=2023-03-01
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.AppConfiguration/configurationStores/{name:appcs}/privateLinkResources/configurationStores?api-version=2023-03-01
+    command: >-
+      rest --method get
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.AppConfiguration/configurationStores/{name:appcs}/privateEndpointConnections?api-version=2023-03-01
+    expect:
+      json: { path: value, length: 0 }
+    cleanup:
+      - appconfig delete --name {name:appcs} --resource-group {rg} --yes
+      - appconfig purge --name {name:appcs} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  - id: appconfig-private-endpoint-connection
+    operations:
+      [
+        Microsoft.AppConfiguration PrivateEndpointConnections Get,
+        Microsoft.AppConfiguration PrivateEndpointConnections CreateOrUpdate,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        network vnet create --name {name:vnet} --resource-group {rg} --address-prefixes 10.31.0.0/16
+        --subnet-name endpoints --subnet-prefixes 10.31.1.0/24
+      - run: appconfig create --name {name:appcs} --resource-group {rg} --location {location} --sku Standard --query id -o tsv
+        capture: store_id
+      - >-
+        network private-endpoint create --name {name:pe} --resource-group {rg} --vnet-name {name:vnet}
+        --subnet endpoints --private-connection-resource-id {store_id} --group-id configurationStores
+        --connection-name appcs
+      - run: >-
+          rest --method get
+          --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.AppConfiguration/configurationStores/{name:appcs}/privateEndpointConnections?api-version=2023-03-01
+          --query "value[0].name" -o tsv
+        capture: pec
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.AppConfiguration/configurationStores/{name:appcs}/privateEndpointConnections/{pec}?api-version=2023-03-01
+    command: >-
+      rest --method put
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.AppConfiguration/configurationStores/{name:appcs}/privateEndpointConnections/{pec}?api-version=2023-03-01
+      --body '{"properties": {"privateLinkServiceConnectionState": {"status": "Approved", "description": "l2"}}}'
+    expect:
+      json: { path: properties.privateLinkServiceConnectionState.status, equals: Approved }
+    cleanup:
+      - appconfig delete --name {name:appcs} --resource-group {rg} --yes
+      - appconfig purge --name {name:appcs} --yes
+      - group delete --name {rg} --yes --no-wait
+
+  - id: appconfig-list-key-value
+    operations: [Microsoft.AppConfiguration ConfigurationStores ListKeyValue]
+    setup:
+      - group create --name {rg} --location {location}
+      - appconfig create --name {name:appcs} --resource-group {rg} --location {location} --sku Standard
+      - appconfig kv set --name {name:appcs} --key app:one --value 1 --yes
+    command: >-
+      rest --method post
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.AppConfiguration/configurationStores/{name:appcs}/listKeyValue?api-version=2019-10-01
+      --body '{"key": "app:one"}'
+    expect:
+      json: { path: value, equals: "1" }
+    cleanup:
+      - appconfig delete --name {name:appcs} --resource-group {rg} --yes
+      - appconfig purge --name {name:appcs} --yes
+      - group delete --name {rg} --yes --no-wait

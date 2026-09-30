@@ -1,0 +1,160 @@
+# Microsoft.ManagedIdentity: user-assigned identities and their federated credentials.
+provider: Microsoft.ManagedIdentity
+cases:
+  - id: identity-create
+    operations: [Microsoft.ManagedIdentity UserAssignedIdentities CreateOrUpdate]
+    pr: true
+    setup:
+      - group create --name {rg} --location {location}
+    command: identity create --name {name:id} --resource-group {rg} --location {location}
+    expect:
+      json:
+        - { path: name, equals: "{name:id}" }
+        - { path: principalId, matches: "^[0-9a-f-]{36}$" }
+        - { path: clientId, matches: "^[0-9a-f-]{36}$" }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: identity-show-list
+    operations:
+      [
+        Microsoft.ManagedIdentity UserAssignedIdentities Get,
+        Microsoft.ManagedIdentity UserAssignedIdentities ListByResourceGroup,
+        Microsoft.ManagedIdentity UserAssignedIdentities ListBySubscription,
+      ]
+    pr: true
+    setup:
+      - group create --name {rg} --location {location}
+      - identity create --name {name:id} --resource-group {rg} --location {location}
+      - run: identity show --name {name:id} --resource-group {rg}
+        until: { json: { path: name, equals: "{name:id}" } }
+      - run: identity list --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: ["{name:id}"] } }
+    command: identity list --query "[?name=='{name:id}'].resourceGroup"
+    expect:
+      json: { path: "", equals: ["{rg}"] }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: identity-update
+    operations: [Microsoft.ManagedIdentity UserAssignedIdentities Update]
+    setup:
+      - group create --name {rg} --location {location}
+      - identity create --name {name:id} --resource-group {rg} --location {location}
+    command: identity update --name {name:id} --resource-group {rg} --tags matrix=l2
+    expect:
+      json: { path: tags.matrix, equals: l2 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: identity-delete
+    operations: [Microsoft.ManagedIdentity UserAssignedIdentities Delete]
+    note: Samples run `identity delete`.
+    setup:
+      - group create --name {rg} --location {location}
+      - identity create --name {name:id} --resource-group {rg} --location {location}
+    command: identity delete --name {name:id} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: identity-list-operations
+    operations: [Microsoft.ManagedIdentity Operations List]
+    command: identity list-operations --query "length(@) > `0`"
+    expect:
+      json: { path: "", equals: true }
+
+  - id: identity-list-resources
+    operations: [Microsoft.ManagedIdentity UserAssignedIdentities ListAssociatedResources]
+    setup:
+      - group create --name {rg} --location {location}
+      - identity create --name {name:id} --resource-group {rg} --location {location}
+    command: identity list-resources --name {name:id} --resource-group {rg}
+    expect:
+      json: { path: "", length: 0 }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: identity-federated-credential-create
+    operations: [Microsoft.ManagedIdentity FederatedIdentityCredentials CreateOrUpdate]
+    setup:
+      - group create --name {rg} --location {location}
+      - identity create --name {name:id} --resource-group {rg} --location {location}
+    command: >-
+      identity federated-credential create --name github-main --identity-name {name:id}
+      --resource-group {rg} --issuer https://token.actions.githubusercontent.com
+      --subject repo:localstack/l2-matrix:ref:refs/heads/main --audiences api://AzureADTokenExchange
+    expect:
+      json: { path: subject, equals: "repo:localstack/l2-matrix:ref:refs/heads/main" }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: identity-federated-credential-read
+    operations:
+      [
+        Microsoft.ManagedIdentity FederatedIdentityCredentials Get,
+        Microsoft.ManagedIdentity FederatedIdentityCredentials List,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - identity create --name {name:id} --resource-group {rg} --location {location}
+      - >-
+        identity federated-credential create --name github-main --identity-name {name:id}
+        --resource-group {rg} --issuer https://token.actions.githubusercontent.com
+        --subject repo:localstack/l2-matrix:ref:refs/heads/main --audiences api://AzureADTokenExchange
+      - run: identity federated-credential show --name github-main --identity-name {name:id} --resource-group {rg}
+        until: { json: { path: issuer, equals: "https://token.actions.githubusercontent.com" } }
+    command: identity federated-credential list --identity-name {name:id} --resource-group {rg} --query "[].name"
+    expect:
+      json: { path: "", equals: [github-main] }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: identity-federated-credential-delete
+    operations: [Microsoft.ManagedIdentity FederatedIdentityCredentials Delete]
+    setup:
+      - group create --name {rg} --location {location}
+      - identity create --name {name:id} --resource-group {rg} --location {location}
+      - >-
+        identity federated-credential create --name github-main --identity-name {name:id}
+        --resource-group {rg} --issuer https://token.actions.githubusercontent.com
+        --subject repo:localstack/l2-matrix:ref:refs/heads/main --audiences api://AzureADTokenExchange
+    command: >-
+      identity federated-credential delete --name github-main --identity-name {name:id}
+      --resource-group {rg} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: identity-revoke-tokens
+    operations: [Microsoft.ManagedIdentity UserAssignedIdentities RevokeTokens]
+    setup:
+      - group create --name {rg} --location {location}
+      - identity create --name {name:id} --resource-group {rg} --location {location}
+    command: >-
+      rest --method post
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/{name:id}/revokeTokens?api-version=2023-01-31
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        The emulator gates the operation off, POST .../revokeTokens
+        answers HTTP 400 "Revoke Tokens feature is not enabled".
+      date: 2026-09-27
+
+  - id: identity-system-assigned-by-scope
+    operations: [Microsoft.ManagedIdentity SystemAssignedIdentities GetByScope]
+    command: >-
+      rest --method get
+      --url /subscriptions/{sub}/providers/Microsoft.ManagedIdentity/identities/default?api-version=2023-01-31
+    expect:
+      json: { path: type, equals: Microsoft.ManagedIdentity/identities }
+    known_gap:
+      reason: >-
+        The emulator raises ValueError "Invalid resource ID format" on
+        the subscription-scope variant of GetByScope.
+      date: 2026-09-27
