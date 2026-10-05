@@ -37,6 +37,15 @@ interface FileArgsTable {
 const GENERATED_TABLE: FileArgsTable = require("./az-file-args.generated.json");
 
 /**
+ * Every word of every az command name (groups and subcommands), from az's command table
+ * (`scripts/gen-az-file-args.py --command-words`). The analytics command_path keeps only these.
+ */
+const COMMAND_WORDS: ReadonlySet<string> = new Set(
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  (require("./az-command-words.generated.json") as { words: string[] }).words
+);
+
+/**
  * Path arguments az 2.87 does NOT annotate with `file_type` or a file/directory completer, so
  * the generated table misses them, yet they read or write a local path outside the workdir.
  * Only the LOCAL side of each is listed: for `download-batch`
@@ -1020,9 +1029,9 @@ function detectBicep(argv: string[]): boolean {
 
 /**
  * Derive the value-free analytics fields. A secret value must never appear in any of
- * them: `command_path` is only the leading command words (values come after a flag or are
- * quoted), and `flag_names` keeps only each flag's name (`--flag=value` and a value stuck to a
- * short option, `-pS3cret`, lose their value).
+ * them: `command_path` is only the leading words az's command table knows, so a positional
+ * value (`find <term>`) or an unknown command never reaches it, and `flag_names` keeps only each
+ * flag's name (`--flag=value` and a value stuck to a short option, `-pS3cret`, lose their value).
  */
 export function analyticsFields(
   command: string,
@@ -1030,11 +1039,12 @@ export function analyticsFields(
 ): { command_path: string; flag_names: string; policy_outcome: string } {
   const argv = policy.argv ?? argvForAnalytics(command);
 
-  // command_path: only the leading command words. Values sit after a flag or a quote, so they
-  // never reach here (and the strict word shape excludes anything with a symbol or upper case).
+  // command_path: the leading words that are az command words. It stops at the first other
+  // token, so a positional value (`find <term>`) or an unknown command never reaches it; a value
+  // can only appear here if it is itself an az command word, which is public.
   const commandWords: string[] = [];
   for (const token of argv) {
-    if (START_TOKEN.test(token)) commandWords.push(token);
+    if (START_TOKEN.test(token) && COMMAND_WORDS.has(token)) commandWords.push(token);
     else break;
   }
 

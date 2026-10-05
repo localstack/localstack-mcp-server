@@ -33,6 +33,13 @@ How to run (offline; never touches the real ~/.azure)
     AZURE_CONFIG_DIR=<a fresh throwaway dir> \
         python scripts/gen-az-file-args.py > src/lib/azure/az-file-args.generated.json
 
+With `--command-words` it writes, instead, every word of every az command name (groups and
+subcommands). policy.ts keeps a word in the analytics command_path only if it is in that list, so
+a positional value (`az find <term>`) or an unknown command never reaches analytics:
+
+    AZURE_CONFIG_DIR=<a fresh throwaway dir> \
+        python scripts/gen-az-file-args.py --command-words > src/lib/azure/az-command-words.generated.json
+
 The image pins azure-cli 2.90 plus 26 curated extensions (docker/azure-extensions.txt). Whoever
 regenerates on a pin move should install those extensions first, so extension
 commands (cdn/afd, k8s-*, fleet, ...) are covered too. On the machine that produced the checked-in
@@ -84,6 +91,10 @@ def main() -> "None":
     create_invoker_and_load_cmds_and_args(cli)
     parser = cli.invocation.parser
 
+    if "--command-words" in sys.argv[1:]:
+        _write_command_words(core, parser)
+        return
+
     commands: "dict[str, dict]" = {}
     file_arg_count = 0
     for name, subparser in parser.subparser_map.items():
@@ -115,13 +126,7 @@ def main() -> "None":
                 entry["positional"] = True
             commands[name] = entry
 
-    extensions = []
-    try:
-        from azure.cli.core.extension import get_extensions
-
-        extensions = sorted(e.name for e in get_extensions())
-    except Exception:  # pragma: no cover - best effort
-        extensions = []
+    extensions = _installed_extensions()
 
     document = {
         "_metadata": {
@@ -159,6 +164,46 @@ def main() -> "None":
     sys.stderr.write(
         f"az {core.__version__}: {len(parser.subparser_map)} commands, "
         f"{len(commands)} with file args, {file_arg_count} file arguments\n"
+    )
+
+
+def _installed_extensions() -> "list[str]":
+    try:
+        from azure.cli.core.extension import get_extensions
+
+        return sorted(e.name for e in get_extensions())
+    except Exception:  # pragma: no cover - best effort
+        return []
+
+
+def _write_command_words(core, parser) -> "None":
+    """Every word of every command name: the analytics command_path allowlist in policy.ts."""
+    words = sorted({word for name in parser.subparser_map for word in name.split()})
+    document = {
+        "_metadata": {
+            "generator": "scripts/gen-az-file-args.py --command-words",
+            "description": (
+                "Every word of every az command name (groups and subcommands), from az's command "
+                "table. policy.ts keeps a word in the analytics command_path only if it is listed "
+                "here, so a positional value or an unknown command never reaches analytics. "
+                "Regenerated on an az pin move."
+            ),
+            "az_version": core.__version__,
+            "python_version": platform.python_version(),
+            "platform": sys.platform,
+            "generated_utc": datetime.datetime.now(datetime.timezone.utc)
+            .isoformat(timespec="seconds")
+            .replace("+00:00", "Z"),
+            "command_count": len(parser.subparser_map),
+            "word_count": len(words),
+            "extensions_installed": _installed_extensions(),
+        },
+        "words": words,
+    }
+    sys.stdout.write(json.dumps(document, indent=2, ensure_ascii=False))
+    sys.stdout.write("\n")
+    sys.stderr.write(
+        f"az {core.__version__}: {len(parser.subparser_map)} commands, {len(words)} command words\n"
     )
 
 

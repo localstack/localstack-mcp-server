@@ -775,6 +775,19 @@ describe("analyticsFields: value-free", () => {
     expect(fields.policy_outcome).toBe("ok");
   });
 
+  test("command_path keeps only az command words: a positional value or an unknown command stops it", () => {
+    const cases: Array<[string, string]> = [
+      ["find supersecret", "find"],
+      ['find "how to create a vm"', "find"],
+      ["foo supersecret", ""],
+      ["group show my-resource-group", "group show"],
+      ["storage account create -n st1 -g rg", "storage account create"],
+    ];
+    for (const [command, path] of cases) {
+      expect(analyticsFields(command, evalCmd(command)).command_path).toBe(path);
+    }
+  });
+
   test("a value stuck to a short option is cut off: -pS3cret is -p (az accepts that form)", () => {
     const sql = "sql server create -g rg -n srv -u adminuser -pS3cretPass1x";
     expect(analyticsFields(sql, evalCmd(sql)).flag_names).toBe("-g,-n,-u,-p");
@@ -811,6 +824,12 @@ describe("analyticsFields: value-free", () => {
       for (let i = 0; i < len; i++) s += alphabet[Math.floor(Math.random() * alphabet.length)];
       return s;
     };
+    const randomWord = (): string => {
+      const letters = "abcdefghijklmnopqrstuvwxyz0123456789";
+      let s = "s";
+      for (let i = 0; i < 15; i++) s += letters[Math.floor(Math.random() * letters.length)];
+      return s;
+    };
     for (let i = 0; i < 400; i++) {
       const secret = randomSecret();
       const commands = [
@@ -827,6 +846,13 @@ describe("analyticsFields: value-free", () => {
         const fields = analyticsFields(command, policy);
         for (const value of Object.values(fields)) {
           expect(value.includes(secret)).toBe(false);
+        }
+      }
+      // A secret shaped like a command word, as a positional value or as the command itself.
+      const word = randomWord();
+      for (const command of [`find ${word}`, `${word} ${word}`, `group show ${word}`]) {
+        for (const value of Object.values(analyticsFields(command, evalCmd(command)))) {
+          expect(value.includes(word)).toBe(false);
         }
       }
     }

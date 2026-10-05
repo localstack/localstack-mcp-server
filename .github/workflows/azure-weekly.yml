@@ -267,16 +267,21 @@ jobs:
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
           AZURE_DR4: "1"
           AZURE_SAMPLES_DIR: ${{ runner.temp }}/samples-latest
-      - name: DR4 — the generated file-argument table is current for the pinned az
+      - name: DR4 — the generated file-argument table and command words are current for the pinned az
         run: |
           export AZURE_CONFIG_DIR="$RUNNER_TEMP/gen-az-config" AZURE_EXTENSION_DIR="$HOME/.localstack/azure/mcp-extensions"
           ~/az/bin/python3 scripts/gen-az-file-args.py > "$RUNNER_TEMP/az-file-args.json"
+          ~/az/bin/python3 scripts/gen-az-file-args.py --command-words > "$RUNNER_TEMP/az-command-words.json"
           node -e "
             const a = require(process.argv[1]).commands, b = require('./src/lib/azure/az-file-args.generated.json').commands;
             const diff = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
             if (diff.length) { console.error('az-file-args.generated.json is stale for', diff.length, 'commands:', diff.slice(0, 20).join(', ')); process.exit(1); }
             console.log('file-argument table current');
-          " "$RUNNER_TEMP/az-file-args.json"
+            const w = require(process.argv[2]).words, v = require('./src/lib/azure/az-command-words.generated.json').words;
+            const missing = w.filter((x) => !v.includes(x)), extra = v.filter((x) => !w.includes(x));
+            if (missing.length || extra.length) { console.error('az-command-words.generated.json is stale:', missing.length, 'words missing,', extra.length, 'extra:', [...missing, ...extra].slice(0, 20).join(', ')); process.exit(1); }
+            console.log('command words current');
+          " "$RUNNER_TEMP/az-file-args.json" "$RUNNER_TEMP/az-command-words.json"
       - name: Emulator logs
         if: always()
         run: mkdir -p emulator-logs && docker logs "$AZURE_CI_EMULATOR_CONTAINER" > emulator-logs/emulator.log 2>&1 || true
