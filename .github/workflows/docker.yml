@@ -9,10 +9,7 @@ on:
       - "src/**"
       - "package.json"
       - "yarn.lock"
-      - "docker/**"
-      - "data/sample-azure/**"
       - "tests/docker/**"
-      - "scripts/ci/azure-emulator-up.sh"
       - ".github/workflows/docker.yml"
   push:
     branches: [main]
@@ -21,9 +18,6 @@ on:
 
 env:
   IMAGE_NAME: localstack/localstack-mcp-server
-  # The image's pins (Dockerfile ARG AZURE_CLI_VERSION, the Bicep stage); L5 checks them.
-  AZ_EXPECTED: "2.90.0"
-  BICEP_EXPECTED: "0.47.16"
 
 jobs:
   smoke:
@@ -42,8 +36,8 @@ jobs:
           context: .
           load: true
           tags: ${{ env.IMAGE_NAME }}:ci
-          cache-from: type=gha,scope=amd64
-          cache-to: type=gha,mode=max,scope=amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Use Node.js 22
         uses: actions/setup-node@v4
@@ -52,48 +46,18 @@ jobs:
 
       - name: Smoke test MCP startup
         env:
-          HARNESS_SKIP: prompt,docs,status,start,aws,logs,state,cloudpods,appinspector,chaos,iam,replicator,ephemeral,deploy,deploy-cdk,extensions,restart,stop,snowflake,azure
+          HARNESS_SKIP: prompt,docs,status,start,aws,logs,state,cloudpods,appinspector,chaos,iam,replicator,ephemeral,deploy,deploy-cdk,extensions,restart,stop,snowflake
         run: |
           node tests/docker/validate-image.mjs -- \
             docker run -i --rm \
               ${{ env.IMAGE_NAME }}:ci
 
-      # L5. The absence checks run before any az command in the container.
-      - name: L5 image assertions (az, extensions, Bicep, no build leftovers)
-        run: |
-          docker run --rm --entrypoint /bin/sh \
-            -v "$PWD/docker/azure-extensions.txt:/l5/azure-extensions.txt:ro" \
-            -v "$PWD/tests/docker/l5-image-assertions.sh:/l5/assert.sh:ro" \
-            -e AZ_EXPECTED -e BICEP_EXPECTED \
-            ${{ env.IMAGE_NAME }}:ci /l5/assert.sh
-
-      # The stage images for the size gate: all hits in this job's builder cache, which the
-      # build above filled (a run step gets no gha cache token, so none is named here).
-      - name: Build the stage images for the size gate
-        run: |
-          for stage in runtime-base runtime-az runtime-bicep; do
-            docker buildx build --load --target "$stage" -t "${IMAGE_NAME}:stage-$stage" .
-          done
-
-      - name: L5 size gate (compressed)
-        run: |
-          node tests/docker/image-size.mjs \
-            --base "${IMAGE_NAME}:stage-runtime-base" \
-            --az "${IMAGE_NAME}:stage-runtime-az" \
-            --bicep "${IMAGE_NAME}:stage-runtime-bicep" \
-            --final "${IMAGE_NAME}:ci" \
-            --record docker/image-size.json
-
-      # The whole scenario in two runs with the same token, whose licence must cover AWS,
-      # Snowflake and Azure: AWS and Snowflake, then the Azure stage. The Azure stage starts its
-      # own emulator (bound to 0.0.0.0, so the forwarder's host.docker.internal path reaches it),
-      # and runs even when the first run fails.
-      - name: Integration test Docker runtime (AWS and Snowflake)
+      - name: Integration test Docker runtime
         if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
         env:
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
           HARNESS_TOKEN_REAL: ${{ secrets.LOCALSTACK_AUTH_TOKEN != '' && '1' || '0' }}
-          HARNESS_SKIP: cloudpods,ephemeral,replicator,chaos,azure
+          HARNESS_SKIP: cloudpods,ephemeral,replicator,chaos
         run: |
           npm ci --prefix data/sample-cdk
           node tests/docker/validate-image.mjs -- \
@@ -107,162 +71,9 @@ jobs:
               -v "$PWD/data:/work/data" \
               ${{ env.IMAGE_NAME }}:ci
 
-      - name: Integration test Docker runtime (the Azure stage)
-        if: ${{ !cancelled() && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) }}
-        env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
-          HARNESS_TOKEN_REAL: ${{ secrets.LOCALSTACK_AUTH_TOKEN != '' && '1' || '0' }}
-          HARNESS_ONLY: azure
-          HARNESS_AZURE_EXTENSIONS: "1"
-          HARNESS_AZURE_FORWARDER: "1"
-          HARNESS_AZURE_BICEP: "1"
-        run: |
-          node tests/docker/validate-image.mjs -- \
-            docker run -i --rm \
-              -v /var/run/docker.sock:/var/run/docker.sock \
-              --add-host host.docker.internal:host-gateway \
-              -e LOCALSTACK_AUTH_TOKEN \
-              -e LOCALSTACK_HOSTNAME=host.docker.internal \
-              -e LOCALSTACK_AZ_TEST_ENVELOPE=1 \
-              -v "$PWD/data:/work/data" \
-              ${{ env.IMAGE_NAME }}:ci
-
-  # L5 on a Linux engine against an emulator published on 127.0.0.1 only, as lstk and
-  # `localstack start` publish it: host.docker.internal cannot reach it, so the forwarder
-  # must fall back to the container's IP. Also restarts the emulator mid-session, and
-  # checks the hard error for a missing LOCALSTACK_AZ_BICEP_PATH.
-  azure-loopback:
-    name: L5 Azure (127.0.0.1-published emulator, restart)
-    needs: smoke
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    env:
-      LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
-      AZURE_CI_EMULATOR_CONTAINER: ls-azure-l5
-      AZURE_EMULATOR_LOG_DIR: emulator-logs
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build image (cache hits after the smoke job)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          load: true
-          tags: ${{ env.IMAGE_NAME }}:ci
-          cache-from: type=gha,scope=amd64
-
-      - name: Use Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.x
-
-      - name: Start this job's own Azure emulator on 127.0.0.1
-        run: bash scripts/ci/azure-emulator-up.sh
-
-      # This job's Bicep checks use a mounted binary instead of the bundled one, the way
-      # docs/DOCKER.md shows (the smoke job's integration run covers the bundled one).
-      - name: The pinned Bicep, sha256-checked, to mount over the bundled one
-        run: |
-          mkdir -p "$RUNNER_TEMP/bicep-mount"
-          curl -fsSL -o "$RUNNER_TEMP/bicep-mount/bicep" \
-            "https://github.com/Azure/bicep/releases/download/v${BICEP_EXPECTED}/bicep-linux-x64"
-          echo "64c345a58e0c3e48b1bc98a4e62d6b3adb1d238281297de3400aeafb2697aa5a  $RUNNER_TEMP/bicep-mount/bicep" | sha256sum -c -
-          chmod +x "$RUNNER_TEMP/bicep-mount/bicep"
-
-      - name: Azure stage through the image (fallback forwarder path, mounted Bicep, restart)
-        env:
-          HARNESS_ONLY: azure
-          HARNESS_AZURE_EXTERNAL: "1"
-          HARNESS_AZURE_EXTENSIONS: "1"
-          HARNESS_AZURE_FORWARDER: "1"
-          HARNESS_AZURE_BICEP: "1"
-          HARNESS_AZURE_RESTART_CONTAINER: ls-azure-l5
-        run: |
-          node tests/docker/validate-image.mjs -- \
-            docker run -i --rm \
-              -v /var/run/docker.sock:/var/run/docker.sock \
-              --add-host host.docker.internal:host-gateway \
-              -e LOCALSTACK_AUTH_TOKEN \
-              -e MAIN_CONTAINER_NAME=ls-azure-l5 \
-              -e LOCALSTACK_AZ_TEST_ENVELOPE=1 \
-              -v "$RUNNER_TEMP/bicep-mount/bicep:/opt/bicep/bicep:ro" \
-              -e LOCALSTACK_AZ_BICEP_PATH=/opt/bicep/bicep \
-              -v "$PWD/data:/work/data" \
-              ${{ env.IMAGE_NAME }}:ci
-
-      - name: A missing LOCALSTACK_AZ_BICEP_PATH is a hard error
-        env:
-          HARNESS_ONLY: azure
-          HARNESS_AZURE_EXTERNAL: "1"
-          HARNESS_AZURE_BICEP_MISSING: "1"
-        run: |
-          node tests/docker/validate-image.mjs -- \
-            docker run -i --rm \
-              -v /var/run/docker.sock:/var/run/docker.sock \
-              -e LOCALSTACK_AUTH_TOKEN \
-              -e MAIN_CONTAINER_NAME=ls-azure-l5 \
-              -e LOCALSTACK_AZ_BICEP_PATH=/nonexistent/bicep \
-              -v "$PWD/data:/work/data" \
-              ${{ env.IMAGE_NAME }}:ci
-
-      - name: Emulator logs, then remove this job's container
-        if: always()
-        run: |
-          mkdir -p emulator-logs
-          docker logs ls-azure-l5 > emulator-logs/ls-azure-l5.log 2>&1 || true
-          docker rm -f ls-azure-l5 >/dev/null 2>&1 || true
-
-      - name: Scan the logs for the token before upload
-        id: scan
-        if: failure()
-        run: node scripts/ci/scan-for-secret.mjs --env LOCALSTACK_AUTH_TOKEN emulator-logs
-
-      - name: Upload emulator logs
-        if: failure() && steps.scan.outcome == 'success'
-        uses: actions/upload-artifact@v4
-        with:
-          name: azure-loopback-emulator-logs
-          path: emulator-logs/
-          retention-days: 7
-
-  # L5 on arm64 before anything is published: the push job below is the
-  # only other arm64 build, and it pushes. A native arm64 runner, so the az layers need
-  # no QEMU.
-  arm64-az:
-    name: L5 on arm64
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build image (linux/arm64, load locally)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/arm64
-          load: true
-          tags: ${{ env.IMAGE_NAME }}:ci-arm64
-          cache-from: type=gha,scope=arm64
-          cache-to: type=gha,mode=max,scope=arm64
-
-      - name: L5 image assertions (arm64)
-        run: |
-          docker run --rm --platform linux/arm64 --entrypoint /bin/sh \
-            -v "$PWD/docker/azure-extensions.txt:/l5/azure-extensions.txt:ro" \
-            -v "$PWD/tests/docker/l5-image-assertions.sh:/l5/assert.sh:ro" \
-            -e AZ_EXPECTED -e BICEP_EXPECTED \
-            ${{ env.IMAGE_NAME }}:ci-arm64 /l5/assert.sh
-
   push:
     name: Build & Push (multi-arch)
-    needs: [smoke, arm64-az]
+    needs: smoke
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref_type == 'tag')
     runs-on: ubuntu-latest
     environment:
@@ -296,8 +107,6 @@ jobs:
           flavor: |
             latest=false
 
-      # Reads the per-architecture caches the smoke and arm64-az jobs wrote on this ref,
-      # so the arm64 half needs QEMU only for the layers that changed.
       - name: Build and push (linux/amd64, linux/arm64)
         uses: docker/build-push-action@v6
         with:
@@ -307,10 +116,8 @@ jobs:
           provenance: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: |
-            type=gha,scope=amd64
-            type=gha,scope=arm64
-          cache-to: type=gha,mode=max,scope=multi
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Sync README to Docker Hub overview
         if: github.ref == 'refs/heads/main'

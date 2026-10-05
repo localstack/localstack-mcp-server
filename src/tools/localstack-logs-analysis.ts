@@ -1,12 +1,7 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { LocalStackLogRetriever, type LogEntry } from "../lib/logs/log-retriever";
-import {
-  runPreflights,
-  requireAuthToken,
-  requireLocalStackRunning,
-  requireStack,
-} from "../core/preflight";
+import { runPreflights, requireAuthToken, requireLocalStackRunning } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { withToolAnalytics } from "../core/analytics";
 
@@ -61,15 +56,7 @@ export default async function localstackLogsAnalysis({
     "localstack-logs-analysis",
     { analysisType, lines, service, operation, filter },
     async () => {
-      const preflightError = await runPreflights([
-        requireAuthToken(),
-        analysisType === "logs"
-          ? null
-          : requireStack("aws", "localstack-logs-analysis", {
-              hint: "The summary, errors and requests analyses parse AWS request logs. For another emulator, use analysisType: logs for the raw log output.",
-            }),
-        requireLocalStackRunning(),
-      ]);
+      const preflightError = await runPreflights([requireAuthToken(), requireLocalStackRunning()]);
       if (preflightError) return preflightError;
 
       const retriever = new LocalStackLogRetriever();

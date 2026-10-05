@@ -1,1 +1,0 @@
-hello from the LocalStack MCP server Azure stage

@@ -14,9 +14,8 @@
     "prepack": "yarn build",
     "format": "prettier --write .",
     "test": "jest",
-    "test:mcp:direct": "yarn build && playwright test -c playwright.config.mjs tests/mcp/direct.spec.mjs tests/mcp/azure-offline.spec.mjs",
+    "test:mcp:direct": "yarn build && playwright test -c playwright.config.mjs tests/mcp/direct.spec.mjs",
     "test:mcp:evals": "yarn build && playwright test -c playwright.config.mjs tests/mcp/evals-gemini.spec.mjs",
-    "test:mcp:evals:azure": "yarn build && playwright test -c playwright.config.mjs tests/mcp/evals-gemini-azure.spec.mjs",
     "test:mcp": "yarn test:mcp:direct && yarn test:mcp:evals"
   },
   "dependencies": {
@@ -25,7 +24,6 @@
     "dockerode": "^5.0.1"
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.128.0",
     "@clack/prompts": "^1.5.1",
     "@gleanwork/mcp-server-tester": "1.0.0-beta.6",
     "@playwright/test": "^1.58.2",
@@ -42,7 +40,6 @@
     "ts-jest": "^29.4.1",
     "typescript": "^5.9.2",
     "xmcp": "^0.6.13",
-    "yaml": "2.9.1",
     "zod": "4.3.6"
   },
   "resolutions": {

@@ -1,8 +1,7 @@
 /**
  * Launcher for the published bin. With no recognized subcommand it starts the
  * MCP server exactly as before (dist/stdio.js), so every existing client
- * config keeps working. `init`/`remove` run the setup wizard, and `install-azure-addons`
- * installs the Azure tool's Azure CLI extensions and Bicep.
+ * config keeps working. `init`/`remove` run the setup wizard.
  */
 import * as fs from "fs";
 import * as path from "path";
@@ -32,11 +31,6 @@ async function main(): Promise<void> {
     case "remove": {
       const { runRemove } = await import("./remove");
       process.exit(await runRemove(process.argv.slice(3)));
-      break;
-    }
-    case "install-azure-addons": {
-      const { runInstallAzureAddons } = await import("./azure-addons");
-      process.exit(await runInstallAzureAddons(process.argv.slice(3)));
       break;
     }
     case "help":
