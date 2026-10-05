@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.localstack/localstack-mcp-server",
-  "description": "A LocalStack MCP Server providing essential tools for local cloud development & testing with AWS, Snowflake and Azure",
+  "description": "A LocalStack MCP Server providing essential tools for local cloud development & testing",
   "status": "active",
   "repository": {
     "url": "https://github.com/localstack/localstack-mcp-server",
@@ -157,125 +157,6 @@
           "format": "string",
           "isSecret": false,
           "name": "EXTERNAL_SERVICE_PORTS_END"
-        },
-        {
-          "description": "Gateway port of the LocalStack Azure emulator used by localstack-azure-client (defaults to LOCALSTACK_PORT, then 4566).",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "LOCALSTACK_AZURE_PORT"
-        },
-        {
-          "description": "ARM endpoint override for localstack-azure-client. Must use a local name (localhost.localstack.cloud or a subdomain, localhost, 127.0.0.1, ::1). Defaults to https://azure.localhost.localstack.cloud:<port>.",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "LOCALSTACK_AZURE_ENDPOINT"
-        },
-        {
-          "description": "Docker image the management start action launches for service: azure. Defaults to localstack/localstack-azure:latest.",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "LOCALSTACK_AZURE_IMAGE_NAME"
-        },
-        {
-          "description": "Explicit path to the Azure CLI launcher (az, az.cmd) or its Python. Defaults to a PATH lookup.",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "LOCALSTACK_AZ_PATH"
-        },
-        {
-          "description": "The Azure tool's isolated Azure CLI config dir, never your ~/.azure. Defaults to ~/.localstack/azure/mcp-config-<port>.",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "LOCALSTACK_AZ_CONFIG_DIR"
-        },
-        {
-          "description": "Azure CLI extension dir for the Azure tool. Defaults to ~/.localstack/azure/mcp-extensions (/opt/az-extensions in the Docker image).",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "LOCALSTACK_AZ_EXTENSION_DIR"
-        },
-        {
-          "description": "Explicit Bicep binary for .bicep templates: an absolute path to a file named bicep or bicep.exe. Otherwise ~/.localstack/azure/bin, then PATH (never ~/.azure/bin).",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "LOCALSTACK_AZ_BICEP_PATH"
-        },
-        {
-          "description": "Comma-separated server environment variables a .bicepparam may read with readEnvironmentVariable(). Nothing else reaches Bicep; the auth token and AZURE_*, ARM_*, BICEP_*, proxy and path variables are never passed.",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "LOCALSTACK_AZ_BICEP_ENV"
-        },
-        {
-          "description": "Per-command timeout of the Azure tool, 5-3600 (default 300).",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "LOCALSTACK_AZ_TIMEOUT_SECONDS"
-        },
-        {
-          "description": "Azure tool stdout truncation limit (default 30000).",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "LOCALSTACK_AZ_MAX_OUTPUT_CHARS"
-        },
-        {
-          "description": "Azure tool help-page limit after re-flow (default 30000).",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "LOCALSTACK_AZ_MAX_HELP_CHARS"
-        },
-        {
-          "description": "Directory the Azure tool's file arguments must stay inside, and az's working directory. Defaults to the server's working directory.",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "LOCALSTACK_AZ_WORKDIR"
-        },
-        {
-          "description": "Set to 0 to turn off the Azure tool's egress guard (debugging only; every response then says so). Default 1.",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "LOCALSTACK_AZ_EGRESS_GUARD"
-        },
-        {
-          "description": "File of extra az command prefixes the Azure tool refuses, one per line (# comments allowed).",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "LOCALSTACK_AZ_DENYLIST_FILE"
-        },
-        {
-          "description": "Bytecode cache dir for Azure CLI installs without .pyc files (the Docker image sets it).",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "LOCALSTACK_AZ_PYCACHE_DIR"
-        },
-        {
-          "description": "host (default) runs a fresh Azure CLI process per command; worker (experimental) runs commands in warm Azure CLI processes, with the same isolation.",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "LOCALSTACK_AZ_RUNNER"
-        },
-        {
-          "description": "Docker image only: the host the loopback forwarder relays the Azure emulator's ports to. Defaults to host.docker.internal, then the emulator container's IP.",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "LOCALSTACK_AZURE_FORWARD_TARGET"
         }
       ]
     }

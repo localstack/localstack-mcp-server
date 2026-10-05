@@ -7,10 +7,6 @@ xmcp-env.d.ts
 .mcpregistry*
 playwright-report/
 test-results/
-# jest --coverage output (CI's unit step writes it; it holds absolute local paths)
-coverage/
-# state exports written by the harness's state step (tests/docker/validate-image.mjs)
-data/harness-state-*.zip
 terraform.tfstate*
 .terraform/
 .terraform.lock.hcl

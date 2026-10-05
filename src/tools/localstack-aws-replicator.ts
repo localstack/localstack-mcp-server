@@ -6,7 +6,6 @@ import {
   requireAuthToken,
   requireLocalStackRunning,
   requireProFeature,
-  requireStack,
 } from "../core/preflight";
 import { withToolAnalytics } from "../core/analytics";
 import { ProFeature } from "../lib/localstack/license-checker";
@@ -99,7 +98,6 @@ export default async function localstackAwsReplicator(args: AwsReplicatorArgs) {
     async () => {
       const preflightError = await runPreflights([
         requireAuthToken(),
-        requireStack("aws", "localstack-aws-replicator"),
         requireLocalStackRunning(),
         requireProFeature(ProFeature.REPLICATOR),
       ]);

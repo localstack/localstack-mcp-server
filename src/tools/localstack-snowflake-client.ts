@@ -7,7 +7,6 @@ import {
   requireAuthToken,
   requireSnowflakeCli,
   requireProFeature,
-  requireStack,
 } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { ProFeature } from "../lib/localstack/license-checker";
@@ -122,7 +121,6 @@ export default async function localstackSnowflakeClient({
   return withToolAnalytics("localstack-snowflake-client", { action }, async () => {
     const preflightError = await runPreflights([
       requireAuthToken(),
-      requireStack("snowflake", "localstack-snowflake-client"),
       requireSnowflakeCli(),
       requireProFeature(ProFeature.SNOWFLAKE),
       requireSnowflakeConnectionProfile(),

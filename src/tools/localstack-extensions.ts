@@ -6,7 +6,6 @@ import {
   requireProFeature,
   requireAuthToken,
   requireDockerDaemon,
-  requireStack,
 } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { ProFeature } from "../lib/localstack/license-checker";
@@ -75,7 +74,6 @@ export default async function localstackExtensions({
         ? [requireAuthToken()]
         : [
             requireAuthToken(),
-            requireStack("aws", "localstack-extensions"),
             requireDockerDaemon(),
             requireLocalStackRunning(),
             requireProFeature(ProFeature.EXTENSIONS),

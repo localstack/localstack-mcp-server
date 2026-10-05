@@ -1,8 +1,0 @@
-{
-  "method": "docker save | gzip -6 (node zlib), bytes",
-  "base": 231524437,
-  "azLayers": 62153935,
-  "bicepLayer": 110109646,
-  "final": 417698790,
-  "measuredAt": "2026-09-27"
-}
