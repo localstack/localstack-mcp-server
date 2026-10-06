@@ -231,13 +231,15 @@ export class LocalStackLogRetriever {
     // Detect the newer Explainable IAM denial format
     if (!entry.isIamDenial) {
       const explainableDenialPattern =
-        /User: (\S+) is not authorized to perform: ([A-Za-z0-9-]+:[A-Za-z0-9*]+) on resource: "?([^"\s]+)"? because/;
+        /User: (\S+) is not authorized to perform: ([A-Za-z0-9-]+:[A-Za-z0-9*]+)(?: on resource: "?([^"\s]+)"?)? because/;
       const explainableMatch = line.match(explainableDenialPattern);
       if (explainableMatch) {
         entry.isIamDenial = true;
         entry.iamPrincipal = explainableMatch[1];
         entry.iamAction = explainableMatch[2];
-        entry.iamResource = explainableMatch[3];
+        if (explainableMatch[3]) {
+          entry.iamResource = explainableMatch[3];
+        }
         entry.service = explainableMatch[2].split(":")[0].toLowerCase();
         entry.isError = true;
       }

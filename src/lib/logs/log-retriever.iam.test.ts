@@ -34,6 +34,16 @@ describe("LocalStackLogRetriever IAM denial parsing", () => {
     expect(entry.iamResource).toBe("arn:aws:s3:::probe-bucket/hello.txt");
   });
 
+  it("parses denials for actions that have no resource ARN", () => {
+    const entry = parse(
+      "2026-10-06T08:33:16.832  INFO --- [et.reactor-1] l.p.c.s.i.p.handler        : User: arn:aws:sts::000000000000:assumed-role/nd-role/nd is not authorized to perform: dynamodb:ListTables because no identity-based policy allows the dynamodb:ListTables action"
+    );
+    expect(entry.isIamDenial).toBe(true);
+    expect(entry.iamPrincipal).toBe("arn:aws:sts::000000000000:assumed-role/nd-role/nd");
+    expect(entry.iamAction).toBe("dynamodb:ListTables");
+    expect(entry.iamResource).toBeUndefined();
+  });
+
   it("does not flag the DEBUG 'Necessary permissions' lines as denials but still extracts the resource", () => {
     const entry = parse(
       "2026-10-05T15:16:27.431 DEBUG --- [et.reactor-2] l.p.c.s.i.p.handler        : Necessary permissions for this action: [\"Action 'dynamodb:Scan' for 'arn:aws:dynamodb:us-east-1:000000000000:table/probe-table'\"]"
