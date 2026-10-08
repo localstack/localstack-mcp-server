@@ -61,6 +61,12 @@ test("smoke tests the infrastructure tester prompt", async ({ mcp }) => {
   expect(result.messages[0].content.text).toContain("`./infra`");
 });
 
+// The docs tool asks an external search service. When that service itself is down (a timeout, a
+// network error or a 5xx), the test is skipped with the tool's answer, since nothing in this
+// server is at fault. Any other answer, a 4xx included, must hold the snippets.
+const DOCS_SERVICE_DOWN =
+  /Request timed out|Connection refused|HTTP Error: 5\d\d|fetch failed|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|socket hang up/i;
+
 test("docs tool returns useful documentation snippets", async ({ mcp }) => {
   requireEnv("LOCALSTACK_AUTH_TOKEN");
 
@@ -68,6 +74,11 @@ test("docs tool returns useful documentation snippets", async ({ mcp }) => {
     query: "How to start LocalStack and configure auth token",
     limit: 2,
   });
+  const text = (result?.content ?? []).map((c) => c.text ?? "").join("\n");
+  test.skip(
+    text.includes("Docs Search Unavailable") && DOCS_SERVICE_DOWN.test(text),
+    `the docs search service is unavailable: ${text.slice(0, 200)}`
+  );
 
   expect(result).not.toBeToolError();
   expect(result).toContainToolText("LocalStack Docs");
