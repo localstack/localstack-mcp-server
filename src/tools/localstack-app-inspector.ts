@@ -5,7 +5,6 @@ import {
   requireAuthToken,
   requireLocalStackRunning,
   requireProFeature,
-  requireStack,
 } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { withToolAnalytics } from "../core/analytics";
@@ -140,7 +139,6 @@ export default async function localstackAppInspector(params: AppInspectorArgs) {
     async () => {
       const preflightError = await runPreflights([
         requireAuthToken(),
-        requireStack("aws", "localstack-app-inspector"),
         requireLocalStackRunning(),
         requireProFeature(ProFeature.APP_INSPECTOR),
       ]);

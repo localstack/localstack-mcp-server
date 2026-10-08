@@ -120,13 +120,6 @@ export interface RuntimeStatus {
   isRunning: boolean;
   isReady?: boolean;
   statusOutput?: string;
-  /**
-   * Something accepts connections on the port but the runtime does not answer (yet).
-   * Before a start it counts as running, so no second runtime is launched beside a busy
-   * one. After this start launched its own container it is NOT started:
-   * Docker's port proxy accepts connections before the runtime listens.
-   */
-  unresponsive?: boolean;
 }
 
 const SNOWFLAKE_ROUTING_HOST = "snowflake.localhost.localstack.cloud";
@@ -153,21 +146,14 @@ const READY_SERVICE_STATES = new Set(["available", "running"]);
  * container is named.
  *
  * This is the source of truth for "is LocalStack running?".
- *
- * `baseUrl` targets another gateway than the configured one, for example the Azure
- * client's own port when AWS and Azure run side by side.
  */
-export async function getGatewayHealth(baseUrl?: string): Promise<GatewayHealth> {
+export async function getGatewayHealth(): Promise<GatewayHealth> {
   try {
     const data = await httpClient.request<{
       services?: Record<string, string>;
       edition?: string;
       version?: string;
-    }>("/_localstack/health", {
-      method: "GET",
-      timeout: GATEWAY_HEALTH_TIMEOUT,
-      ...(baseUrl ? { baseUrl } : {}),
-    });
+    }>("/_localstack/health", { method: "GET", timeout: GATEWAY_HEALTH_TIMEOUT });
 
     if (!data || typeof data !== "object" || Array.isArray(data)) {
       return { reachable: false, ready: false };
@@ -192,12 +178,11 @@ export async function getGatewayHealth(baseUrl?: string): Promise<GatewayHealth>
 }
 
 /** Best-effort read of `/_localstack/info` for status enrichment and restart detection. */
-export async function getSessionInfo(baseUrl?: string): Promise<SessionInfo | null> {
+export async function getSessionInfo(): Promise<SessionInfo | null> {
   try {
     const info = await httpClient.request<SessionInfo>("/_localstack/info", {
       method: "GET",
       timeout: SESSION_INFO_TIMEOUT,
-      ...(baseUrl ? { baseUrl } : {}),
     });
     if (!info || typeof info !== "object") return null;
     return info;
@@ -206,13 +191,9 @@ export async function getSessionInfo(baseUrl?: string): Promise<SessionInfo | nu
   }
 }
 
-function describeGatewayHealth(
-  health: GatewayHealth,
-  info?: SessionInfo | null,
-  baseUrl: string = LOCALSTACK_BASE_URL
-): string {
+function describeGatewayHealth(health: GatewayHealth, info?: SessionInfo | null): string {
   const lines = [
-    `LocalStack gateway is reachable at ${baseUrl} (detected via /_localstack/health).`,
+    `LocalStack gateway is reachable at ${LOCALSTACK_BASE_URL} (detected via /_localstack/health).`,
   ];
   const edition = info?.edition || health.edition;
   const version = info?.version || health.version;
@@ -238,23 +219,22 @@ function describeGatewayHealth(
  * Get LocalStack status information. Running state is decided by the gateway probe;
  * display detail is enriched from `/_localstack/info` when available.
  */
-/** The gateway's status; `baseUrl` probes another gateway than LOCALSTACK_PORT's (side by side). */
-export async function getLocalStackStatus(baseUrl?: string): Promise<LocalStackStatusResult> {
-  const health = await getGatewayHealth(baseUrl);
+export async function getLocalStackStatus(): Promise<LocalStackStatusResult> {
+  const health = await getGatewayHealth();
 
   if (!health.reachable) {
     return {
       isRunning: false,
       isReady: false,
-      statusOutput: `LocalStack is not running — the gateway at ${baseUrl ?? LOCALSTACK_BASE_URL} is not reachable.`,
+      statusOutput: `LocalStack is not running — the gateway at ${LOCALSTACK_BASE_URL} is not reachable.`,
     };
   }
 
-  const info = await getSessionInfo(baseUrl);
+  const info = await getSessionInfo();
   return {
     isRunning: true,
     isReady: health.ready,
-    statusOutput: describeGatewayHealth(health, info, baseUrl),
+    statusOutput: describeGatewayHealth(health, info),
   };
 }
 
@@ -386,18 +366,17 @@ function conflictResponse(processLabel: string, containerName: string, image?: s
 }
 
 /**
+ * The Azure emulator shares files with the containers it starts for Function and Web Apps from
+ * its state folder, and refuses to ("Mount to /var/lib/localstack needs to be a bind mount") when
+ * that folder is a named volume, as it is when this server runs in Docker.
+ */
+const AZURE_VOLUME_NOTE =
+  "ℹ️ Function App and Web App deployments need the emulator's state in a host folder, from which it shares files with the apps' containers; this emulator uses a named Docker volume. To deploy apps, set LOCALSTACK_VOLUME_DIR in this MCP server's configuration to an absolute host path, then stop and start the emulator.";
+
+/**
  * Start a LocalStack runtime flavor directly through the Docker Engine API (no
  * localstack/lstk CLI involved) and poll until it becomes available.
  */
-/**
- * The Azure emulator shares files with the containers it starts for Function and Web Apps from
- * its state folder, and refuses to ("Mount to /var/lib/localstack needs to be a bind mount") when
- * that folder is a named volume, as it is when this server runs in Docker. A restart keeps the
- * container's volume, so the way out is a stop and a start.
- */
-const AZURE_VOLUME_NOTE =
-  "ℹ️ Function App and Web App deployments need the emulator's state in a host folder, from which it shares files with the apps' containers; this emulator uses a named Docker volume. To deploy apps, set LOCALSTACK_VOLUME_DIR in this MCP server's configuration to an absolute host path, then stop and start the emulator (a restart keeps the current volume).";
-
 export async function launchRuntime(
   options: LaunchRuntimeOptions
 ): Promise<ReturnType<typeof ResponseBuilder.markdown>> {
@@ -461,9 +440,7 @@ async function launchRuntimeInner(
       platform: process.platform,
       homedir: homedir(),
     });
-  // Only this server's own default folder is created: a recreated container's bind must
-  // already exist (creating a WSL path on Windows made C:\home\<user>\... there).
-  if (volume.type === "bind" && !inDocker && !options.volumeOverride) {
+  if (volume.type === "bind" && !inDocker) {
     try {
       await mkdir(volume.source, { recursive: true });
     } catch (error) {
@@ -579,13 +556,6 @@ async function launchRuntimeInner(
         ? `\n\nContainer logs (last ${CRASH_LOG_TAIL_LINES} lines):\n${buffered}`
         : "";
     };
-    // LocalStack exits with code 55 when it cannot activate its licence, and the container
-    // can be gone before the reason reaches the log stream (the tail ended at
-    // "exit code 55. Reason:"), so name the cause and the setting to check.
-    const exitHint = () =>
-      /exit code 55\b/.test(logBuffer?.getBuffered() ?? "")
-        ? "\n\nExit code 55: LocalStack could not activate its licence. Check that LOCALSTACK_AUTH_TOKEN in this MCP server's configuration is a valid auth token."
-        : "";
 
     const successResponse = (status: RuntimeStatus) => {
       let resultMessage = `${successTitle}\n\n`;
@@ -601,8 +571,7 @@ async function launchRuntimeInner(
       if (resolved) return true;
       const status = await getStatus();
       if (resolved) return true;
-      // A runtime that does not answer yet is still starting (see RuntimeStatus.unresponsive).
-      if (!(status.isReady || (status.isRunning && !status.unresponsive))) return false;
+      if (!(status.isReady || status.isRunning)) return false;
 
       if (onReady) {
         const preflight = await onReady();
@@ -636,7 +605,7 @@ async function launchRuntimeInner(
       }
       finish(
         ResponseBuilder.markdown(
-          `❌ ${processLabel} container exited unexpectedly before becoming ready.${exitHint()}${failureDetails()}`
+          `❌ ${processLabel} container exited unexpectedly before becoming ready.${failureDetails()}`
         )
       );
     });
@@ -684,9 +653,7 @@ export function deriveRecreateOverrides(
   stack: LocalStackStack
 ): RecreateOverrides | undefined {
   if (!metadata?.image) return undefined;
-  // Pass the labels: a bare-ID Azure container is identified by its description label.
-  // An image of unknown stack keeps the historical AWS default.
-  if ((stackFromImage(metadata.image, metadata.labels) ?? "aws") !== stack) return undefined;
+  if ((stackFromImage(metadata.image) ?? "aws") !== stack) return undefined;
 
   const overrides: RecreateOverrides = {
     imageOverride: metadata.image,
@@ -707,131 +674,6 @@ export function deriveRecreateOverrides(
 
 const AWS_ALREADY_RUNNING = "⚠️  LocalStack is already running.";
 const SNOWFLAKE_ALREADY_RUNNING = "⚠️  Snowflake emulator is already running.";
-
-// Keys the launcher sets authoritatively for a new container (buildEnv step (d)); carrying stale
-// values from the old container is pointless, and one of them is the auth token, which must never
-// be echoed back. So a restart never carries these over.
-/**
- * The env key a restart writes on the new container, listing the settings it carried over from an
- * externally started one. The new container carries this server's LOCALSTACK_CLIENT_NAME,
- * so without the list a SECOND restart would see a server-started container and drop them all.
- */
-export const CARRIED_ENV_KEY = "MCP_CARRIED_ENV";
-
-/** `KEY=value` entries of `containerEnv` for exactly `keys` (the settings a restart keeps carrying). */
-export function pickCarriedEnv(
-  containerEnv: string[] | undefined,
-  keys: string[]
-): Record<string, string> {
-  const wanted = new Set(keys);
-  const picked: Record<string, string> = {};
-  for (const entry of containerEnv ?? []) {
-    const eq = entry.indexOf("=");
-    if (eq <= 0) continue;
-    const key = entry.slice(0, eq);
-    if (wanted.has(key) && !RESERVED_RESTART_ENV_KEYS.has(key)) picked[key] = entry.slice(eq + 1);
-  }
-  return picked;
-}
-
-const RESERVED_RESTART_ENV_KEYS = new Set([
-  CARRIED_ENV_KEY, // written by the restart itself, never carried as a flag
-  "MAIN_CONTAINER_NAME",
-  "GATEWAY_LISTEN",
-  "EXTERNAL_SERVICE_PORTS_START",
-  "EXTERNAL_SERVICE_PORTS_END",
-  "DOCKER_HOST",
-  "LOCALSTACK_AUTH_TOKEN",
-  "LOCALSTACK_CLIENT_NAME",
-  "LOCALSTACK_CLIENT_VERSION",
-  "AI_AGENT",
-]);
-
-// A backstop for when the image's baked env cannot be read: base-image/system variables that are
-// never an operator's emulator flag, so they must not be pushed as `-e` onto the new container
-// (passing PATH/HOME could break it).
-const SYSTEM_ENV_KEYS = new Set([
-  "PATH",
-  "HOME",
-  "HOSTNAME",
-  "TERM",
-  "LANG",
-  "LANGUAGE",
-  "LC_ALL",
-  "LC_CTYPE",
-  "PWD",
-  "OLDPWD",
-  "SHLVL",
-  "SHELL",
-  "USER",
-  "TZ",
-  "container",
-  "GPG_KEY",
-  "DEBIAN_FRONTEND",
-  "PYTHONPATH",
-  "PYTHONUNBUFFERED",
-  "PYTHONDONTWRITEBYTECODE",
-  "VIRTUAL_ENV",
-]);
-
-/**
- * The environment a restart must carry from the old container to the new one: the
- * flags the operator set with `-e` (for example MSSQL_ACCEPT_EULA, DISABLE_EVENTS, LS_AZURE_PORTAL).
- * Without this a recreate keeps only this server's own settings and silently drops the rest, so a
- * shared Azure emulator loses its EULA acceptance and starts emitting telemetry again.
- *
- * `containerEnv` is the old container's full `Config.Env`; `imageEnv` is the image's baked env. A
- * pair present unchanged in the image is a default, not an operator choice, so it is dropped (this
- * is what removes PATH and the like). Launcher-owned reserved keys are dropped too — the launcher
- * sets them for the new container, and one is the auth token. A system-var backstop keeps
- * base-image variables out even when `imageEnv` could not be read.
- */
-export function carriedRestartEnv(
-  containerEnv: string[] | undefined,
-  imageEnv: string[] | undefined
-): Record<string, string> {
-  const imagePairs = new Set(imageEnv ?? []);
-  const carried: Record<string, string> = {};
-  for (const entry of containerEnv ?? []) {
-    const eq = entry.indexOf("=");
-    if (eq <= 0) continue; // no key, or an empty key
-    const key = entry.slice(0, eq);
-    if (imagePairs.has(entry)) continue; // an image default, unchanged by the operator
-    if (RESERVED_RESTART_ENV_KEYS.has(key) || SYSTEM_ENV_KEYS.has(key)) continue;
-    carried[key] = entry.slice(eq + 1);
-  }
-  return carried;
-}
-
-/**
- * The bind source of a container about to be recreated, when this machine cannot mount it:
- * stopping the container would remove it with no way to recreate it (an lstk
- * emulator started from WSL binds ~/.cache/lstk/volume/... as a Linux path, which a Windows
- * server cannot mount). Inside Docker the path is host-side and cannot be checked.
- */
-export function unmountableBindSource(
-  overrides: RecreateOverrides | undefined,
-  opts: { platform?: NodeJS.Platform; inDocker?: boolean } = {}
-): string | undefined {
-  const volume = overrides?.volumeOverride;
-  if (volume?.type !== "bind" || (opts.inDocker ?? isRunningInDocker())) return undefined;
-  // A Linux path seen from a Windows host belongs to WSL or another machine.
-  if ((opts.platform ?? process.platform) === "win32" && volume.source.startsWith("/")) {
-    return volume.source;
-  }
-  return existsSync(volume.source) ? undefined : volume.source;
-}
-
-/** The refusal for unmountableBindSource: nothing is stopped. */
-export function cannotRecreateResponse(source: string, containerName: string) {
-  return ResponseBuilder.error(
-    "Cannot restart this LocalStack container from here",
-    `Its state folder is bound from \`${source}\`, which this machine cannot mount: "${containerName}" was ` +
-      "probably started from WSL or another host. Stopping it here would remove it with no way to " +
-      "recreate it, so nothing was stopped. Restart it where it was started (for example `lstk restart` " +
-      "in WSL), or stop it and start a new one with the start action."
-  );
-}
 
 /**
  * Recreate the running LocalStack container: inspect it, stop + wait for removal, then
@@ -856,11 +698,6 @@ export async function recreateRunningContainer({
   try {
     const id = await docker.findLocalStackContainer();
     metadata = await docker.inspectContainer(id);
-    // Before stopping it: one this machine could not recreate stays as it is.
-    const unmountable = unmountableBindSource(
-      deriveRecreateOverrides(metadata, stackFromImage(metadata?.image, metadata?.labels) ?? "aws")
-    );
-    if (unmountable) return cannotRecreateResponse(unmountable, metadata?.name ?? id);
     await docker.stopContainer(id);
     await docker.waitForRemoval(id);
   } catch (error) {
@@ -875,7 +712,7 @@ export async function recreateRunningContainer({
     // Nothing running — fall through to a fresh AWS start.
   }
 
-  const stack = stackFromImage(metadata?.image, metadata?.labels) ?? "aws";
+  const stack = stackFromImage(metadata?.image) ?? "aws";
   const overrides = deriveRecreateOverrides(metadata, stack);
 
   return launchRuntime({

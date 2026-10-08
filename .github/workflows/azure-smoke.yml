@@ -1,0 +1,37 @@
+name: Azure smoke
+
+# The Azure tool against the LocalStack Azure emulator, weekly and on demand.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  azure-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: Install dependencies
+        run: yarn
+
+      - name: Install the latest Azure CLI
+        run: curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash && az version
+
+      - name: Pull the LocalStack Azure emulator image
+        run: docker pull localstack/localstack-azure:latest
+
+      - name: Run az commands through the Azure tool
+        run: yarn build && npx playwright test -c playwright.config.mjs tests/mcp/azure-smoke.spec.mjs
