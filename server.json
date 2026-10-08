@@ -157,6 +157,48 @@
           "format": "string",
           "isSecret": false,
           "name": "EXTERNAL_SERVICE_PORTS_END"
+        },
+        {
+          "description": "Docker image the management start action launches for service: azure. Defaults to localstack/localstack-azure:latest.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "LOCALSTACK_AZURE_IMAGE_NAME"
+        },
+        {
+          "description": "ARM endpoint of the Azure emulator for localstack-azure-client, a local https origin. Defaults to https://azure.localhost.localstack.cloud:<LOCALSTACK_PORT>.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "LOCALSTACK_AZURE_ENDPOINT"
+        },
+        {
+          "description": "The az launcher, or the Azure CLI's Python, for localstack-azure-client. Defaults to the first az on PATH.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "LOCALSTACK_AZ_PATH"
+        },
+        {
+          "description": "The Azure tool's own Azure CLI profile directory; it must not overlap ~/.azure. Defaults to ~/.localstack/azure/mcp-config-<port>.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "LOCALSTACK_AZ_CONFIG_DIR"
+        },
+        {
+          "description": "The directory localstack-azure-client runs az in; relative file paths resolve against it. Defaults to the server's working directory.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "LOCALSTACK_AZ_WORKDIR"
+        },
+        {
+          "description": "Time limit in seconds for one Azure CLI command (5-3600). Defaults to 300.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "LOCALSTACK_AZ_TIMEOUT_SECONDS"
         }
       ]
     }

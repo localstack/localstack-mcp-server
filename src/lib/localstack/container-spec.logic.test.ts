@@ -5,6 +5,7 @@ import {
   resolveContainerName,
   resolveImage,
   resolveVolume,
+  stackFromImage,
   type ContainerSpecInput,
 } from "./container-spec.logic";
 
@@ -43,6 +44,40 @@ describe("resolveImage", () => {
       "localstack/snowflake:latest"
     );
   });
+
+  test("azure stack: the Azure image, overridable only by LOCALSTACK_AZURE_IMAGE_NAME", () => {
+    expect(resolveImage("azure", { LOCALSTACK_IMAGE_NAME: "my/img:1" })).toBe(
+      "localstack/localstack-azure:latest"
+    );
+    expect(resolveImage("azure", { LOCALSTACK_AZURE_IMAGE_NAME: "my/azure:2" })).toBe("my/azure:2");
+  });
+});
+
+describe("stackFromImage", () => {
+  test("names the Azure and Snowflake images; any other image is AWS", () => {
+    expect(stackFromImage("localstack/localstack-azure:dev19-pinned")).toBe("azure");
+    expect(stackFromImage("localstack/localstack-azure-alpha@sha256:ab")).toBe("azure");
+    expect(stackFromImage("localstack/snowflake:latest")).toBe("snowflake");
+    expect(stackFromImage("localstack/localstack-pro:latest")).toBe("aws");
+  });
+});
+
+test("the Azure emulator's LS_AZURE_ settings are forwarded; the Azure tool's own are not", () => {
+  const env = envMap(
+    buildLocalStackContainerSpec(
+      baseInput({
+        stack: "azure",
+        hostEnv: {
+          LS_AZURE_ENFORCE_RBAC: "1",
+          LOCALSTACK_AZ_CONFIG_DIR: "/home/u/cfg",
+          LOCALSTACK_AZURE_ENDPOINT: "https://localhost:4566",
+        },
+      })
+    )
+  );
+  expect(env.LS_AZURE_ENFORCE_RBAC).toBe("1");
+  expect(env.LOCALSTACK_AZ_CONFIG_DIR).toBeUndefined();
+  expect(env.LOCALSTACK_AZURE_ENDPOINT).toBeUndefined();
 });
 
 describe("resolveContainerName", () => {

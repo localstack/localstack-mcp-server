@@ -73,6 +73,7 @@ const EXPECTED_TOOLS = [
   "localstack-snowflake-client",
   "localstack-ephemeral-instances",
   "localstack-aws-client",
+  "localstack-azure-client",
   "localstack-aws-replicator",
   "localstack-docs",
   "localstack-app-inspector",
@@ -196,6 +197,17 @@ function gracefulProGate(result) {
   );
 }
 
+// The docs tool's answer when its external search service is down (a timeout, a network error
+// or a 5xx), as opposed to our request being wrong.
+function docsServiceDown(result) {
+  return (
+    /Docs Search Unavailable/.test(result.text) &&
+    /(Request timed out|Connection refused|HTTP Error: 5\d\d|fetch failed|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|socket hang up)/i.test(
+      result.text
+    )
+  );
+}
+
 function recordToolResult(key, name, result, predicate = (r) => !r.isError, note) {
   if (TOKEN_REAL) {
     record(key, name, predicate(result), snip(result.text, 600), note);
@@ -252,7 +264,7 @@ async function main() {
   const missing = EXPECTED_TOOLS.filter((t) => !toolNames.includes(t));
   record(
     "tools",
-    "tools/list exposes all 14 tools",
+    "tools/list exposes all 15 tools",
     missing.length === 0,
     `found ${toolNames.length} tools`,
     missing.length ? `MISSING: ${missing.join(", ")}` : undefined
@@ -281,7 +293,8 @@ async function main() {
     }
   }
 
-  // 3. docs (token-only; calls an external API, so retry once for transient blips)
+  // 3. docs (token-only; calls an external API, so retry once for transient blips). An outage of
+  // that service itself is a warning: it says nothing about this image.
   if (!SKIP.has("docs")) {
     try {
       const r = await callToolUntil(
@@ -294,11 +307,14 @@ async function main() {
           ok: (x) => !x.isError && /LocalStack Docs/i.test(x.text),
         }
       );
+      const ok = !r.isError && /LocalStack Docs/i.test(r.text);
+      const down = !ok && docsServiceDown(r);
       record(
         "docs",
         "localstack-docs returns snippets",
-        !r.isError && /LocalStack Docs/i.test(r.text),
-        snip(r.text)
+        ok ? true : down ? "warn" : false,
+        snip(r.text),
+        down ? "the docs search service is down, which says nothing about this image" : undefined
       );
     } catch (e) {
       record("docs", "localstack-docs", false, String(e.message));

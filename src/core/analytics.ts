@@ -19,6 +19,7 @@ const SHUTDOWN_TIMEOUT_MS = 1000;
 
 export const TOOL_ARG_ALLOWLIST: Record<string, string[]> = {
   "localstack-aws-client": ["command"],
+  "localstack-azure-client": ["command"],
   "localstack-aws-replicator": [
     "action",
     "replication_type",
