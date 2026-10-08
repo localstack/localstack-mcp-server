@@ -29,12 +29,25 @@
  *   HARNESS_CDK_DIR      In-container path to the CDK sample (default /work/data/sample-cdk)
  *   HARNESS_TOKEN_REAL   "1" if LOCALSTACK_AUTH_TOKEN is a real/valid token (affects Pro-tool expectations)
  *   HARNESS_SKIP         Comma-separated scenario keys to skip (e.g. "deploy,extensions")
+ *   HARNESS_ONLY         Comma-separated scenario keys to run, nothing else (e.g. "azure")
+ *   HARNESS_AZURE_FILE   File the Azure stage uploads, relative to the Azure tool's workdir
+ *                        (default data/sample-azure/hello.txt)
+ *   HARNESS_AZURE_EXTENSIONS "1": the curated extensions are installed (the image); an
+ *                        extension command must reach the emulator, a non-curated one fail fast
+ *   HARNESS_AZURE_FORWARDER "1": the server's traffic must go through its loopback forwarder
+ *                        (the server needs -e LOCALSTACK_AZ_TEST_ENVELOPE=1)
+ *   HARNESS_AZURE_EXTERNAL "1": the Azure emulator is managed outside the harness (no start/stop)
+ *   HARNESS_AZURE_BICEP  "1": deploy data/sample-azure/main.bicep and main.bicepparam
+ *   HARNESS_AZURE_BICEP_MISSING "1": the server runs with LOCALSTACK_AZ_BICEP_PATH at a
+ *                        missing file; only its hard error is checked
+ *   HARNESS_AZURE_RESTART_CONTAINER  Restart this container mid-session and check that the
+ *                        next call re-bootstraps (CI's own emulator only; needs the test envelope)
  *   HARNESS_NO_CLEANUP   "1" to leave LocalStack running afterwards
  *   HARNESS_RUN_REMOTE   "1" to create remote resources (Cloud Pods, ephemeral instances)
  *   HARNESS_RUN_EPHEMERAL "1" to create/delete a cloud-hosted ephemeral instance
  */
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 
 const argv = process.argv.slice(2);
 const sep = argv.indexOf("--");
@@ -48,6 +61,23 @@ const serverArgs = argv.slice(sep + 2);
 const DEPLOY_DIR = process.env.HARNESS_DEPLOY_DIR || "/work/data/sample-terraform";
 const CDK_DIR = process.env.HARNESS_CDK_DIR || "/work/data/sample-cdk";
 const SQL_FILE = process.env.HARNESS_SQL_FILE || "/work/data/sample-sql/snowflake_test.sql";
+// Relative to the Azure tool's working directory (LOCALSTACK_AZ_WORKDIR, by default the
+// server's cwd): the file rule only accepts paths inside it.
+const AZURE_FILE = process.env.HARNESS_AZURE_FILE || "data/sample-azure/hello.txt";
+const BICEP_FILE = "data/sample-azure/main.bicep";
+const BICEPPARAM_FILE = "data/sample-azure/main.bicepparam";
+// The image bakes the 26 curated extensions; an npx run may not have them.
+const AZURE_EXTENSIONS_BAKED = process.env.HARNESS_AZURE_EXTENSIONS === "1";
+// The image's loopback forwarder must carry the traffic (the server runs with the test envelope).
+const AZURE_FORWARDER_EXPECTED = process.env.HARNESS_AZURE_FORWARDER === "1";
+// The Azure emulator is started and stopped outside the harness (a CI job's own container).
+const AZURE_EXTERNAL = process.env.HARNESS_AZURE_EXTERNAL === "1";
+// Deploy a .bicep and a .bicepparam file through the tool (the image bundles Bicep).
+const AZURE_BICEP = process.env.HARNESS_AZURE_BICEP === "1";
+// The server runs with LOCALSTACK_AZ_BICEP_PATH at a missing file: only that hard error is checked.
+const AZURE_BICEP_MISSING = process.env.HARNESS_AZURE_BICEP_MISSING === "1";
+// A container the harness restarts mid-session (CI's own emulator only; needs the test envelope).
+const AZURE_RESTART_CONTAINER = process.env.HARNESS_AZURE_RESTART_CONTAINER || "";
 const TOKEN_REAL = process.env.HARNESS_TOKEN_REAL === "1";
 const SKIP = new Set(
   (process.env.HARNESS_SKIP || "")
@@ -55,6 +85,14 @@ const SKIP = new Set(
     .map((s) => s.trim())
     .filter(Boolean)
 );
+// HARNESS_ONLY runs just these scenario keys (the handshake and tools/list always run).
+const ONLY = new Set(
+  (process.env.HARNESS_ONLY || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+);
+const enabled = (key) => !SKIP.has(key) && (ONLY.size === 0 || ONLY.has(key));
 const NO_CLEANUP = process.env.HARNESS_NO_CLEANUP === "1";
 const RUN_REMOTE = process.env.HARNESS_RUN_REMOTE === "1";
 const RUN_EPHEMERAL = RUN_REMOTE || process.env.HARNESS_RUN_EPHEMERAL === "1";
@@ -73,6 +111,7 @@ const EXPECTED_TOOLS = [
   "localstack-snowflake-client",
   "localstack-ephemeral-instances",
   "localstack-aws-client",
+  "localstack-azure-client",
   "localstack-aws-replicator",
   "localstack-docs",
   "localstack-app-inspector",
@@ -166,6 +205,36 @@ async function callToolUntil(
   return last;
 }
 
+// ---- which LocalStack containers this harness started ----
+// The harness may stop or restart only a container that its own `start` created, so a
+// local run can never stop an emulator someone else started. A read-only `docker ps`
+// before and after each start tells: a new id means we own it; "already running" (no
+// new id) or no docker CLI means we own nothing and skip the stop/restart steps.
+const owned = { aws: false, snowflake: false, azure: false };
+function runningContainerIds() {
+  try {
+    const out = execFileSync("docker", ["ps", "-q", "--no-trunc"], {
+      encoding: "utf8",
+      timeout: 30000,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return new Set(out.split(/\s+/).filter(Boolean));
+  } catch {
+    return undefined;
+  }
+}
+async function startTracked(stack, args, timeoutMs) {
+  const before = runningContainerIds();
+  const result = await callTool("localstack-management", { action: "start", ...args }, timeoutMs);
+  const after = runningContainerIds();
+  owned[stack] = Boolean(before && after && [...after].some((id) => !before.has(id)));
+  return result;
+}
+function skipNotOwned(key, name) {
+  results.push({ key, name, ok: "skip" });
+  console.log(`\n⏭️  SKIP  [${key}] ${name} (not started by the harness)`);
+}
+
 // ---- scenario runner --------------------------------------------------------
 const results = [];
 function record(key, name, ok, detail, note) {
@@ -183,14 +252,25 @@ const hasAwsCreds = () =>
   ) &&
   Boolean(
     process.env.AWS_REPLICATOR_SOURCE_REGION_NAME ||
-      process.env.AWS_DEFAULT_REGION ||
-      process.env.AWS_REGION
+    process.env.AWS_DEFAULT_REGION ||
+    process.env.AWS_REGION
   );
 
 function gracefulProGate(result) {
   return (
     result.isError &&
     /(Authentication|Auth Token|Feature Not Available|license|not seem to include|requires a LocalStack license)/i.test(
+      result.text
+    )
+  );
+}
+
+// The docs tool's answer when its external search service is down (a timeout, a network error
+// or a 5xx), as opposed to our request being wrong.
+function docsServiceDown(result) {
+  return (
+    /Docs Search Unavailable/.test(result.text) &&
+    /(Request timed out|Connection refused|HTTP Error: 5\d\d|fetch failed|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|socket hang up)/i.test(
       result.text
     )
   );
@@ -252,14 +332,14 @@ async function main() {
   const missing = EXPECTED_TOOLS.filter((t) => !toolNames.includes(t));
   record(
     "tools",
-    "tools/list exposes all 14 tools",
+    `tools/list exposes all ${EXPECTED_TOOLS.length} tools`,
     missing.length === 0,
     `found ${toolNames.length} tools`,
     missing.length ? `MISSING: ${missing.join(", ")}` : undefined
   );
 
   // 2b. prompts/get
-  if (!SKIP.has("prompt")) {
+  if (enabled("prompt")) {
     try {
       const prompts = await rpc("prompts/list", {}, 60000);
       const hasPrompt = (prompts?.prompts || []).some(
@@ -281,8 +361,9 @@ async function main() {
     }
   }
 
-  // 3. docs (token-only; calls an external API, so retry once for transient blips)
-  if (!SKIP.has("docs")) {
+  // 3. docs (token-only; calls an external API, so retry once for transient blips). An outage of
+  // that service itself is a warning: it says nothing about this image.
+  if (enabled("docs")) {
     try {
       const r = await callToolUntil(
         "localstack-docs",
@@ -294,11 +375,14 @@ async function main() {
           ok: (x) => !x.isError && /LocalStack Docs/i.test(x.text),
         }
       );
+      const ok = !r.isError && /LocalStack Docs/i.test(r.text);
+      const down = !ok && docsServiceDown(r);
       record(
         "docs",
         "localstack-docs returns snippets",
-        !r.isError && /LocalStack Docs/i.test(r.text),
-        snip(r.text)
+        ok ? true : down ? "warn" : false,
+        snip(r.text),
+        down ? "the docs search service is down, which says nothing about this image" : undefined
       );
     } catch (e) {
       record("docs", "localstack-docs", false, String(e.message));
@@ -306,7 +390,7 @@ async function main() {
   }
 
   // 4. management status (pre-start) — validates gateway probe + docker socket reachability
-  if (!SKIP.has("status")) {
+  if (enabled("status")) {
     try {
       const r = await callTool("localstack-management", { action: "status" }, 60000);
       record("status", "localstack-management status (pre-start)", !r.isError, snip(r.text));
@@ -316,9 +400,9 @@ async function main() {
   }
 
   // 5. management start
-  if (!SKIP.has("start")) {
+  if (enabled("start")) {
     try {
-      const r = await callTool("localstack-management", { action: "start" }, 240000);
+      const r = await startTracked("aws", {}, 240000);
       const ok = !r.isError && /(started successfully|already running)/i.test(r.text);
       record("start", "localstack-management start", ok, snip(r.text, 500));
     } catch (e) {
@@ -329,7 +413,7 @@ async function main() {
   // 5b. Readiness gate — after a cold start the container reports "running" before
   // every service accepts connections. A well-behaved client waits for readiness;
   // poll a trivial awslocal call until it succeeds before exercising services.
-  if (!SKIP.has("start") && (!SKIP.has("aws") || !SKIP.has("deploy"))) {
+  if (enabled("start") && (enabled("aws") || enabled("deploy"))) {
     const ready = await callToolUntil(
       "localstack-aws-client",
       { command: "sts get-caller-identity" },
@@ -341,7 +425,7 @@ async function main() {
   }
 
   // 6. aws-client — validates docker exec of awslocal inside the LS container
-  if (!SKIP.has("aws")) {
+  if (enabled("aws")) {
     try {
       const mb = await callTool(
         "localstack-aws-client",
@@ -362,7 +446,7 @@ async function main() {
   }
 
   // 6b. logs-analysis — validates docker log access to the sibling LocalStack container.
-  if (!SKIP.has("logs")) {
+  if (enabled("logs")) {
     try {
       await callTool(
         "localstack-aws-client",
@@ -404,7 +488,7 @@ async function main() {
   }
 
   // 6c. state-management — export local state to a mounted path, reset, import, inspect.
-  if (!SKIP.has("state")) {
+  if (enabled("state")) {
     const bucket = `harness-state-${RUN_ID}`;
     const statePath = `/work/data/harness-state-${RUN_ID}.zip`;
     try {
@@ -453,7 +537,7 @@ async function main() {
   }
 
   // 6d. cloud-pods — remote/cloud-backed snapshot. Opt in because it creates account resources.
-  if (!SKIP.has("cloudpods")) {
+  if (enabled("cloudpods")) {
     const podName = `mcp-harness-${RUN_ID}`.replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 80);
     const bucket = `harness-pod-${RUN_ID}`;
     if (!RUN_REMOTE) {
@@ -518,7 +602,7 @@ async function main() {
   }
 
   // 6e. app-inspector — enable, generate traffic, list traces and drill into spans/events when present.
-  if (!SKIP.has("appinspector")) {
+  if (enabled("appinspector")) {
     try {
       const enable = await callTool(
         "localstack-app-inspector",
@@ -594,7 +678,7 @@ async function main() {
   }
 
   // 6f. chaos-injector — add a deterministic S3 ListBuckets fault, observe it, then clear faults/latency.
-  if (!SKIP.has("chaos")) {
+  if (enabled("chaos")) {
     const rule = {
       service: "s3",
       region: "us-east-1",
@@ -659,7 +743,7 @@ async function main() {
   }
 
   // 6g. IAM policy analyzer — mode transitions plus log analysis, then restore disabled.
-  if (!SKIP.has("iam")) {
+  if (enabled("iam")) {
     try {
       const status = await callTool(
         "localstack-iam-policy-analyzer",
@@ -705,7 +789,7 @@ async function main() {
   }
 
   // 6h. aws-replicator — list endpoints always; start a job only when source AWS creds are explicitly available.
-  if (!SKIP.has("replicator")) {
+  if (enabled("replicator")) {
     try {
       const resources = await callTool(
         "localstack-aws-replicator",
@@ -751,7 +835,7 @@ async function main() {
   }
 
   // 6i. ephemeral instances — list always; create/logs/delete only with explicit opt-in.
-  if (!SKIP.has("ephemeral")) {
+  if (enabled("ephemeral")) {
     const instanceName = `mcp-harness-${RUN_ID}`.replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 60);
     try {
       const list = await callTool("localstack-ephemeral-instances", { action: "list" }, 120000);
@@ -815,7 +899,7 @@ async function main() {
   }
 
   // 7. deployer terraform
-  if (!SKIP.has("deploy")) {
+  if (enabled("deploy")) {
     try {
       const r = await callTool(
         "localstack-deployer",
@@ -837,7 +921,7 @@ async function main() {
   }
 
   // 7b. deployer CDK — validates cdklocal endpoint injection and path-style S3 asset uploads.
-  if (!SKIP.has("deploy-cdk")) {
+  if (enabled("deploy-cdk")) {
     try {
       const r = await callTool(
         "localstack-deployer",
@@ -863,7 +947,7 @@ async function main() {
   }
 
   // 8. extensions — Pro-gated (needs valid token + marketplace API)
-  if (!SKIP.has("extensions")) {
+  if (enabled("extensions")) {
     try {
       const r = await callTool("localstack-extensions", { action: "available" }, 60000);
       recordToolResult(
@@ -878,7 +962,7 @@ async function main() {
   }
 
   // 9. cleanup and remaining management lifecycle coverage
-  if (!NO_CLEANUP && !SKIP.has("deploy")) {
+  if (!NO_CLEANUP && enabled("deploy")) {
     try {
       await callTool(
         "localstack-deployer",
@@ -887,7 +971,7 @@ async function main() {
       );
     } catch {}
   }
-  if (!NO_CLEANUP && !SKIP.has("deploy-cdk")) {
+  if (!NO_CLEANUP && enabled("deploy-cdk")) {
     try {
       await callTool(
         "localstack-deployer",
@@ -897,7 +981,9 @@ async function main() {
     } catch {}
   }
 
-  if (!SKIP.has("restart")) {
+  if (enabled("restart") && !owned.aws) {
+    skipNotOwned("restart", "localstack-management restart");
+  } else if (enabled("restart")) {
     try {
       const r = await callTool("localstack-management", { action: "restart" }, 120000);
       const ready = await callToolUntil(
@@ -916,7 +1002,9 @@ async function main() {
     }
   }
 
-  if (!SKIP.has("stop")) {
+  if (enabled("stop") && !owned.aws) {
+    skipNotOwned("stop", "localstack-management stop");
+  } else if (enabled("stop")) {
     try {
       const r = await callTool("localstack-management", { action: "stop" }, 60000);
       record(
@@ -925,19 +1013,16 @@ async function main() {
         !r.isError && /(stopped|stop command executed)/i.test(r.text),
         snip(r.text, 300)
       );
+      owned.aws = false;
     } catch (e) {
       record("stop", "management stop", false, String(e.message));
     }
   }
 
   // 10. Snowflake stack — starts a separate runtime flavor after the AWS stack is stopped.
-  if (!SKIP.has("snowflake")) {
+  if (enabled("snowflake")) {
     try {
-      const start = await callTool(
-        "localstack-management",
-        { action: "start", service: "snowflake" },
-        240000
-      );
+      const start = await startTracked("snowflake", { service: "snowflake" }, 240000);
       const check = await callTool(
         "localstack-snowflake-client",
         { action: "check-connection" },
@@ -958,10 +1043,265 @@ async function main() {
     } catch (e) {
       record("snowflake", "snowflake-client", false, String(e.message));
     } finally {
-      if (!NO_CLEANUP) {
+      if (!NO_CLEANUP && owned.snowflake) {
         try {
           await callTool("localstack-management", { action: "stop" }, 60000);
+          owned.snowflake = false;
         } catch {}
+      } else if (!NO_CLEANUP) {
+        skipNotOwned("snowflake", "localstack-management stop (snowflake)");
+      }
+    }
+  }
+
+  // 11. Azure stack (L1) — placed like the Snowflake stage, after the AWS
+  // stack is stopped: start → readiness gate → scenario → stop (only when we started it).
+  if (enabled("azure")) await azureStage();
+}
+
+async function azureStage() {
+  const id = RUN_ID.replace(/[^a-z0-9]/gi, "")
+    .toLowerCase()
+    .slice(-10);
+  const rg = `mcp-l1-${id}-rg`;
+  const account = `mcpl1${id}`.slice(0, 24);
+  const vault = `mcpl1${id}kv`.slice(0, 24);
+  const az = (command, timeoutMs = 600000) =>
+    callTool("localstack-azure-client", { command }, timeoutMs);
+  try {
+    if (AZURE_EXTERNAL) {
+      results.push({
+        key: "azure",
+        name: "localstack-management start (service: azure)",
+        ok: "skip",
+      });
+      console.log("\n⏭️  SKIP  [azure] localstack-management start (emulator managed outside)");
+    } else {
+      const start = await startTracked("azure", { service: "azure" }, 300000);
+      record(
+        "azure",
+        "localstack-management start (service: azure)",
+        !start.isError && /(started successfully|already running)/i.test(start.text),
+        snip(start.text, 400)
+      );
+    }
+    // Readiness gate: HTTPS comes up after plain HTTP, and the first call bootstraps.
+    const ready = await callToolUntil(
+      "localstack-azure-client",
+      { command: "group list" },
+      { attempts: 24, delayMs: 5000, timeoutMs: 120000 }
+    );
+    record("azure", "azure-client readiness (group list)", !ready.isError, snip(ready.text, 300));
+    if (ready.isError) return;
+
+    if (AZURE_BICEP_MISSING) {
+      // L5: an explicit LOCALSTACK_AZ_BICEP_PATH that does not exist is a hard error,
+      // answered before any spawn, never a silent fallback to another Bicep.
+      const r = await az(
+        `deployment group create --resource-group ${rg} --template-file ${BICEP_FILE}`
+      );
+      record(
+        "azure",
+        "LOCALSTACK_AZ_BICEP_PATH at a missing file: the hard error",
+        r.isError && /Bicep CLI Not Usable/.test(r.text),
+        snip(r.text, 300)
+      );
+      return;
+    }
+
+    const steps = [
+      [`group create --name ${rg} --location westeurope`, (r) => !r.isError],
+      [`group show --name ${rg} --query name -o tsv`, (r) => r.text.includes(rg)],
+      [
+        `storage account create --name ${account} --resource-group ${rg} --location westeurope --sku Standard_LRS`,
+        (r) => !r.isError,
+      ],
+      [
+        `storage account show --name ${account} --resource-group ${rg} --query provisioningState -o tsv`,
+        (r) => r.text.includes("Succeeded"),
+      ],
+      [
+        `storage container create --name l1-container --account-name ${account} --auth-mode key`,
+        (r) => !r.isError,
+      ],
+      [
+        `storage blob upload --container-name l1-container --name hello.txt --file ${AZURE_FILE} --account-name ${account} --auth-mode key --overwrite`,
+        (r) => !r.isError,
+      ],
+      [
+        `storage blob list --container-name l1-container --account-name ${account} --auth-mode key --query "[].name" -o tsv`,
+        (r) => r.text.includes("hello.txt"),
+      ],
+      [
+        `keyvault create --name ${vault} --resource-group ${rg} --location westeurope`,
+        (r) => !r.isError,
+      ],
+      [
+        `keyvault secret set --vault-name ${vault} --name l1-secret --value l1-local-value`,
+        (r) => !r.isError,
+      ],
+      [
+        `keyvault secret show --vault-name ${vault} --name l1-secret --query value -o tsv`,
+        (r) => r.text.includes("l1-local-value"),
+      ],
+      [
+        `rest --method get --url "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/${rg}?api-version=2022-09-01"`,
+        (r) => !r.isError && r.text.includes(rg),
+      ],
+      [
+        `rest --method get --url "https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/${rg}?api-version=2022-09-01"`,
+        (r) => !r.isError && /management\.azure\.com/.test(r.text) && r.text.includes(rg),
+      ],
+      [
+        `rest --method get --url https://graph.microsoft.com/v1.0/me`,
+        (r) => r.isError && !/Command Failed/.test(r.text.split("\n")[0]),
+      ],
+      [`login`, (r) => r.isError],
+      // An extension-only command: it runs (the extension is present) or gets the
+      // missing-extension / not-implemented hint, never a download. In the image all 26
+      // curated extensions are installed, so it must reach the emulator.
+      [
+        `graph query -q "Resources | project name | limit 1"`,
+        (r) =>
+          AZURE_EXTENSIONS_BAKED
+            ? !/\(exit [^,]+, extension\)/.test(r.text)
+            : !r.isError ||
+              /\((exit [^,]+), (extension|not-implemented|no-route|provider)\)/.test(r.text),
+      ],
+      // A NotImplemented hint (lock list is not emulated by 2026.9); success is fine too.
+      [`lock list`, (r) => !r.isError || /not-implemented/.test(r.text.split("\n")[0])],
+    ];
+    if (AZURE_BICEP) {
+      // L5: both deployment forms succeed with no extra flags, and the guard blocks
+      // nothing but housekeeping (a real refusal adds an "egress guard blocked" note). The
+      // identity each creates is named by the parameter, so reading it back shows that
+      // the parameter arrived (the emulator returns no deployment outputs).
+      const clean = (r, value) =>
+        !r.isError && r.text.includes(value) && !/egress guard blocked/.test(r.text);
+      for (const [form, source] of [
+        ["bicep", `--template-file ${BICEP_FILE} --parameters identityName=l5-from-bicep`],
+        ["bicepparam", `--parameters ${BICEPPARAM_FILE}`],
+      ]) {
+        steps.push(
+          [
+            `deployment group create --resource-group ${rg} --name l5-${form} ${source} --query properties.provisioningState -o tsv`,
+            (r) => clean(r, "Succeeded"),
+          ],
+          [
+            `identity show --resource-group ${rg} --name l5-from-${form} --query name -o tsv`,
+            (r) => clean(r, `l5-from-${form}`),
+          ]
+        );
+      }
+    }
+    for (const [command, ok] of steps) {
+      const r = await az(command);
+      record("azure", `azure-client ${command.split(" --")[0]}`, ok(r), snip(r.text, 300));
+    }
+
+    if (AZURE_EXTENSIONS_BAKED) {
+      // L5 negative: an extension outside the curated set fails at once, with no download
+      // and no egress attempt. The tool knows only the curated extensions' commands, so it
+      // classes this one as an unknown command (az says it may be from an extension).
+      const t = Date.now();
+      const r = await az(`connectedk8s list -g ${rg}`);
+      const ms = Date.now() - t;
+      record(
+        "azure",
+        `non-curated extension fails fast (${ms} ms)`,
+        /\(exit [^,]+, (extension|unknown-command)\)/.test(r.text) &&
+          !/egress guard/.test(r.text) &&
+          ms < 15000,
+        snip(r.text, 300)
+      );
+    }
+
+    // L5: the second call of a command family is fast, because the bytecode cache in
+    // LOCALSTACK_AZ_PYCACHE_DIR works. Over 1 s warns; over 5 s fails.
+    const t0 = Date.now();
+    const again = await az(`group show --name ${rg} --query name -o tsv`);
+    const elapsed = Date.now() - t0;
+    record(
+      "azure",
+      `azure-client second call of a family (${elapsed} ms)`,
+      again.isError || elapsed > 5000 ? false : elapsed > 1000 ? "warn" : true,
+      snip(again.text, 120)
+    );
+
+    // L5: with the image's loopback forwarder, the traffic went through it. The server runs with LOCALSTACK_AZ_TEST_ENVELOPE=1 for this check.
+    if (AZURE_FORWARDER_EXPECTED) {
+      const probe = await az(`group show --name ${rg}`);
+      const count = Number(/"forwarderConnections":(\d+)/.exec(probe.text)?.[1] ?? 0);
+      record(
+        "azure",
+        `loopback forwarder relayed ${count} connections`,
+        count > 0,
+        snip(probe.text, 120)
+      );
+    }
+
+    // L5 on a Linux engine: restart the emulator mid-session. The next call must see the
+    // new emulator session, re-bootstrap the profile, and succeed. Last, since it wipes state.
+    if (AZURE_RESTART_CONTAINER) {
+      const session = (text) => /"emulatorSession":"([^"]+)"/.exec(text)?.[1];
+      const before = session((await az("group list --query length(@)")).text);
+      execFileSync("docker", ["restart", AZURE_RESTART_CONTAINER], {
+        stdio: "ignore",
+        timeout: 180000,
+      });
+      const after = await callToolUntil(
+        "localstack-azure-client",
+        { command: "group list" },
+        { attempts: 36, delayMs: 5000, timeoutMs: 120000 }
+      );
+      const now = session(after.text);
+      record(
+        "azure",
+        "emulator restarted mid-session: the next call re-bootstraps and succeeds",
+        !after.isError && Boolean(before) && Boolean(now) && before !== now,
+        `session ${before} -> ${now}; ${snip(after.text, 200)}`
+      );
+    }
+  } catch (e) {
+    record("azure", "azure stage", false, String(e.message));
+  } finally {
+    if (!NO_CLEANUP) {
+      try {
+        await callTool(
+          "localstack-azure-client",
+          { command: `keyvault delete --name ${vault}` },
+          120000
+        );
+        await callTool(
+          "localstack-azure-client",
+          { command: `keyvault purge --name ${vault}` },
+          120000
+        );
+        await callTool(
+          "localstack-azure-client",
+          { command: `group delete --name ${rg} --yes --no-wait` },
+          120000
+        );
+      } catch {}
+      if (owned.azure) {
+        try {
+          const stop = await callTool(
+            "localstack-management",
+            { action: "stop", service: "azure" },
+            60000
+          );
+          record(
+            "azure",
+            "localstack-management stop (service: azure)",
+            !stop.isError,
+            snip(stop.text, 200)
+          );
+          owned.azure = false;
+        } catch (e) {
+          record("azure", "management stop (azure)", false, String(e.message));
+        }
+      } else {
+        skipNotOwned("azure", "localstack-management stop (service: azure)");
       }
     }
   }
@@ -984,10 +1324,14 @@ function finish(forceCode) {
   const hard = results.filter((r) => r.ok === false);
   const warn = results.filter((r) => r.ok === "warn");
   const pass = results.filter((r) => r.ok === true);
+  const skipped = results.filter((r) => r.ok === "skip");
   console.log("\n" + "=".repeat(64));
-  console.log(`SUMMARY: ${pass.length} passed, ${warn.length} warn, ${hard.length} failed`);
+  console.log(
+    `SUMMARY: ${pass.length} passed, ${warn.length} warn, ${hard.length} failed, ${skipped.length} skipped`
+  );
   for (const r of results) {
-    const tag = r.ok === true ? "PASS" : r.ok === "warn" ? "WARN" : "FAIL";
+    const tag =
+      r.ok === true ? "PASS" : r.ok === "warn" ? "WARN" : r.ok === "skip" ? "SKIP" : "FAIL";
     console.log(`  [${tag}] ${r.key} — ${r.name}`);
   }
   if (hard.length || forceCode) {

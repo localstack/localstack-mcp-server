@@ -1,0 +1,46 @@
+# Curated Azure CLI extensions for the localstack-azure-client tool.
+#
+# Format: one extension per line, "<name> <version> [preview]".
+#   "preview" marks a preview-only build, installed with --allow-preview true.
+#   Lines starting with '#' and blank lines are ignored. No trailing comments: the Docker build
+#   reads this file with `while read -r name version flag`.
+#
+# Which extensions: measured against azure-cli 2.90.0, an extension is curated when its commands reach emulator-served providers and
+# it overrides no core command. Excluded because they override core commands: aks-preview, authV2,
+# containerapp, cosmosdb-preview, keyvault-preview, storage-blob-preview, storage-preview.
+#
+# Versions: as installed against azure-cli 2.90.0 (2026-09-27), except
+# application-insights, pinned to the stable 1.2.3 instead of the preview 2.0.0b2 that
+# --allow-preview picked.
+#
+# DR4 checks weekly that this set installs and loads with the pinned az, and reports newer
+# releases. Installed by scripts/install-azure-extensions.mjs (CI, `install-azure-addons`, developers)
+# and by the Docker image build. src/lib/azure/extension-map.ts maps the extensions' command
+# groups; its test keeps the two lists in sync.
+
+acrcssc 1.0.0b8 preview
+acrquery 1.0.1
+acrtransfer 2.0.0
+application-insights 1.2.3
+azure-firewall 2.2.1
+bastion 1.4.3
+cdn 1.0.0b3 preview
+dns-resolver 1.2.0
+documentdb 1.0.0
+edge-action 1.0.0b4 preview
+eventgrid 1.0.0b2 preview
+express-route-cross-connection 1.0.0
+fleet 1.11.1
+front-door 2.3.0
+ip-group 1.0.1
+k8s-configuration 2.3.0
+k8s-extension 1.9.1
+monitor-control-service 1.2.0
+nsp 1.1.0
+resource-graph 2.1.1
+scheduled-query 1.0.0b2 preview
+staticwebapp 1.0.1
+virtual-network-manager 3.0.2
+virtual-network-tap 1.0.0b2 preview
+virtual-wan 1.0.1
+webapp 0.4.0

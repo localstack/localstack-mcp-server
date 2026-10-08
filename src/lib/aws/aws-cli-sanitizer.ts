@@ -1,3 +1,9 @@
+import { splitCliArgs } from "../cli/argv";
+
+// The tokenizer lives in src/lib/cli/argv.ts so the Azure client can share it. The
+// AWS client calls it without options, which keeps its original behaviour.
+export { splitCliArgs as splitAwsCliArgs } from "../cli/argv";
+
 export function sanitizeAwsCliCommand(rawCommand: string): string {
   const command = rawCommand.trim();
   if (!command) {
@@ -16,64 +22,7 @@ export function sanitizeAwsCliCommand(rawCommand: string): string {
     throw new Error("Command must start with an AWS service or built-in command.");
   }
 
-  splitAwsCliArgs(command);
+  splitCliArgs(command);
 
   return command;
-}
-
-export function splitAwsCliArgs(command: string): string[] {
-  const args: string[] = [];
-  let current = "";
-  let quote: "'" | '"' | undefined;
-
-  for (let index = 0; index < command.length; index++) {
-    const character = command[index];
-
-    if (character === "\n" || character === "\r" || character === "`") {
-      throw new Error("Command contains forbidden shell syntax.");
-    }
-
-    if (character === "\\" && quote === '"') {
-      const escaped = command[index + 1];
-      if (escaped === '"' || escaped === "\\") {
-        current += escaped;
-        index++;
-      } else {
-        current += character;
-      }
-      continue;
-    }
-
-    if ((character === "'" || character === '"') && (!quote || quote === character)) {
-      quote = quote ? undefined : character;
-      continue;
-    }
-
-    if (!quote) {
-      if (
-        ";&|<>".includes(character) ||
-        command.startsWith("$(", index) ||
-        command.startsWith("${", index)
-      ) {
-        throw new Error("Command contains forbidden shell syntax.");
-      }
-      if (/\s/.test(character)) {
-        if (current) {
-          args.push(current);
-          current = "";
-        }
-        continue;
-      }
-    }
-
-    current += character;
-  }
-
-  if (quote) {
-    throw new Error("Command contains an unterminated quote.");
-  }
-  if (current) {
-    args.push(current);
-  }
-  return args;
 }

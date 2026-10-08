@@ -1,0 +1,40 @@
+# Code owners: GitHub requests their review on any pull request that touches these paths.
+#
+# The Azure tool, with its tests, fixtures, CI and image parts: the Azure team (smurf) and the
+# repository's maintainer. Files shared with the AWS and Snowflake tools (the lifecycle tool, the
+# launcher, the wizard, the Dockerfile, the README) are left out on purpose, so that AWS and
+# Snowflake changes do not request Azure reviewers.
+
+# The tool
+/src/lib/azure/                                     @localstack/smurf @HarshCasper
+/src/tools/localstack-azure-client.ts               @localstack/smurf @HarshCasper
+/src/tools-tests/localstack-azure-client.test.ts    @localstack/smurf @HarshCasper
+/src/lib/wizard/azure-steps.ts                      @localstack/smurf @HarshCasper
+/src/lib/wizard/azure-steps.test.ts                 @localstack/smurf @HarshCasper
+/src/cli/azure-addons.ts                            @localstack/smurf @HarshCasper
+/src/cli/azure-addons.test.ts                       @localstack/smurf @HarshCasper
+
+# Tests, fixtures and sample data
+/tests/azure/                                       @localstack/smurf @HarshCasper
+/tests/fixtures/azure/                              @localstack/smurf @HarshCasper
+/tests/mcp/azure-offline.spec.mjs                   @localstack/smurf @HarshCasper
+/tests/mcp/evals-gemini-azure.spec.mjs              @localstack/smurf @HarshCasper
+/data/sample-azure/                                 @localstack/smurf @HarshCasper
+/data/evals/gemini-azure.json                       @localstack/smurf @HarshCasper
+/jest.azure-live.config.js                          @localstack/smurf @HarshCasper
+
+# CI and scripts
+/.github/workflows/azure-live.yml                   @localstack/smurf @HarshCasper
+/.github/workflows/azure-weekly.yml                 @localstack/smurf @HarshCasper
+/.github/actions/azure-live-setup/                  @localstack/smurf @HarshCasper
+/scripts/ci/azure-emulator-up.sh                    @localstack/smurf @HarshCasper
+/scripts/ci/scan-for-secret.mjs                     @localstack/smurf @HarshCasper
+/scripts/ci/merge-op-catalogue.cjs                  @localstack/smurf @HarshCasper
+/scripts/install-azure-extensions.mjs               @localstack/smurf @HarshCasper
+/scripts/gen-az-file-args.py                        @localstack/smurf @HarshCasper
+
+# The image's Azure layers (the Azure CLI, its extensions and Bicep)
+/docker/azure-extensions.txt                        @localstack/smurf @HarshCasper
+/docker/image-size.json                             @localstack/smurf @HarshCasper
+/tests/docker/image-size.mjs                        @localstack/smurf @HarshCasper
+/tests/docker/l5-image-assertions.sh                @localstack/smurf @HarshCasper

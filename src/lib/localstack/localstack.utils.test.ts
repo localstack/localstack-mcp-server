@@ -1,4 +1,5 @@
 import {
+  carriedRestartEnv,
   deriveRecreateOverrides,
   getGatewayHealth,
   getLocalStackStatus,
@@ -6,6 +7,7 @@ import {
   launchRuntime,
   recreateRunningContainer,
   restartRuntimeInPlace,
+  unmountableBindSource,
 } from "./localstack.utils";
 import { httpClient } from "../../core/http-client";
 import { request as httpRequest } from "http";
@@ -272,6 +274,36 @@ describe("localstack.utils", () => {
       expect(client.createAndStartContainer).not.toHaveBeenCalled();
     });
 
+    test("an Azure start on a named volume says that app deployments need LOCALSTACK_VOLUME_DIR", async () => {
+      // The emulator shares files with the containers it starts for Function and Web Apps from
+      // its state folder, and refuses to unless that folder is a bind mount.
+      const ready = { isRunning: true, isReady: true, statusOutput: "healthy" };
+      const start = async (stack: "azure" | "aws", volumeOverride: any) => {
+        const { client } = mockDockerClient();
+        const getStatus = jest
+          .fn()
+          .mockResolvedValueOnce({ isRunning: false })
+          .mockResolvedValue(ready);
+        const result = await launchRuntime({
+          ...launchDefaults,
+          stack,
+          volumeOverride,
+          getStatus,
+          dockerClient: client,
+        });
+        return result.content[0].text;
+      };
+      const named = { type: "volume", name: "localstack-mcp" };
+      const bind = { type: "bind", source: "/host/localstack-volume" };
+      const onNamed = await start("azure", named);
+      expect(onNamed).toContain("started successfully");
+      expect(onNamed).toMatch(/Function App and Web App deployments need/);
+      expect(onNamed).toMatch(/LOCALSTACK_VOLUME_DIR/);
+      expect(onNamed).toMatch(/stop and start the emulator/);
+      expect(await start("azure", bind)).not.toMatch(/LOCALSTACK_VOLUME_DIR/);
+      expect(await start("aws", named)).not.toMatch(/LOCALSTACK_VOLUME_DIR/);
+    });
+
     test("starts the container and succeeds once the gateway becomes reachable", async () => {
       const { client } = mockDockerClient();
       const getStatus = jest
@@ -295,6 +327,49 @@ describe("localstack.utils", () => {
       const spec = client.createAndStartContainer.mock.calls[0][0];
       expect(spec.Image).toBe("localstack/localstack-pro:latest");
       expect(spec.name).toBe("localstack-main");
+    });
+
+    test("a runtime that accepts connections but does not answer yet is not started: the start keeps polling", async () => {
+      // Docker's port proxy accepts connections before the runtime listens, so a
+      // just-started container looks unresponsive for a while; the start must wait for it.
+      const { client } = mockDockerClient();
+      const onReady = jest.fn().mockResolvedValue(null);
+      const getStatus = jest
+        .fn()
+        .mockResolvedValueOnce({ isRunning: false })
+        .mockResolvedValueOnce({ isRunning: true, isReady: false, unresponsive: true })
+        .mockResolvedValueOnce({ isRunning: true, isReady: false, unresponsive: true })
+        .mockResolvedValue({
+          isRunning: true,
+          isReady: true,
+          statusOutput: "edition: azure-alpha",
+        });
+
+      const result = await launchRuntime({
+        ...launchDefaults,
+        getStatus,
+        onReady,
+        dockerClient: client,
+      });
+
+      expect(result.content[0].text).toContain("started successfully");
+      expect(result.content[0].text).toContain("edition: azure-alpha");
+      // The pre-start check, two unresponsive polls, then the one that answered.
+      expect(getStatus).toHaveBeenCalledTimes(4);
+      expect(onReady).toHaveBeenCalledTimes(1);
+    });
+
+    test("an unresponsive runtime still counts as running before a start: no second one is launched", async () => {
+      const { client } = mockDockerClient();
+      const result = await launchRuntime({
+        ...launchDefaults,
+        getStatus: jest
+          .fn()
+          .mockResolvedValue({ isRunning: true, isReady: false, unresponsive: true }),
+        dockerClient: client,
+      });
+      expect(result.content[0].text).toBe("already running");
+      expect(client.createAndStartContainer).not.toHaveBeenCalled();
     });
 
     test("pulls the image when missing", async () => {
@@ -375,6 +450,62 @@ describe("localstack.utils", () => {
       expect(text).toContain("exited unexpectedly");
       expect(text).toContain("License activation failed");
       expect(logHandle.destroy).toHaveBeenCalled();
+    });
+
+    test("names the licence when the container exits with code 55 before printing why", async () => {
+      // The real tail from a bad token: the container exits before the reason is flushed.
+      let exitCallback: (() => void) | undefined;
+      const logHandle = {
+        getBuffered: jest.fn(
+          () =>
+            "LocalStack version: 2026.9.0.dev336\nLocalStack build date: 2026-09-23\n" +
+            "Localstack returning with exit code 55. Reason: \n==============================\n"
+        ),
+        hasExited: jest.fn(() => true),
+        onExit: jest.fn((cb: () => void) => {
+          exitCallback = cb;
+        }),
+        destroy: jest.fn(),
+      };
+      const { client } = mockDockerClient({
+        attachLogBuffer: jest.fn().mockResolvedValue(logHandle),
+      });
+      const getStatus = jest.fn().mockResolvedValue({ isRunning: false });
+
+      const resultPromise = launchRuntime({ ...launchDefaults, getStatus, dockerClient: client });
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      exitCallback?.();
+
+      const text = (await resultPromise).content[0].text;
+      expect(text).toContain("exited unexpectedly");
+      expect(text).toMatch(/could not activate its licen[cs]e/);
+      expect(text).toContain("LOCALSTACK_AUTH_TOKEN");
+      // The log tail still follows, for the details.
+      expect(text).toContain("exit code 55");
+    });
+
+    test("never creates the bind source of a recreated container (C:\\home on Windows)", async () => {
+      // A restart passes the old container's bind as volumeOverride; creating a missing one
+      // made C:\home\o\.cache\... on Windows for a WSL path.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { existsSync } = require("fs");
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const source = require("path").join(
+        require("os").tmpdir(),
+        `lsmcp-test-no-mkdir-${Date.now()}`
+      );
+      const { client } = mockDockerClient();
+      const getStatus = jest
+        .fn()
+        .mockResolvedValueOnce({ isRunning: false })
+        .mockResolvedValue({ isRunning: true, isReady: true });
+      await launchRuntime({
+        ...launchDefaults,
+        getStatus,
+        dockerClient: client,
+        volumeOverride: { type: "bind", source },
+      });
+      expect(existsSync(source)).toBe(false);
     });
 
     test("times out with the timeout message when readiness never arrives", async () => {
@@ -582,6 +713,45 @@ describe("localstack.utils", () => {
     });
   });
 
+  describe("unmountableBindSource", () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const os = require("os");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require("path");
+    const bind = (source: string) => ({ volumeOverride: { type: "bind" as const, source } });
+
+    test("a Linux path seen from a Windows host is unmountable, even if C:\\ happens to hold it", () => {
+      expect(
+        unmountableBindSource(bind("/home/dev/.cache/lstk/volume/localstack-azure"), {
+          platform: "win32",
+          inDocker: false,
+        })
+      ).toBe("/home/dev/.cache/lstk/volume/localstack-azure");
+    });
+
+    test("an existing folder is mountable; a missing one is not", () => {
+      const platform = process.platform === "win32" ? "win32" : "linux";
+      expect(
+        unmountableBindSource(bind(os.tmpdir()), { platform, inDocker: false })
+      ).toBeUndefined();
+      const missing = path.join(os.tmpdir(), `lsmcp-test-missing-${Date.now()}`);
+      expect(unmountableBindSource(bind(missing), { platform, inDocker: false })).toBe(missing);
+    });
+
+    test("named volumes, no overrides and servers inside Docker are not checked", () => {
+      expect(
+        unmountableBindSource(
+          { volumeOverride: { type: "volume", name: "v" } },
+          { inDocker: false }
+        )
+      ).toBeUndefined();
+      expect(unmountableBindSource(undefined)).toBeUndefined();
+      expect(
+        unmountableBindSource(bind("/nope"), { platform: "linux", inDocker: true })
+      ).toBeUndefined();
+    });
+  });
+
   describe("deriveRecreateOverrides", () => {
     test("reuses image/name/volume of a matching-stack container", () => {
       expect(
@@ -605,6 +775,27 @@ describe("localstack.utils", () => {
       expect(
         deriveRecreateOverrides({ id: "x", image: "localstack/snowflake:latest" }, "aws")
       ).toBeUndefined();
+    });
+
+    test("uses the labels: a bare-ID Azure container keeps its identity for an azure restart", () => {
+      const metadata = {
+        id: "x",
+        name: "localstack-azure",
+        image: "f91897f1de85",
+        labels: { description: "LocalStack for Azure" },
+      };
+      expect(deriveRecreateOverrides(metadata, "azure")).toMatchObject({
+        imageOverride: "f91897f1de85",
+        containerNameOverride: "localstack-azure",
+      });
+      // Restarting it as AWS is a deliberate stack switch: no overrides.
+      expect(deriveRecreateOverrides(metadata, "aws")).toBeUndefined();
+    });
+
+    test("keeps the AWS default for an unlabelled bare-ID image", () => {
+      expect(deriveRecreateOverrides({ id: "x", image: "0123456789ab" }, "aws")).toMatchObject({
+        imageOverride: "0123456789ab",
+      });
     });
 
     test("returns undefined without image metadata", () => {
@@ -652,6 +843,39 @@ describe("localstack.utils", () => {
       expect(spec.name).toBe("localstack-aws");
       expect(spec.Image).toBe("localstack/localstack-pro:latest");
       expect(result.content[0].text).toContain("recreated successfully");
+    });
+  });
+});
+
+describe("carriedRestartEnv", () => {
+  test("keeps operator flags, drops unchanged image pairs, reserved keys and the token", () => {
+    const carried = carriedRestartEnv(
+      [
+        "MSSQL_ACCEPT_EULA=Y",
+        "PATH=/usr/bin",
+        "GATEWAY_LISTEN=0.0.0.0:4566",
+        "LOCALSTACK_AUTH_TOKEN=secret",
+        "LOCALSTACK_HOST=localhost.localstack.cloud:4566",
+      ],
+      ["PATH=/usr/bin"]
+    );
+    expect(carried).toEqual({
+      MSSQL_ACCEPT_EULA: "Y",
+      LOCALSTACK_HOST: "localhost.localstack.cloud:4566",
+    });
+  });
+
+  test("an image default the operator changed IS carried (the pair differs)", () => {
+    expect(carriedRestartEnv(["DEBUG=1"], ["DEBUG=0"])).toEqual({ DEBUG: "1" });
+  });
+
+  test("a value containing '=' keeps everything after the first '='", () => {
+    expect(carriedRestartEnv(["CONN=a=b;c=d"], [])).toEqual({ CONN: "a=b;c=d" });
+  });
+
+  test("malformed entries and system vars are skipped even without the image env", () => {
+    expect(carriedRestartEnv(["NOEQUALS", "=novalue", "HOME=/root", "FLAG="], undefined)).toEqual({
+      FLAG: "",
     });
   });
 });

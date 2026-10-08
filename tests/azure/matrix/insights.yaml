@@ -1,0 +1,532 @@
+# Microsoft.Insights: action groups, alerts, autoscale, diagnostic settings, Application
+# Insights components and web tests, data collection, workbooks.
+# `monitor app-insights` and `monitor data-collection` come from curated extensions
+# (application-insights, monitor-control-service); `monitor scheduled-query` too, but its rules
+# are written with rest here to keep KQL out of argument quoting.
+provider: Microsoft.Insights
+cases:
+  - id: monitor-action-group
+    operations:
+      [Microsoft.Insights ActionGroups CreateOrUpdate, Microsoft.Insights ActionGroups Get]
+    pr: true
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        monitor action-group create --name {name:ag} --resource-group {rg} --short-name l2ag
+        --action email oncall oncall@example.com
+    command: monitor action-group show --name {name:ag} --resource-group {rg}
+    expect:
+      json:
+        - { path: groupShortName, equals: l2ag }
+        - { path: "emailReceivers[0].emailAddress", equals: oncall@example.com }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: monitor-action-group-lists-update
+    operations:
+      [
+        Microsoft.Insights ActionGroups ListByResourceGroup,
+        Microsoft.Insights ActionGroups ListBySubscriptionId,
+        Microsoft.Insights ActionGroups Update,
+        Microsoft.Insights ActionGroups Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - monitor action-group create --name {name:ag} --resource-group {rg} --short-name l2ag
+      - run: monitor action-group list --resource-group {rg} --query "[].name"
+        until: { json: { path: "", equals: ["{name:ag}"] } }
+      - monitor action-group list --query "[?name=='{name:ag}'].name"
+      - run: >-
+          rest --method patch
+          --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/actionGroups/{name:ag}?api-version=2023-01-01
+          --body '{"tags": {"matrix": "l2"}, "properties": {"enabled": false}}'
+        until: { json: { path: tags.matrix, equals: l2 } }
+    command: monitor action-group delete --name {name:ag} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: monitor-activity-log-alert
+    operations:
+      [
+        Microsoft.Insights ActivityLogAlerts CreateOrUpdate,
+        Microsoft.Insights ActivityLogAlerts Get,
+        Microsoft.Insights ActivityLogAlerts ListByResourceGroup,
+        Microsoft.Insights ActivityLogAlerts ListBySubscriptionId,
+        Microsoft.Insights ActivityLogAlerts Update,
+        Microsoft.Insights ActivityLogAlerts Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        monitor activity-log alert create --name {name:ala} --resource-group {rg}
+        --scope /subscriptions/{sub}/resourceGroups/{rg} --condition category=Administrative
+      - run: monitor activity-log alert show --name {name:ala} --resource-group {rg} --query enabled
+        until: { json: { path: "", equals: true } }
+      - monitor activity-log alert list --resource-group {rg}
+      - monitor activity-log alert list --query "[?name=='{name:ala}'].name"
+      - run: monitor activity-log alert update --name {name:ala} --resource-group {rg} --enabled false
+        until: { json: { path: enabled, equals: false } }
+    command: monitor activity-log alert delete --name {name:ala} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: monitor-activity-log
+    operations: [Microsoft.Insights ActivityLogs List]
+    setup:
+      - group create --name {rg} --location {location}
+    command: monitor activity-log list --resource-group {rg} --offset 1h --query "length(@) >= `0`"
+    expect:
+      json: { path: "", equals: true }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: monitor-metric-alert
+    operations:
+      [
+        Microsoft.Insights MetricAlerts CreateOrUpdate,
+        Microsoft.Insights MetricAlerts Get,
+        Microsoft.Insights MetricAlerts ListByResourceGroup,
+        Microsoft.Insights MetricAlerts ListBySubscription,
+        Microsoft.Insights MetricAlerts Update,
+        Microsoft.Insights MetricAlerts Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - run: identity create --name {name:id} --resource-group {rg} --location {location} --query id -o tsv
+        capture: target_id
+      - >-
+        monitor metrics alert create --name {name:ma} --resource-group {rg} --scopes {target_id}
+        --condition "avg Requests > 100" --description l2 --evaluation-frequency 5m --window-size 15m
+      - run: monitor metrics alert show --name {name:ma} --resource-group {rg} --query description -o tsv
+        until: { stdout: { equals: l2 } }
+      - monitor metrics alert list --resource-group {rg}
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/providers/Microsoft.Insights/metricAlerts?api-version=2018-03-01
+      - run: monitor metrics alert update --name {name:ma} --resource-group {rg} --enabled false
+        until: { json: { path: enabled, equals: false } }
+    command: monitor metrics alert delete --name {name:ma} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: monitor-scheduled-query-rule
+    operations:
+      [
+        Microsoft.Insights ScheduledQueryRules CreateOrUpdate,
+        Microsoft.Insights ScheduledQueryRules Get,
+        Microsoft.Insights ScheduledQueryRules ListByResourceGroup,
+        Microsoft.Insights ScheduledQueryRules ListBySubscription,
+        Microsoft.Insights ScheduledQueryRules Update,
+        Microsoft.Insights ScheduledQueryRules Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - run: >-
+          monitor log-analytics workspace create --resource-group {rg} --workspace-name {name:law}
+          --location {location} --query id -o tsv
+        capture: law_id
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/scheduledQueryRules/{name:sq}?api-version=2023-03-15-preview
+        --body '{"location": "{location}", "properties": {"severity": 3, "enabled": true, "scopes": ["{law_id}"],
+        "evaluationFrequency": "PT5M", "windowSize": "PT5M", "criteria": {"allOf": [{"query": "Heartbeat | take 1",
+        "timeAggregation": "Count", "operator": "GreaterThan", "threshold": 5}]}}}'
+      - run: >-
+          rest --method get
+          --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/scheduledQueryRules/{name:sq}?api-version=2023-03-15-preview
+        until: { json: { path: properties.severity, equals: 3 } }
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/scheduledQueryRules?api-version=2023-03-15-preview
+      - rest --method get --url /subscriptions/{sub}/providers/Microsoft.Insights/scheduledQueryRules?api-version=2023-03-15-preview
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/scheduledQueryRules/{name:sq}?api-version=2023-03-15-preview
+        --body '{"properties": {"enabled": false}}'
+    command: >-
+      rest --method delete
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/scheduledQueryRules/{name:sq}?api-version=2023-03-15-preview
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: monitor-autoscale
+    operations:
+      [
+        Microsoft.Insights AutoscaleSettings CreateOrUpdate,
+        Microsoft.Insights AutoscaleSettings Get,
+        Microsoft.Insights AutoscaleSettings ListByResourceGroup,
+        Microsoft.Insights AutoscaleSettings ListBySubscription,
+        Microsoft.Insights AutoscaleSettings Update,
+        Microsoft.Insights AutoscaleSettings Delete,
+      ]
+    note: The target is a scale set id the setting only references.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/autoscalesettings/{name:as}?api-version=2022-10-01
+        --body '{"location": "{location}", "properties": {"enabled": true, "targetResourceUri":
+        "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Compute/virtualMachineScaleSets/l2",
+        "profiles": [{"name": "default", "capacity": {"minimum": "1", "maximum": "3", "default": "1"}, "rules": []}]}}'
+      - run: monitor autoscale show --name {name:as} --resource-group {rg} --query "profiles[0].capacity.maximum" -o tsv
+        until: { stdout: { equals: "3" } }
+      - monitor autoscale list --resource-group {rg}
+      - rest --method get --url /subscriptions/{sub}/providers/Microsoft.Insights/autoscalesettings?api-version=2022-10-01
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/autoscalesettings/{name:as}?api-version=2022-10-01
+        --body '{"tags": {"matrix": "l2"}}'
+    command: monitor autoscale delete --name {name:as} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: monitor-diagnostic-settings
+    operations:
+      [
+        Microsoft.Insights ServiceDiagnosticSettings CreateOrUpdate,
+        Microsoft.Insights ServiceDiagnosticSettings Get,
+        Microsoft.Insights ServiceDiagnosticSettings List,
+      ]
+    pr: true
+    note: Samples monitor diagnostic-settings create/show (29 uses).
+    setup:
+      - group create --name {rg} --location {location}
+      - run: keyvault create --name {vault} --resource-group {rg} --location {location} --query id -o tsv
+        capture: vault_id
+      - run: >-
+          monitor log-analytics workspace create --resource-group {rg} --workspace-name {name:law}
+          --location {location} --query id -o tsv
+        capture: law_id
+      - >-
+        monitor diagnostic-settings create --name to-law --resource {vault_id} --workspace {law_id}
+        --logs '[{"category": "AuditEvent", "enabled": true}]' --metrics '[{"category": "AllMetrics", "enabled": true}]'
+      - run: monitor diagnostic-settings show --name to-law --resource {vault_id}
+        until: { json: { path: workspaceId, contains: "{name:law}" } }
+    command: monitor diagnostic-settings list --resource {vault_id} --query "[].name"
+    expect:
+      json: { path: "", equals: [to-law] }
+    cleanup:
+      - keyvault delete --name {vault}
+      - keyvault purge --name {vault}
+      - group delete --name {rg} --yes --no-wait
+
+  - id: monitor-diagnostic-settings-update-delete
+    operations:
+      [
+        Microsoft.Insights ServiceDiagnosticSettings Update,
+        Microsoft.Insights ServiceDiagnosticSettings Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - run: keyvault create --name {vault} --resource-group {rg} --location {location} --query id -o tsv
+        capture: vault_id
+      - run: >-
+          monitor log-analytics workspace create --resource-group {rg} --workspace-name {name:law}
+          --location {location} --query id -o tsv
+        capture: law_id
+      - >-
+        monitor diagnostic-settings create --name to-law --resource {vault_id} --workspace {law_id}
+        --logs '[{"category": "AuditEvent", "enabled": true}]'
+      - >-
+        rest --method patch
+        --url {vault_id}/providers/Microsoft.Insights/diagnosticSettings/to-law?api-version=2021-05-01-preview
+        --body '{"properties": {"logs": [{"category": "AuditEvent", "enabled": false}]}}'
+    command: monitor diagnostic-settings delete --name to-law --resource {vault_id}
+    expect:
+      exitCode: 0
+    cleanup:
+      - keyvault delete --name {vault}
+      - keyvault purge --name {vault}
+      - group delete --name {rg} --yes --no-wait
+
+  - id: monitor-app-insights-component
+    operations:
+      [
+        Microsoft.Insights Components CreateOrUpdate,
+        Microsoft.Insights Components Get,
+        Microsoft.Insights Components ListByResourceGroup,
+        Microsoft.Insights Components List,
+      ]
+    note: Samples monitor app-insights component create/show (7 uses); extension application-insights.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        monitor app-insights component create --app {name:ai} --resource-group {rg} --location {location}
+        --kind web --application-type web
+      - run: monitor app-insights component show --app {name:ai} --resource-group {rg} --query instrumentationKey -o tsv
+        until: { stdout: { matches: "^[0-9a-f-]{36}$" } }
+      - monitor app-insights component show --resource-group {rg}
+    command: monitor app-insights component show --query "[?name=='{name:ai}'].name"
+    expect:
+      json: { path: "", equals: ["{name:ai}"] }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: monitor-app-insights-component-manage
+    operations:
+      [
+        Microsoft.Insights Components UpdateTags,
+        Microsoft.Insights ComponentCurrentBillingFeatures Get,
+        Microsoft.Insights ComponentCurrentBillingFeatures Update,
+        Microsoft.Insights Components Purge,
+        Microsoft.Insights Components Delete,
+      ]
+    note: >-
+      The CLI's `monitor app-insights component update-tags` (application-insights extension,
+      api-version 2018-05-01-preview) sends an empty PATCH body `{}`, so it never changes the tags,
+      on Azure too (L2, 2026-09-27, seen in --debug); the case runs it and then sets the tags
+      through `rest`, which the emulator applies.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        monitor app-insights component create --app {name:ai} --resource-group {rg} --location {location}
+        --kind web --application-type web
+      - monitor app-insights component update-tags --app {name:ai} --resource-group {rg} --tags matrix=l2
+      - run: >-
+          rest --method patch
+          --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/components/{name:ai}?api-version=2020-02-02
+          --body '{"tags": {"matrix": "l2"}}'
+        until: { json: { path: tags.matrix, equals: l2 } }
+      - monitor app-insights component billing show --app {name:ai} --resource-group {rg}
+      - monitor app-insights component billing update --app {name:ai} --resource-group {rg} --cap 10 --stop false
+      - >-
+        rest --method post
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/components/{name:ai}/purge?api-version=2020-02-02
+        --body '{"table": "requests", "filters": [{"column": "timestamp", "operator": ">", "value": "2026-01-01T00:00:00"}]}'
+    command: monitor app-insights component delete --app {name:ai} --resource-group {rg}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: monitor-web-tests
+    operations:
+      [
+        Microsoft.Insights WebTests CreateOrUpdate,
+        Microsoft.Insights WebTests Get,
+        Microsoft.Insights WebTests ListByResourceGroup,
+        Microsoft.Insights WebTests List,
+        Microsoft.Insights WebTests ListByComponent,
+        Microsoft.Insights WebTests UpdateTags,
+        Microsoft.Insights WebTests Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - run: >-
+          monitor app-insights component create --app {name:ai} --resource-group {rg} --location {location}
+          --kind web --application-type web --query id -o tsv
+        capture: ai_id
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/webtests/{name:wt}?api-version=2022-06-15
+        --body '{"location": "{location}", "tags": {"hidden-link:{ai_id}": "Resource"}, "kind": "standard",
+        "properties": {"SyntheticMonitorId": "{name:wt}", "Name": "{name:wt}", "Enabled": true, "Frequency": 300,
+        "Timeout": 30, "Kind": "standard", "Locations": [{"Id": "emea-nl-ams-azr"}],
+        "Request": {"RequestUrl": "https://www.example.com/", "HttpVerb": "GET"}}}'
+      - run: >-
+          rest --method get
+          --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/webtests/{name:wt}?api-version=2022-06-15
+        until: { json: { path: properties.Frequency, equals: 300 } }
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/webtests?api-version=2022-06-15
+      - rest --method get --url /subscriptions/{sub}/providers/Microsoft.Insights/webtests?api-version=2022-06-15
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/components/{name:ai}/webtests?api-version=2022-06-15
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/webtests/{name:wt}?api-version=2022-06-15
+        --body '{"tags": {"matrix": "l2", "hidden-link:{ai_id}": "Resource"}}'
+    command: >-
+      rest --method delete
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/webtests/{name:wt}?api-version=2022-06-15
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: monitor-data-collection-endpoint
+    operations:
+      [
+        Microsoft.Insights DataCollectionEndpoints Create,
+        Microsoft.Insights DataCollectionEndpoints Get,
+        Microsoft.Insights DataCollectionEndpoints ListByResourceGroup,
+        Microsoft.Insights DataCollectionEndpoints ListBySubscription,
+        Microsoft.Insights DataCollectionEndpoints Update,
+        Microsoft.Insights DataCollectionEndpoints Delete,
+      ]
+    note: Extension monitor-control-service.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        monitor data-collection endpoint create --resource-group {rg} --name {name:dce} --location {location}
+        --public-network-access Enabled
+      - run: monitor data-collection endpoint show --resource-group {rg} --name {name:dce} --query name -o tsv
+        until: { stdout: { equals: "{name:dce}" } }
+      - monitor data-collection endpoint list --resource-group {rg}
+      - monitor data-collection endpoint list --query "[?name=='{name:dce}'].name"
+      - run: monitor data-collection endpoint update --resource-group {rg} --name {name:dce} --tags matrix=l2
+        until: { json: { path: tags.matrix, equals: l2 } }
+    command: monitor data-collection endpoint delete --resource-group {rg} --name {name:dce} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: monitor-data-collection-rule
+    operations:
+      [
+        Microsoft.Insights DataCollectionRules Create,
+        Microsoft.Insights DataCollectionRules Get,
+        Microsoft.Insights DataCollectionRules ListByResourceGroup,
+        Microsoft.Insights DataCollectionRules ListBySubscription,
+        Microsoft.Insights DataCollectionRules Update,
+        Microsoft.Insights DataCollectionRules Delete,
+      ]
+    note: The rule body goes through rest (the az command reads it from a file).
+    setup:
+      - group create --name {rg} --location {location}
+      - run: >-
+          monitor log-analytics workspace create --resource-group {rg} --workspace-name {name:law}
+          --location {location} --query id -o tsv
+        capture: law_id
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/dataCollectionRules/{name:dcr}?api-version=2022-06-01
+        --body '{"location": "{location}", "properties": {"dataSources": {"performanceCounters": [{"name": "cpu",
+        "streams": ["Microsoft-Perf"], "samplingFrequencyInSeconds": 60, "counterSpecifiers": ["\\Processor(_Total)\\% Processor Time"]}]},
+        "destinations": {"logAnalytics": [{"name": "la", "workspaceResourceId": "{law_id}"}]},
+        "dataFlows": [{"streams": ["Microsoft-Perf"], "destinations": ["la"]}]}}'
+      - run: monitor data-collection rule show --resource-group {rg} --name {name:dcr} --query name -o tsv
+        until: { stdout: { equals: "{name:dcr}" } }
+      - monitor data-collection rule list --resource-group {rg}
+      - monitor data-collection rule list --query "[?name=='{name:dcr}'].name"
+      - run: monitor data-collection rule update --resource-group {rg} --name {name:dcr} --tags matrix=l2
+        until: { json: { path: tags.matrix, equals: l2 } }
+    command: monitor data-collection rule delete --resource-group {rg} --name {name:dcr} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: monitor-data-collection-association
+    operations:
+      [
+        Microsoft.Insights DataCollectionRuleAssociations Create,
+        Microsoft.Insights DataCollectionRuleAssociations Get,
+        Microsoft.Insights DataCollectionRuleAssociations ListByResource,
+        Microsoft.Insights DataCollectionRuleAssociations ListByRule,
+        Microsoft.Insights DataCollectionRuleAssociations ListByDataCollectionEndpoint,
+        Microsoft.Insights DataCollectionRuleAssociations Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - run: identity create --name {name:id} --resource-group {rg} --location {location} --query id -o tsv
+        capture: target_id
+      - run: monitor data-collection endpoint create --resource-group {rg} --name {name:dce} --location {location} --public-network-access Enabled --query id -o tsv
+        capture: dce_id
+      - run: >-
+          monitor log-analytics workspace create --resource-group {rg} --workspace-name {name:law}
+          --location {location} --query id -o tsv
+        capture: law_id
+      - run: >-
+          rest --method put
+          --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/dataCollectionRules/{name:dcr}?api-version=2022-06-01
+          --body '{"location": "{location}", "properties": {"destinations": {"logAnalytics": [{"name": "la",
+          "workspaceResourceId": "{law_id}"}]}, "dataFlows": [{"streams": ["Microsoft-Perf"], "destinations": ["la"]}]}}'
+        capture: { dcr_id: id }
+      - >-
+        monitor data-collection rule association create --name to-rule --resource {target_id}
+        --rule-id {dcr_id}
+      - >-
+        monitor data-collection rule association create --name configurationAccessEndpoint --resource {target_id}
+        --endpoint-id {dce_id}
+      - run: monitor data-collection rule association show --name to-rule --resource {target_id}
+        until: { json: { path: dataCollectionRuleId, equals: "{dcr_id}" } }
+      - monitor data-collection rule association list --resource {target_id}
+      - monitor data-collection rule association list --resource-group {rg} --rule-name {name:dcr}
+      - monitor data-collection endpoint association list --data-collection-endpoint-name {name:dce} --resource-group {rg}
+    command: monitor data-collection rule association delete --name to-rule --resource {target_id} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: monitor-workbook
+    operations:
+      [
+        Microsoft.Insights Workbooks CreateOrUpdate,
+        Microsoft.Insights Workbooks Get,
+        Microsoft.Insights Workbooks ListByResourceGroup,
+        Microsoft.Insights Workbooks ListBySubscription,
+        Microsoft.Insights Workbooks Update,
+        Microsoft.Insights Workbooks RevisionsList,
+        Microsoft.Insights Workbooks RevisionGet,
+        Microsoft.Insights Workbooks Delete,
+      ]
+    note: Extension application-insights.
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        monitor app-insights workbook create --resource-group {rg} --name {uuid} --location {location}
+        --display-name L2-{id} --category workbook --kind shared
+        --serialized-data '{"version": "Notebook/1.0", "items": [], "isLocked": false}'
+      - run: monitor app-insights workbook show --resource-group {rg} --name {uuid} --query displayName -o tsv
+        until: { stdout: { equals: "L2-{id}" } }
+      - monitor app-insights workbook list --resource-group {rg} --category workbook
+      - monitor app-insights workbook list --category workbook --query "[?name=='{uuid}'].name"
+      - monitor app-insights workbook update --resource-group {rg} --name {uuid} --tags matrix=l2
+      - run: monitor app-insights workbook revision list --resource-name {uuid} --resource-group {rg} --query "[0].name" -o tsv
+        capture: revision
+      - monitor app-insights workbook revision show --resource-name {uuid} --resource-group {rg} --revision-id {revision}
+    command: monitor app-insights workbook delete --resource-group {rg} --name {uuid} --yes
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: monitor-workbook-template
+    operations:
+      [
+        Microsoft.Insights WorkbookTemplates CreateOrUpdate,
+        Microsoft.Insights WorkbookTemplates Get,
+        Microsoft.Insights WorkbookTemplates ListByResourceGroup,
+        Microsoft.Insights WorkbookTemplates Update,
+        Microsoft.Insights WorkbookTemplates Delete,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        rest --method put
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/workbooktemplates/{name:wbt}?api-version=2020-11-20
+        --body '{"location": "{location}", "properties": {"priority": 1, "templateData": {"version": "Notebook/1.0", "items": []},
+        "galleries": [{"name": "l2", "category": "Failures", "type": "workbook", "order": 100, "resourceType": "Azure Monitor"}]}}'
+      - run: >-
+          rest --method get
+          --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/workbooktemplates/{name:wbt}?api-version=2020-11-20
+        until: { json: { path: properties.priority, equals: 1 } }
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/workbooktemplates?api-version=2020-11-20
+      - >-
+        rest --method patch
+        --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/workbooktemplates/{name:wbt}?api-version=2020-11-20
+        --body '{"tags": {"matrix": "l2"}}'
+    command: >-
+      rest --method delete
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/workbooktemplates/{name:wbt}?api-version=2020-11-20
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait

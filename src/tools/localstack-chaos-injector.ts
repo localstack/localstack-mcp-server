@@ -8,6 +8,7 @@ import {
   requireAuthToken,
   requireLocalStackRunning,
   requireProFeature,
+  requireStack,
 } from "../core/preflight";
 import { withToolAnalytics } from "../core/analytics";
 
@@ -137,6 +138,7 @@ export default async function localstackChaosInjector({
     async () => {
       const preflightError = await runPreflights([
         requireAuthToken(),
+        requireStack("aws", "localstack-chaos-injector"),
         requireLocalStackRunning(),
         requireProFeature(ProFeature.CHAOS_ENGINEERING),
       ]);

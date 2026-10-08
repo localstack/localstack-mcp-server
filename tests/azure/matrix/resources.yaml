@@ -1,0 +1,237 @@
+# Microsoft.Resources: resource groups and template deployments.
+# Resource groups are not in the emulator's coverage list, so their cases carry `operations: []`.
+# Subscription-scope deployments deploy an empty template: they create nothing that a group
+# delete would miss (their own delete is not implemented, so the record stays behind).
+provider: Microsoft.Resources
+cases:
+  - id: group-create
+    operations: []
+    note: Resource groups are not in the coverage list; every other case depends on them.
+    pr: true
+    command: group create --name {rg} --location {location}
+    expect:
+      json:
+        - { path: name, equals: "{rg}" }
+        - { path: properties.provisioningState, equals: Succeeded }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: group-exists-list
+    operations: []
+    note: Resource groups are not in the coverage list.
+    pr: true
+    setup:
+      - group create --name {rg} --location {location} --tags matrix=l2
+    command: group list --query "[?name=='{rg}'].tags.matrix"
+    expect:
+      json: { path: "", equals: [l2] }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: group-update-tags
+    operations: []
+    note: Resource groups are not in the coverage list.
+    setup:
+      - group create --name {rg} --location {location}
+      - run: group exists --name {rg}
+        until: { stdout: { equals: "true" } }
+    command: group update --name {rg} --tags matrix=l2 owner=mcp
+    expect:
+      json:
+        - { path: tags.matrix, equals: l2 }
+        - { path: tags.owner, equals: mcp }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: deployment-group-bicep
+    operations: [Microsoft.Resources Deployments CreateOrUpdate]
+    note: "The PR Bicep case, compiled by the local Bicep binary; no registry modules."
+    pr: true
+    setup:
+      - group create --name {rg} --location {location}
+    command: >-
+      deployment group create --resource-group {rg} --name {name:dep}
+      --template-file bicep/matrix-identity.bicep
+    expect:
+      json:
+        - { path: name, equals: "{name:dep}" }
+        - { path: properties.provisioningState, equals: Succeeded }
+        - { path: properties.outputs.principalId.value, exists: true }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: deployment-group-dependencies
+    operations: [Microsoft.Resources Deployments CreateOrUpdate]
+    note: >-
+      A template whose subnet depends on a network security group (ordering). It also checks that
+      the Bicep module scan does not take the `ts:` of `subnets:` for a template-spec module.
+    setup:
+      - group create --name {rg} --location {location}
+    command: >-
+      deployment group create --resource-group {rg} --name {name:dep}
+      --template-file bicep/matrix-network.bicep
+    expect:
+      json:
+        - { path: properties.provisioningState, equals: Succeeded }
+        - { path: properties.outputs.vnetId.value, matches: "/virtualNetworks/net-" }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: deployment-group-validate
+    operations: [Microsoft.Resources Deployments Validate]
+    note: >-
+      The emulator answers with an empty result (every field null) where Azure returns the
+      validated deployment; `error: null` is what says the template is valid.
+    setup:
+      - group create --name {rg} --location {location}
+    command: >-
+      deployment group validate --resource-group {rg} --name {name:dep}
+      --template-file bicep/matrix-identity.bicep
+    expect:
+      json: { path: error, equals: null }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: deployment-group-list-exists
+    operations:
+      [
+        Microsoft.Resources Deployments ListByResourceGroup,
+        Microsoft.Resources Deployments CheckExistence,
+        Microsoft.Resources Deployments Get,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - >-
+        deployment group create --resource-group {rg} --name {name:dep}
+        --template-file bicep/matrix-identity.bicep
+      - run: deployment group show --resource-group {rg} --name {name:dep} --query properties.provisioningState -o tsv
+        until: { stdout: { equals: Succeeded } }
+      - >-
+        rest --method head
+        --url /subscriptions/{sub}/resourcegroups/{rg}/providers/Microsoft.Resources/deployments/{name:dep}?api-version=2022-09-01
+    command: deployment group list --resource-group {rg} --query "[].name"
+    expect:
+      json: { path: "", contains: "{name:dep}" }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: deployment-group-what-if
+    operations: [Microsoft.Resources Deployments WhatIf]
+    note: Ten sample scripts run `deployment group what-if`.
+    setup:
+      - group create --name {rg} --location {location}
+    command: >-
+      deployment group what-if --resource-group {rg} --name {name:dep}
+      --template-file bicep/matrix-identity.bicep --no-pretty-print
+    expect:
+      json: { path: status, equals: Succeeded }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        Found by L2: Deployments WhatIf is not implemented (the coverage list says so), and az
+        2.85 then fails client-side with "The content for this response was already consumed"
+        (class cli-error). Ten sample scripts call it.
+      date: 2026-09-27
+
+  - id: deployment-sub-rest
+    operations: [Microsoft.Resources Deployments CreateOrUpdateAtSubscriptionScope]
+    note: The case sends the template inline with az rest.
+    command: >-
+      rest --method put
+      --url /subscriptions/{sub}/providers/Microsoft.Resources/deployments/{name:subdep}?api-version=2022-09-01
+      --body '{"location": "{location}", "properties": {"mode": "Incremental", "template":
+      {"$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+      "contentVersion": "1.0.0.0", "resources": []}}}'
+    expect:
+      json: { path: name, equals: "{name:subdep}" }
+    cleanup:
+      - deployment sub delete --name {name:subdep} --no-wait
+
+  - id: deployment-sub-bicep
+    operations:
+      [
+        Microsoft.Resources Deployments CreateOrUpdateAtSubscriptionScope,
+        Microsoft.Resources Deployments GetAtSubscriptionScope,
+      ]
+    setup:
+      - >-
+        deployment sub create --location {location} --name {name:subdep}
+        --template-file bicep/matrix-sub.bicep --parameters label={id}
+    command: deployment sub show --name {name:subdep}
+    expect:
+      json: { path: properties.provisioningState, equals: Succeeded }
+    cleanup:
+      - deployment sub delete --name {name:subdep} --no-wait
+
+  - id: deployment-sub-outputs
+    operations: [Microsoft.Resources Deployments CreateOrUpdateAtSubscriptionScope]
+    command: >-
+      deployment sub create --location {location} --name {name:subdep}
+      --template-file bicep/matrix-sub.bicep --parameters label={id}
+    expect:
+      json: { path: properties.outputs.label.value, equals: "{id}" }
+    cleanup:
+      - deployment sub delete --name {name:subdep} --no-wait
+    known_gap:
+      reason: >-
+        Found by L2: a subscription-scope deployment succeeds, but its outputs are null (a
+        resource-group deployment returns them, see deployment-group-bicep).
+      date: 2026-09-27
+
+  - id: deployment-sub-list-operations
+    operations:
+      [
+        Microsoft.Resources Deployments ListAtSubscriptionScope,
+        Microsoft.Resources DeploymentOperations ListAtSubscriptionScope,
+      ]
+    setup:
+      - >-
+        deployment sub create --location {location} --name {name:subdep}
+        --template-file bicep/matrix-sub.bicep
+      - run: deployment sub list --query "[?name=='{name:subdep}'].name"
+        until: { json: { path: "", equals: ["{name:subdep}"] } }
+    command: deployment operation sub list --name {name:subdep}
+    expect:
+      exitCode: 0
+    cleanup:
+      - deployment sub delete --name {name:subdep} --no-wait
+
+  - id: deployment-sub-validate
+    operations: [Microsoft.Resources Deployments ValidateAtSubscriptionScope]
+    note: As for deployment-group-validate, the emulator's validation result is empty; `error` is null.
+    command: >-
+      deployment sub validate --location {location} --name {name:subdep}
+      --template-file bicep/matrix-sub.bicep
+    expect:
+      json: { path: error, equals: null }
+
+  # --- The tool's own CLI profile (samples account show, account get-access-token, cloud show) ---
+
+  - id: account-show
+    operations: []
+    note: >-
+      Not an emulator operation: the subscription the tool's bootstrap logged in to (samples account
+      show, 7 uses).
+    pr: true
+    command: account show --query "{sub:id, state:state}"
+    expect:
+      json:
+        - { path: sub, equals: "{sub}" }
+        - { path: state, equals: Enabled }
+
+  - id: account-get-access-token
+    operations: []
+    note: Samples account get-access-token (2 uses); the token comes from the emulator's login endpoint.
+    command: account get-access-token --query "{type:tokenType, sub:subscription}"
+    expect:
+      json:
+        - { path: type, equals: Bearer }
+        - { path: sub, equals: "{sub}" }
+
+  - id: cloud-show
+    operations: []
+    note: Samples cloud show (4 uses); the tool's registered cloud points at the emulator.
+    command: cloud show --query endpoints.resourceManager -o tsv
+    expect:
+      stdout: { matches: "localhost\\.localstack\\.cloud:\\d+/?$" }

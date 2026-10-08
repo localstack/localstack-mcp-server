@@ -1,0 +1,178 @@
+# Microsoft.Authorization: resource-group locks, role definitions, role assignments.
+# A CanNotDelete lock blocks the group delete, so lock cases delete their lock first. Custom role
+# definitions live at subscription scope, outside any group, so their cases delete them too.
+# Assignees are passed as object ids: az then needs no Microsoft Graph lookup.
+provider: Microsoft.Authorization
+cases:
+  - id: lock-create-show
+    operations:
+      [
+        Microsoft.Authorization ManagementLocks CreateOrUpdateAtResourceGroupLevel,
+        Microsoft.Authorization ManagementLocks GetAtResourceGroupLevel,
+      ]
+    pr: true
+    note: >-
+      `lock show` and `lock delete` look the lock up in the subscription-level list, which the
+      emulator lacks (lock-az-show), so reads and deletes go through the group-level REST routes.
+    setup:
+      - group create --name {rg} --location {location}
+      - lock create --name l2-lock --resource-group {rg} --lock-type CanNotDelete --notes "l2 matrix"
+    command: rest --method get --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Authorization/locks/l2-lock?api-version=2020-05-01
+    expect:
+      json:
+        - { path: name, equals: l2-lock }
+        - { path: properties.level, equals: CanNotDelete }
+    cleanup:
+      - rest --method delete --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Authorization/locks/l2-lock?api-version=2020-05-01
+      - group delete --name {rg} --yes --no-wait
+
+  - id: lock-notes
+    operations: [Microsoft.Authorization ManagementLocks CreateOrUpdateAtResourceGroupLevel]
+    setup:
+      - group create --name {rg} --location {location}
+      - lock create --name l2-lock --resource-group {rg} --lock-type CanNotDelete --notes "l2 matrix"
+    command: rest --method get --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Authorization/locks/l2-lock?api-version=2020-05-01
+    expect:
+      json: { path: properties.notes, equals: l2 matrix }
+    cleanup:
+      - rest --method delete --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Authorization/locks/l2-lock?api-version=2020-05-01
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        L2: the emulator drops a lock's `notes`, from `lock create --notes` and from a REST PUT
+        alike (the stored lock has only `level`); Azure stores and returns them.
+      date: 2026-09-27
+
+  - id: lock-list-delete
+    operations:
+      [
+        Microsoft.Authorization ManagementLocks ListAtResourceGroupLevel,
+        Microsoft.Authorization ManagementLocks DeleteAtResourceGroupLevel,
+      ]
+    setup:
+      - group create --name {rg} --location {location}
+      - lock create --name l2-read-only --resource-group {rg} --lock-type ReadOnly
+      - lock create --name l2-no-delete --resource-group {rg} --lock-type CanNotDelete
+      - run: lock list --resource-group {rg} --query "sort([].name)"
+        until: { json: { path: "", equals: [l2-no-delete, l2-read-only] } }
+      - rest --method delete --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Authorization/locks/l2-read-only?api-version=2020-05-01
+    command: rest --method delete --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Authorization/locks/l2-no-delete?api-version=2020-05-01
+    expect:
+      exitCode: 0
+    cleanup:
+      - rest --method delete --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Authorization/locks/l2-read-only?api-version=2020-05-01
+      - rest --method delete --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Authorization/locks/l2-no-delete?api-version=2020-05-01
+      - group delete --name {rg} --yes --no-wait
+
+  - id: lock-az-show
+    operations: [Microsoft.Authorization ManagementLocks ListAtSubscriptionLevel]
+    setup:
+      - group create --name {rg} --location {location}
+      - lock create --name l2-lock --resource-group {rg} --lock-type CanNotDelete
+    command: lock show --name l2-lock --resource-group {rg}
+    expect:
+      json: { path: level, equals: CanNotDelete }
+    cleanup:
+      - rest --method delete --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Authorization/locks/l2-lock?api-version=2020-05-01
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        Found by L2: `az lock show` and `az lock delete` (az 2.85) find the lock through
+        GET /subscriptions/{sub}/providers/Microsoft.Authorization/locks, which the emulator answers
+        with NotImplemented, so both fail even for a group-level lock; the group-level GET, DELETE
+        and list routes work. A lock left behind blocks the group delete, so cleanups use REST.
+      date: 2026-09-27
+
+  - id: lock-delete-missing
+    operations: [Microsoft.Authorization ManagementLocks DeleteAtResourceGroupLevel]
+    note: Cleanups delete their locks again after the case did, so this also costs every lock case a retry.
+    setup:
+      - group create --name {rg} --location {location}
+    command: rest --method delete --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Authorization/locks/l2-missing?api-version=2020-05-01
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+    known_gap:
+      reason: >-
+        L2: deleting a group-level lock that does not exist answers 500 InternalServerError
+        ("An unexpected error occurred while processing 'DELETE ...'"); Azure answers 204.
+      date: 2026-09-27
+
+  - id: role-definition-builtin
+    operations:
+      [Microsoft.Authorization RoleDefinitions List, Microsoft.Authorization RoleDefinitions Get]
+    pr: true
+    note: acdd72a7-... is the built-in Reader role.
+    setup:
+      - >-
+        rest --method get
+        --url /subscriptions/{sub}/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7?api-version=2022-04-01
+    command: role definition list --name Reader --query "[].roleName"
+    expect:
+      json: { path: "", equals: [Reader] }
+
+  - id: role-definition-custom
+    operations:
+      [
+        Microsoft.Authorization RoleDefinitions CreateOrUpdate,
+        Microsoft.Authorization RoleDefinitions Delete,
+      ]
+    setup:
+      - >-
+        role definition create --role-definition '{"Name": "L2 Reader {id}", "Description": "L2 matrix role",
+        "Actions": ["Microsoft.Storage/storageAccounts/read"], "AssignableScopes": ["/subscriptions/{sub}"]}'
+      - run: role definition list --name "L2 Reader {id}" --custom-role-only true --query "[].roleName"
+        until: { json: { path: "", equals: ["L2 Reader {id}"] } }
+    command: role definition delete --name "L2 Reader {id}"
+    expect:
+      exitCode: 0
+    cleanup:
+      - role definition delete --name "L2 Reader {id}"
+
+  - id: role-assignment
+    operations:
+      [
+        Microsoft.Authorization RoleAssignments Create,
+        Microsoft.Authorization RoleAssignments ListForResourceGroup,
+        Microsoft.Authorization RoleAssignments ListForScope,
+        Microsoft.Authorization RoleAssignments ListForSubscription,
+        Microsoft.Authorization RoleAssignments Get,
+      ]
+    pr: true
+    note: Samples role assignment create/list (22 uses).
+    setup:
+      - group create --name {rg} --location {location}
+      - run: identity create --name {name:id} --resource-group {rg} --location {location} --query principalId -o tsv
+        capture: principal
+      - run: >-
+          role assignment create --assignee-object-id {principal} --assignee-principal-type ServicePrincipal
+          --role Reader --scope /subscriptions/{sub}/resourceGroups/{rg} --query name -o tsv
+        capture: assignment
+      - run: role assignment list --resource-group {rg} --query "[].principalId"
+        until: { json: { path: "", contains: "{principal}" } }
+      - role assignment list --scope /subscriptions/{sub}/resourceGroups/{rg} --query "[?principalId=='{principal}'].name"
+      - role assignment list --all --query "[?principalId=='{principal}'].name"
+    command: >-
+      rest --method get
+      --url /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Authorization/roleAssignments/{assignment}?api-version=2022-04-01
+    expect:
+      json: { path: properties.principalId, equals: "{principal}" }
+    cleanup:
+      - group delete --name {rg} --yes --no-wait
+
+  - id: role-assignment-delete
+    operations: [Microsoft.Authorization RoleAssignments Delete]
+    setup:
+      - group create --name {rg} --location {location}
+      - run: identity create --name {name:id} --resource-group {rg} --location {location} --query principalId -o tsv
+        capture: principal
+      - run: >-
+          role assignment create --assignee-object-id {principal} --assignee-principal-type ServicePrincipal
+          --role Reader --scope /subscriptions/{sub}/resourceGroups/{rg} --query id -o tsv
+        capture: assignment_id
+    command: role assignment delete --ids {assignment_id}
+    expect:
+      exitCode: 0
+    cleanup:
+      - group delete --name {rg} --yes --no-wait

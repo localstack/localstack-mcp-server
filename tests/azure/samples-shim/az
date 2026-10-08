@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# `az` shim for the L4 samples replay. Put this directory first on PATH
+# and a sample's scripts drive the MCP tool `localstack-azure-client` instead of a real
+# az: each call runs `node dist/cli.js` over stdio and prints az's exact stdout (from
+# the tool's test envelope) on fd 1, az's stderr plus the tool's notes on fd 2, and
+# exits with az's exit code. See README.md in this directory.
+#
+# The argv goes to az-shim.cjs NUL-separated on stdin, with the count in AZ_SHIM_ARGC,
+# so no byte is lost or rewritten on the way (on Windows, Git Bash would convert
+# `/subscriptions/...` arguments into Windows paths if they were passed on the node
+# command line).
+#
+# AZ_SHIM_IDENTIFY=1 az   prints "localstack-az-shim <dir>" and exits 0 (the replay's
+#                         `command -v az` check).
+# AZ_SHIM_NODE            the node executable (default: node on PATH).
+set -u
+set +o pipefail # the exit status is node's, even if a caller exported SHELLOPTS
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 125
+
+if [ -n "${AZ_SHIM_IDENTIFY:-}" ]; then
+	printf 'localstack-az-shim %s\n' "$here"
+	exit 0
+fi
+
+node_bin=${AZ_SHIM_NODE:-node}
+script="$here/az-shim.cjs"
+# Git Bash: give node.exe a Windows path even if MSYS_NO_PATHCONV is set.
+if command -v cygpath >/dev/null 2>&1; then
+	script=$(cygpath -m "$script")
+fi
+export AZ_SHIM_ARGC=$#
+
+if [ "$#" -eq 0 ]; then
+	"$node_bin" "$script" </dev/null
+else
+	printf '%s\0' "$@" | "$node_bin" "$script"
+fi
