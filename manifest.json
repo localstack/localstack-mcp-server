@@ -69,7 +69,7 @@
     },
     {
       "name": "localstack-azure-client",
-      "description": "Runs Azure CLI (az) commands against the local LocalStack for Azure emulator, never real Azure"
+      "description": "Runs Azure CLI (az) commands against the LocalStack for Azure emulator"
     },
     {
       "name": "localstack-aws-replicator",
