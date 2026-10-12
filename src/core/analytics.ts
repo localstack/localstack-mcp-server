@@ -62,7 +62,7 @@ export const TOOL_ARG_ALLOWLIST: Record<string, string[]> = {
     "cloudPod",
     "envVarKeys",
   ],
-  "localstack-extensions": ["action", "name", "source"],
+  "localstack-extensions": ["action", "name"],
   "localstack-iam-policy-analyzer": ["action", "mode"],
   "localstack-logs-analysis": ["analysisType", "lines", "service", "operation", "filter"],
   "localstack-management": ["action", "service", "envVars"],
