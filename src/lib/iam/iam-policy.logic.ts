@@ -27,7 +27,7 @@ export async function enrichWithResourceData(
         return log.iamAction === denial.iamAction && timeDiff <= 5000;
       });
 
-      if (nearbyResourceLogs.length > 0) {
+      if (!enrichedDenial.iamResource && nearbyResourceLogs.length > 0) {
         enrichedDenial.iamResource = nearbyResourceLogs[0].iamResource;
       }
     }
