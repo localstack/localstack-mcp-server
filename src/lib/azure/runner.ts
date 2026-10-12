@@ -191,6 +191,7 @@ export function runAz(
 
     timers.push(
       setTimeout(() => {
+        if (exited) return; // az finished; only the pipes are still draining
         timedOut = true;
         kill();
       }, opts.timeoutMs)

@@ -79,6 +79,7 @@ const markerFor = (target: BootstrapTarget) =>
   JSON.stringify({
     endpoint: target.endpoint,
     sessionId: target.sessionId ?? null,
+    // An upgraded az sets the profile up again, in case it reads an older az's profile differently.
     azVersion: target.azVersion ?? null,
   });
 

@@ -16,6 +16,8 @@ import { runAz, type AzRunOptions, type AzRunResult } from "./runner";
  * created on first use, and the emulator session the profile is checked against.
  */
 
+const PROBE_TIMEOUT_MS = 120_000;
+
 let configCache: AzureConfig | undefined;
 let azPromise: Promise<AzExecutable> | undefined;
 let emulatorSession: string | undefined;
@@ -63,18 +65,27 @@ async function probeAz(signal?: AbortSignal): Promise<AzExecutable> {
   });
   // `az version` makes no network call (`az --version` does).
   const result = await runner(az)(["version", "-o", "json"], {
-    timeoutMs: 120_000,
+    timeoutMs: PROBE_TIMEOUT_MS,
     cwd: config.tmpDir,
     signal,
   });
   if (result.aborted) throw new AzCancelledError();
   const version = parseAzVersion(result.stdout);
-  if (!version) {
-    const why =
-      result.spawnError ?? (result.stderr.trim().slice(0, 300) || `exit ${result.exitCode}`);
-    throw new AzResolveError(`The Azure CLI at ${az.file} could not be started: ${why}`);
+  if (version) return { ...az, version };
+  const cli = `The Azure CLI at ${az.file}`;
+  if (result.timedOut) {
+    throw new AzResolveError(
+      `${cli} did not answer \`az version\` within ${PROBE_TIMEOUT_MS / 1000} s.`
+    );
   }
-  return { ...az, version };
+  if (result.exitCode === 0) {
+    throw new AzResolveError(
+      `${cli} started but did not print its version; set LOCALSTACK_AZ_PATH to the real launcher or the CLI's Python.`
+    );
+  }
+  const why =
+    result.spawnError ?? (result.stderr.trim().slice(0, 300) || `exit ${result.exitCode}`);
+  throw new AzResolveError(`${cli} could not be started: ${why}`);
 }
 
 /**

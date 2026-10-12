@@ -47,8 +47,8 @@ export function buildAzChildEnv(
     const value = key === undefined ? undefined : parent[key];
     if (value !== undefined) env[name] = value;
   }
-  // `az` found off PATH (LOCALSTACK_AZ_PATH, or an install location when a GUI client starts the
-  // server with a short PATH): its directory joins PATH, so `bicep` installed beside it is found.
+  // POSIX: `az` found off PATH (LOCALSTACK_AZ_PATH, or an install location when a GUI client starts
+  // the server with a short PATH): its directory joins PATH, so `bicep` installed beside it is found.
   if (!win) {
     const dir = path.posix.dirname(az.file);
     const entries = (env.PATH ?? "").split(":").filter(Boolean);

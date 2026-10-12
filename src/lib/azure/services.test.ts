@@ -4,9 +4,11 @@ import { runAz, type AzRunOptions, type AzRunResult } from "./runner";
 import {
   AzCancelledError,
   azCli,
+  azureConfig,
   ensureProfile,
   recordEmulatorSession,
   resetAzureServices,
+  runAzCommand,
 } from "./services";
 
 jest.mock("./resolve-az", () => ({
@@ -66,6 +68,33 @@ describe("azCli", () => {
     expect((await second).version).toBe("2.91.0");
     expect(runAz).toHaveBeenCalledTimes(2);
   });
+
+  test("an az that prints no version, or does not answer, is told apart from one that fails", async () => {
+    const failure = async (answer: AzRunResult) => {
+      jest.mocked(runAz).mockResolvedValueOnce(answer);
+      return (await azCli().catch((error) => error)).message;
+    };
+    expect(await failure(result({ stdout: "Welcome to az!\n" }))).toContain(
+      "started but did not print its version; set LOCALSTACK_AZ_PATH"
+    );
+    expect(await failure(result({ exitCode: null, timedOut: true }))).toContain(
+      "did not answer `az version` within 120 s"
+    );
+  });
+});
+
+test("runAzCommand runs the argv in the workdir, with the command timeout and the signal", async () => {
+  resetAzureServices();
+  jest.mocked(runAz).mockResolvedValue(version("2.91.0"));
+  const signal = new AbortController().signal;
+  await runAzCommand(["group", "list"], { signal });
+  const { timeoutMs, workdir } = azureConfig();
+  expect(runAz).toHaveBeenLastCalledWith(
+    expect.objectContaining({ file: "/usr/bin/az" }),
+    expect.any(Object),
+    ["group", "list"],
+    { signal, timeoutMs, cwd: workdir }
+  );
 });
 
 test("ensureProfile keys the profile on the az version and the emulator session, and passes the signal", async () => {

@@ -100,7 +100,7 @@ function parseOption(token: string): { flag: string; value?: string } {
   return { flag: token.slice(0, 2), value: rest ? rest.replace(/^=/, "") : undefined };
 }
 
-/** A `rest` URL flag, or an abbreviation of one (`--ur`), which argparse accepts. */
+/** A `rest` URL flag, or a prefix of one (`--ur`): az finds those ambiguous, and so are they here. */
 const isRestUrlFlag = (flag: string) =>
   REST_URL_FLAGS.some(
     (full) => flag === full || (flag.startsWith("--") && flag.length >= 4 && full.startsWith(flag))
@@ -109,9 +109,15 @@ const isRestUrlFlag = (flag: string) =>
 /** `az rest` sends a URL with a scheme as it is, and puts the emulator's endpoint before any other. */
 const hasScheme = (url: string) => url.includes("://") || /^https?:/i.test(url);
 
-/** `~`, `~/x`, `@~/x` and `--flag=~/x` with the user's home in place of the `~`. */
+/**
+ * `~`, `~/x`, `@~/x`, `--flag=~/x` and `-f~/x` with the user's home in place of the `~`, in any
+ * argument: the policy cannot tell which values are paths.
+ */
 function expandHome(token: string, home: string, platform: NodeJS.Platform): string {
-  const tilde = platform === "win32" ? /^(--[^=]+=)?(@?)~(?=$|[\\/])/ : /^(--[^=]+=)?(@?)~(?=$|\/)/;
+  const tilde =
+    platform === "win32"
+      ? /^(--[^=]+=|-[A-Za-z]=?)?(@?)~(?=$|[\\/])/
+      : /^(--[^=]+=|-[A-Za-z]=?)?(@?)~(?=$|\/)/;
   return token.replace(tilde, (_match, flag = "", at = "") => `${flag}${at}${home}`);
 }
 

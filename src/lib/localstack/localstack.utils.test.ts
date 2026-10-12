@@ -330,7 +330,7 @@ describe("localstack.utils", () => {
       expect(client.createAndStartContainer).not.toHaveBeenCalled();
     });
 
-    test("names an Azure container in the way as the Azure emulator", async () => {
+    test("names an Azure container as the Azure emulator in the conflict message", async () => {
       const { client } = mockDockerClient({
         findContainerByNameAnyState: jest.fn().mockResolvedValue({
           id: "abc",

@@ -86,6 +86,26 @@ describe("runAz", () => {
     }
   });
 
+  test("a grandchild holding stdout: az's exit counts after the drain, even past the deadline", async () => {
+    // az exits 0 at 600 ms; its grandchild keeps stdout open, so the 1 s drain runs past the
+    // 1.3 s deadline, which must not turn the result into a timeout.
+    const script =
+      "const c = require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 4000)'], { stdio: ['ignore', 'inherit', 'ignore'] }); console.error(c.pid); console.log('done'); setTimeout(() => process.exit(0), 600)";
+    const started = Date.now();
+    const result = await runAz(fakeAz(script), env, [], { ...opts, timeoutMs: 1300 });
+    const pid = Number(result.stderr.trim());
+    try {
+      expect(result).toMatchObject({ exitCode: 0, stdout: "done\n", timedOut: false });
+      expect(Date.now() - started).toBeLessThan(3500);
+    } finally {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
+  });
+
   test("a missing executable is a spawn error, not an exception", async () => {
     const result = await runAz({ file: "/nonexistent/az", prefixArgs: [] }, env, [], opts);
     expect(result.spawnError).toMatch(/ENOENT/);

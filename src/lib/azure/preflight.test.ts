@@ -59,6 +59,11 @@ test("requireAzureEmulatorRunning records the session and passes the emulator's 
 });
 
 describe("requireAzureCli", () => {
+  test("an az that runs: no answer, the call goes on", async () => {
+    jest.mocked(azCli).mockResolvedValueOnce({ file: "/usr/bin/az", prefixArgs: [] });
+    expect(await requireAzureCli()).toBeNull();
+  });
+
   test("a missing az: the install advice and what was skipped; in Docker, the image's limit", async () => {
     const missing = new AzResolveError("The Azure CLI (az) was not found.", ["/mnt/c/az: Windows"]);
     jest.mocked(azCli).mockRejectedValue(missing);
@@ -78,6 +83,11 @@ describe("requireAzureCli", () => {
 });
 
 describe("requireAzureCliConfigured", () => {
+  test("a profile that is set up: no answer, the call goes on", async () => {
+    jest.mocked(ensureProfile).mockResolvedValueOnce(undefined);
+    expect(await requireAzureCliConfigured()).toBeNull();
+  });
+
   test("a failed step names it and shows az's error", async () => {
     const error = new BootstrapError("login", failed({ stderr: "ERROR: AADSTS7000215" }));
     jest.mocked(ensureProfile).mockRejectedValueOnce(error);

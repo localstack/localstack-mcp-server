@@ -54,6 +54,16 @@ describe("formatAzResult", () => {
     expect(answer).toContain("az extension add --name <extension>");
   });
 
+  test("a confirmation prompt asks for --yes; a missing bicep points at PATH", () => {
+    const hint = (stderr: string) => text(formatAzResult(result({ exitCode: 1, stderr }), opts));
+    expect(
+      hint("ERROR: Unable to prompt for confirmation as no tty available. Use --yes.")
+    ).toContain("Re-run it with `--yes`.");
+    expect(hint('ERROR: Could not find the "bicep" executable on PATH.')).toContain(
+      "The tool runs Bicep from PATH."
+    );
+  });
+
   test("timeout, cancel and a spawn failure", () => {
     expect(text(formatAzResult(result({ exitCode: null, timedOut: true }), opts))).toMatch(
       /^❌ \*\*Command Timed Out\*\*\n\n`az` did not finish within 300 s/
