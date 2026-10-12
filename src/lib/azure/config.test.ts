@@ -1,4 +1,4 @@
-import { getAzureConfig } from "./config";
+import { getAzureConfig, isLocalHost } from "./config";
 
 const HOME = "/home/u";
 const deps = {
@@ -38,19 +38,12 @@ describe("getAzureConfig", () => {
     expect(config({ AZURE_CONFIG_DIR: "/cfg" }).extensionDir).toBe("/cfg/cliextensions");
   });
 
-  test("LOCALSTACK_AZURE_ENDPOINT must be a local https origin", () => {
-    expect(config({ LOCALSTACK_AZURE_ENDPOINT: "https://localhost:4566/" }).endpoint).toBe(
-      "https://localhost:4566"
-    );
-    for (const value of [
-      "http://localhost:4566",
-      "https://example.com",
-      "https://localhost.localstack.cloud.evil.example",
-      "https://localhost:4566/x",
-      "https://user:pw@localhost:4566",
-      "not a url",
-    ]) {
-      expect(config({ LOCALSTACK_AZURE_ENDPOINT: value }).errors).toHaveLength(1);
+  test("isLocalHost: LocalStack's names for 127.0.0.1 and the loopback names only", () => {
+    for (const host of ["localhost", "127.0.0.1", "[::1]", "Azure.LocalHost.LocalStack.Cloud."]) {
+      expect(isLocalHost(host)).toBe(true);
+    }
+    for (const host of ["example.com", "localhost.localstack.cloud.evil.example", "10.0.0.5"]) {
+      expect(isLocalHost(host)).toBe(false);
     }
   });
 

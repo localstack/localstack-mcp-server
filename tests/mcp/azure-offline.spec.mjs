@@ -1,9 +1,21 @@
+import { spawnSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test } from "@gleanwork/mcp-server-tester/fixtures/mcp";
 
 // The Azure tool's answers with no emulator: the azure-offline project gives the server a dummy
 // token and a port where nothing listens (playwright.config.mjs).
 
 const text = (result) => (result?.content ?? []).map((c) => c.text ?? "").join("\n");
+
+// Asked of az itself, so a regression in how the tool finds az fails the test below.
+const azRuns =
+  spawnSync("az", ["version", "-o", "json"], {
+    shell: process.platform === "win32",
+    stdio: "ignore",
+    env: { ...process.env, AZURE_CONFIG_DIR: mkdtempSync(join(tmpdir(), "lsmcp-az-probe-")) },
+  }).status === 0;
 
 test("shell syntax is refused before anything runs", async ({ mcp }) => {
   const result = await mcp.callTool("localstack-azure-client", {
@@ -22,10 +34,9 @@ test("a denied command group is refused with the policy's message", async ({ mcp
 test("no emulator on the configured port: the answer names the gateway and the start action", async ({
   mcp,
 }) => {
-  const result = await mcp.callTool("localstack-azure-client", { command: "group list" });
-  const answer = text(result);
   // A missing az is reported first; CI runners have it.
-  test.skip(answer.includes("Azure CLI Not Available"), "needs the Azure CLI on PATH");
+  test.skip(!azRuns, "needs the Azure CLI on PATH");
+  const answer = text(await mcp.callTool("localstack-azure-client", { command: "group list" }));
   expect(answer).toMatch(/^❌ \*\*LocalStack Azure Emulator Not Ready\*\*/);
   expect(answer).toMatch(/not running at http:\/\/[^\s:]+:\d+/);
   expect(answer).toContain("service: azure");

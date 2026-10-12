@@ -1,5 +1,4 @@
 import { ResponseBuilder } from "../../core/response-builder";
-import { commandWords, extensionFor, missingExtensionHint } from "./extension-map";
 import type { AzRunResult } from "./runner";
 
 /** How much of az's output a response carries, in characters. */
@@ -9,14 +8,11 @@ export const MAX_STDERR_CHARS = 4_000;
 type ToolResponse = ReturnType<typeof ResponseBuilder.markdown>;
 
 export interface FormatOptions {
-  /** The argv that ran, without `az`. */
-  argv: string[];
   /** The policy's notes, such as a rewritten URL. */
   notes: string[];
   timeoutSeconds: number;
   /** The emulator's gateway, for the coverage link. */
   healthBaseUrl: string;
-  installedExtensions: ReadonlySet<string>;
 }
 
 /** The first `max` characters, never ending inside a surrogate pair, with a note on the cut. */
@@ -26,7 +22,17 @@ function cap(text: string, max: number, what: string): string {
   return `${text.slice(0, end)}\n[... ${(text.length - end).toLocaleString("en-US")} more characters of ${what} cut]`;
 }
 
-/** az's stderr without Python traceback frames (its ERROR: lines stay), capped. */
+/** The last `max` characters, never starting inside a surrogate pair, with a note on the cut. */
+function capTail(text: string, max: number, what: string): string {
+  if (text.length <= max) return text;
+  const start = text.length - max + (/[\udc00-\udfff]/.test(text[text.length - max]) ? 1 : 0);
+  return `[... ${start.toLocaleString("en-US")} earlier characters of ${what} cut]\n${text.slice(start)}`;
+}
+
+/**
+ * az's stderr without Python traceback frames (its ERROR: lines stay), capped from the front: az
+ * prints its ERROR: line last, after any `--debug` log.
+ */
 export function prepareStderr(raw: string): string {
   const kept: string[] = [];
   let inTraceback = false;
@@ -38,7 +44,7 @@ export function prepareStderr(raw: string): string {
       kept.push(line);
     }
   }
-  return cap(kept.join("\n").trim(), MAX_STDERR_CHARS, "stderr");
+  return capTail(kept.join("\n").trim(), MAX_STDERR_CHARS, "stderr");
 }
 
 function failureHint(stderr: string, opts: FormatOptions): string | undefined {
@@ -55,10 +61,12 @@ function failureHint(stderr: string, opts: FormatOptions): string | undefined {
   }
   const unknown = /'([\w-]+)' is misspelled or not recognized by the system\./.exec(stderr);
   if (unknown) {
-    const words = commandWords(opts.argv);
-    const upTo = words.slice(0, words.indexOf(unknown[1]) + 1);
-    const extension = upTo.length ? extensionFor(upTo, opts.installedExtensions) : undefined;
-    if (extension) return missingExtensionHint(upTo.join(" "), extension);
+    return (
+      `If \`${unknown[1]}\` comes from an Azure CLI extension, add the extension with your own ` +
+      "Azure CLI (`az extension list-available` lists them, `az extension add --name <extension>` " +
+      "adds one): the tool loads the extensions in your extension directory. Meanwhile `rest` " +
+      "with a relative URL usually works."
+    );
   }
   if (/Unable to prompt for confirmation as no tty available\. Use --yes\./.test(stderr)) {
     return "This command asks for confirmation. Re-run it with `--yes`.";
@@ -91,26 +99,35 @@ export function formatAzResult(result: AzRunResult, opts: FormatOptions): ToolRe
       [advice, stderr].filter(Boolean).join("\n\n")
     );
   }
-  const notes = [...opts.notes];
-  if (result.truncated) {
-    notes.push(
-      "Note: `az` printed more than the tool captures, so it was stopped and its output is incomplete. Narrow it with `--query` or `-o tsv`."
-    );
-  }
   const stdout = cap(
     result.stdout.replace(/\r\n/g, "\n").replace(/\s+$/, ""),
     MAX_OUTPUT_CHARS,
     "output"
   );
+  if (result.truncated) {
+    const advice =
+      "`az` printed more than the tool captures, so it was stopped and its output is " +
+      "incomplete; it may have changed the emulator already. Narrow it with `--query` or `-o tsv`.";
+    return ResponseBuilder.error(
+      "Output Too Large",
+      [advice, stdout && `Output so far:\n${stdout}`, stderr, ...opts.notes]
+        .filter(Boolean)
+        .join("\n\n")
+    );
+  }
   if (result.exitCode === 0) {
-    const blocks = [...notes, stdout || "The command succeeded and printed no output.", stderr];
+    const blocks = [
+      ...opts.notes,
+      stdout || "The command succeeded and printed no output.",
+      stderr,
+    ];
     return ResponseBuilder.markdown(blocks.filter(Boolean).join("\n\n"));
   }
   const blocks = [
     stderr || "`az` exited without an error message.",
     stdout && `Output:\n${stdout}`,
     failureHint(result.stderr, opts),
-    ...notes,
+    ...opts.notes,
   ];
   return ResponseBuilder.error(
     `Command Failed (exit ${result.exitCode})`,

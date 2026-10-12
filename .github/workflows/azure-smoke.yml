@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
+      # The token's licence must include LocalStack for Azure, or the emulator refuses to start.
       LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
     steps:
       - name: Checkout code
@@ -27,11 +28,20 @@ jobs:
       - name: Install dependencies
         run: yarn
 
-      - name: Install the latest Azure CLI
-        run: curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash && az version
+      # ubuntu-latest ships the Azure CLI.
+      - name: Show the Azure CLI version
+        run: az version
 
       - name: Pull the LocalStack Azure emulator image
         run: docker pull localstack/localstack-azure:latest
 
       - name: Run az commands through the Azure tool
         run: yarn build && npx playwright test -c playwright.config.mjs tests/mcp/azure-smoke.spec.mjs
+
+      - name: Keep the test results of a failed run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: azure-smoke-results
+          path: .mcp-test-results
+          if-no-files-found: ignore

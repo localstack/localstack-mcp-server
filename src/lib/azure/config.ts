@@ -7,7 +7,7 @@ export interface AzureConfig {
   /** The emulator's gateway, built like LOCALSTACK_BASE_URL: LOCALSTACK_HOSTNAME and LOCALSTACK_PORT. */
   healthBaseUrl: string;
   port: number;
-  /** The ARM endpoint `az` talks to: https://azure.localhost.localstack.cloud:<port> unless overridden. */
+  /** The ARM endpoint `az` talks to: https://azure.localhost.localstack.cloud:<port>. */
   endpoint: string;
   /** The tool's own Azure CLI config dir; `az` never sees the user's ~/.azure. */
   configDir: string;
@@ -33,8 +33,8 @@ export interface AzureConfigDeps {
 }
 
 /**
- * The hosts the Azure endpoint may name: LocalStack's public DNS names for 127.0.0.1
- * (localhost.localstack.cloud and its subdomains) and the loopback addresses.
+ * The hosts an absolute `rest` URL may name: LocalStack's public DNS names for 127.0.0.1
+ * (localhost.localstack.cloud and its subdomains) and the loopback names and addresses.
  */
 export function isLocalHost(host: string): boolean {
   const h = host
@@ -83,24 +83,6 @@ export function getAzureConfig(
   };
 
   const port = wholeNumber("LOCALSTACK_PORT", "4566", 1, 65535);
-  let endpoint = `https://azure.localhost.localstack.cloud:${port}`;
-  const endpointSetting = setting("LOCALSTACK_AZURE_ENDPOINT");
-  if (endpointSetting) {
-    const url = URL.canParse(endpointSetting) ? new URL(endpointSetting) : undefined;
-    if (!url || url.protocol !== "https:" || url.username || url.password) {
-      errors.push(`LOCALSTACK_AZURE_ENDPOINT must be an https URL; got "${endpointSetting}".`);
-    } else if (!isLocalHost(url.hostname)) {
-      errors.push(
-        `LOCALSTACK_AZURE_ENDPOINT must point at a local emulator (localhost.localstack.cloud or a subdomain, localhost, 127.0.0.1 or ::1); "${url.hostname}" is not local.`
-      );
-    } else if (url.pathname !== "/" || url.search || url.hash) {
-      errors.push(
-        `LOCALSTACK_AZURE_ENDPOINT must be an origin without a path; got "${endpointSetting}".`
-      );
-    } else {
-      endpoint = url.origin;
-    }
-  }
 
   const userProfile = userPath(setting("AZURE_CONFIG_DIR") ?? P.join(home, ".azure"));
   const configSetting = setting("LOCALSTACK_AZ_CONFIG_DIR");
@@ -127,7 +109,7 @@ export function getAzureConfig(
   return {
     healthBaseUrl: `http://${setting("LOCALSTACK_HOSTNAME") ?? "localhost"}:${port}`,
     port,
-    endpoint,
+    endpoint: `https://azure.localhost.localstack.cloud:${port}`,
     configDir,
     homeDir: P.join(configDir, "home"),
     tmpDir: P.join(configDir, "tmp"),

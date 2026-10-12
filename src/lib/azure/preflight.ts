@@ -4,11 +4,20 @@ import { BootstrapError } from "./bootstrap";
 import { getAzureEmulatorStatus } from "./emulator";
 import { prepareStderr } from "./output";
 import { AzResolveError } from "./resolve-az";
-import { azCli, azureConfig, ensureProfile, recordEmulatorSession } from "./services";
+import {
+  AzCancelledError,
+  azCli,
+  azureConfig,
+  ensureProfile,
+  recordEmulatorSession,
+} from "./services";
 
 type ToolResponse = ReturnType<typeof ResponseBuilder.error>;
 
-/** Settings the tool cannot run with: a remote endpoint, a config dir that overlaps ~/.azure, ... */
+const cancelled = () =>
+  ResponseBuilder.error("Command Cancelled", "The client cancelled the call, so `az` was stopped.");
+
+/** Settings the tool cannot run with: a config dir that overlaps ~/.azure, a bad timeout, ... */
 export function requireAzureConfig(): ToolResponse | null {
   const { errors } = azureConfig();
   if (errors.length === 0) return null;
@@ -26,11 +35,12 @@ export async function requireAzureEmulatorRunning(): Promise<ToolResponse | null
     : ResponseBuilder.error("LocalStack Azure Emulator Not Ready", status.message);
 }
 
-export async function requireAzureCli(): Promise<ToolResponse | null> {
+export async function requireAzureCli(signal?: AbortSignal): Promise<ToolResponse | null> {
   try {
-    await azCli();
+    await azCli(signal);
     return null;
   } catch (error) {
+    if (error instanceof AzCancelledError) return cancelled();
     if (error instanceof AzResolveError && isRunningInDocker()) {
       return ResponseBuilder.error(
         "Azure CLI Not Available",
@@ -47,11 +57,15 @@ export async function requireAzureCli(): Promise<ToolResponse | null> {
 }
 
 /** Points the tool's own CLI profile at the emulator; a failed step comes with az's output. */
-export async function requireAzureCliConfigured(): Promise<ToolResponse | null> {
+export async function requireAzureCliConfigured(
+  signal?: AbortSignal
+): Promise<ToolResponse | null> {
   try {
-    await ensureProfile();
+    await ensureProfile(signal);
     return null;
   } catch (error) {
+    if (error instanceof AzCancelledError) return cancelled();
+    if (error instanceof BootstrapError && error.result.aborted) return cancelled();
     const details =
       error instanceof BootstrapError
         ? [error.message, prepareStderr(error.result.stderr), error.result.spawnError]

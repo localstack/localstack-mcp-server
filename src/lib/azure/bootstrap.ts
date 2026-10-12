@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import path from "path";
 import type { AzRunOptions, AzRunResult } from "./runner";
 
@@ -7,8 +7,7 @@ import type { AzRunOptions, AzRunResult } from "./runner";
  * `cloud register` (or `update`), `cloud set`, `config set` and a dummy `login`. The bootstrap is
  * their only caller; the policy refuses them to the agent. A marker records the endpoint, emulator
  * session and az version the profile was made for; when one changes (a restarted emulator has
- * lost the dummy login), the bootstrap runs again. Servers that share the config dir may run it at
- * the same moment, so every step tolerates another server having done it already.
+ * lost the dummy login), the bootstrap runs again. Concurrent calls in one server share one run.
  */
 
 export const LOCALSTACK_CLOUD = "LocalStack";
@@ -91,58 +90,43 @@ function readMarker(configDir: string): string | undefined {
   }
 }
 
-export const LOCK_DIR = "localstack-mcp-bootstrap.lock";
-/** A server killed mid-bootstrap leaves its lock behind; one older than this is broken. */
-const STALE_LOCK_MS = 120_000;
-
-/**
- * Servers sharing the config dir set it up one at a time: `az cloud` and `az config` rewrite the
- * same config file, and concurrent writers lose each other's settings.
- */
-async function withLock(configDir: string, fn: () => Promise<void>): Promise<void> {
-  const lock = path.join(configDir, LOCK_DIR);
-  for (;;) {
-    try {
-      mkdirSync(lock);
-      break;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      try {
-        if (Date.now() - statSync(lock).mtimeMs > STALE_LOCK_MS) rmSync(lock, { recursive: true });
-      } catch {
-        // released meanwhile
-      }
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-  }
-  try {
-    await fn();
-  } finally {
-    rmSync(lock, { recursive: true, force: true });
-  }
-}
-
 const inFlight = new Map<string, Promise<void>>();
 
-/** Sets the profile up for this target, unless its marker says it already is; concurrent calls share one run. */
-export function ensureProfile(target: BootstrapTarget, run: RunAz): Promise<void> {
+/**
+ * Sets the profile up for this target, unless its marker says it already is. Concurrent calls
+ * share one run, which stops when the call that started it is cancelled; the others start again.
+ */
+export async function ensureProfile(
+  target: BootstrapTarget,
+  run: RunAz,
+  signal?: AbortSignal
+): Promise<void> {
   mkdirSync(target.configDir, { recursive: true, mode: 0o700 });
   const marker = markerFor(target);
-  if (readMarker(target.configDir) === marker) return Promise.resolve();
   const key = `${target.configDir}\n${marker}`;
-  let job = inFlight.get(key);
-  if (!job) {
-    // Under the lock, the marker again: another server may have just done it.
-    job = withLock(target.configDir, async () => {
-      if (readMarker(target.configDir) !== marker) await runBootstrap(target, run, marker);
-    }).finally(() => inFlight.delete(key));
-    inFlight.set(key, job);
+  for (;;) {
+    if (readMarker(target.configDir) === marker) return;
+    let job = inFlight.get(key);
+    if (!job) {
+      job = runBootstrap(target, run, marker, signal).finally(() => inFlight.delete(key));
+      inFlight.set(key, job);
+    }
+    try {
+      return await job;
+    } catch (error) {
+      const cancelled = error instanceof BootstrapError && error.result.aborted;
+      if (!cancelled || signal?.aborted) throw error;
+    }
   }
-  return job;
 }
 
-async function runBootstrap(target: BootstrapTarget, run: RunAz, marker: string): Promise<void> {
-  const opts: AzRunOptions = { timeoutMs: target.timeoutMs, cwd: target.cwd };
+async function runBootstrap(
+  target: BootstrapTarget,
+  run: RunAz,
+  marker: string,
+  signal?: AbortSignal
+): Promise<void> {
+  const opts: AzRunOptions = { timeoutMs: target.timeoutMs, cwd: target.cwd, signal };
   // The marker is written last, so a partial bootstrap leaves none and the next call starts over.
   rmSync(path.join(target.configDir, MARKER_FILE), { force: true });
   const step = async (name: string, argv: string[]) => {

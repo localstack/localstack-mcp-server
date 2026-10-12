@@ -11,8 +11,7 @@ import {
   requireAzureConfig,
   requireAzureEmulatorRunning,
 } from "../lib/azure/preflight";
-import { progressSender } from "../lib/azure/runner";
-import { azureConfig, installedExtensionNames, runAzCommand } from "../lib/azure/services";
+import { azureConfig, runAzCommand } from "../lib/azure/services";
 
 export const schema = {
   command: z
@@ -50,22 +49,18 @@ export default async function localstackAzureClient(
       if (!policy.ok) return ResponseBuilder.error(policy.title, policy.message);
 
       // Both run at once; a missing az is reported first, as the more basic prerequisite.
+      const signal = extra?.signal;
       const preflightError =
-        (await runPreflights([requireAzureCli(), requireAzureEmulatorRunning()])) ??
-        (await requireAzureCliConfigured());
+        (await runPreflights([requireAzureCli(signal), requireAzureEmulatorRunning()])) ??
+        (await requireAzureCliConfigured(signal));
       if (preflightError) return preflightError;
 
       const config = azureConfig();
-      const result = await runAzCommand(policy.argv, {
-        signal: extra?.signal,
-        onProgress: progressSender(extra),
-      });
+      const result = await runAzCommand(policy.argv, { signal });
       return formatAzResult(result, {
-        argv: policy.argv,
         notes: policy.notes,
         timeoutSeconds: config.timeoutMs / 1000,
         healthBaseUrl: config.healthBaseUrl,
-        installedExtensions: installedExtensionNames(),
       });
     } catch (error) {
       return ResponseBuilder.error(

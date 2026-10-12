@@ -38,7 +38,7 @@ export function buildAzChildEnv(
   parent: NodeJS.ProcessEnv,
   platform: NodeJS.Platform,
   config: ChildConfig,
-  az: Pick<AzExecutable, "prefixArgs" | "azInstaller">
+  az: Pick<AzExecutable, "file" | "prefixArgs" | "azInstaller">
 ): Record<string, string> {
   const env: Record<string, string> = {};
   const win = platform === "win32";
@@ -46,6 +46,13 @@ export function buildAzChildEnv(
     const key = win ? Object.keys(parent).find((k) => k.toUpperCase() === name) : name;
     const value = key === undefined ? undefined : parent[key];
     if (value !== undefined) env[name] = value;
+  }
+  // `az` found off PATH (LOCALSTACK_AZ_PATH, or an install location when a GUI client starts the
+  // server with a short PATH): its directory joins PATH, so `bicep` installed beside it is found.
+  if (!win) {
+    const dir = path.posix.dirname(az.file);
+    const entries = (env.PATH ?? "").split(":").filter(Boolean);
+    if (!entries.includes(dir)) env.PATH = [...entries, dir].join(":");
   }
   for (const [name, value] of Object.entries(parent)) {
     if (/^LC_[A-Z]+$/.test(name) && value !== undefined) env[name] = value;

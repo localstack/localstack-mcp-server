@@ -5,7 +5,7 @@ import type { AzureConfig } from "./config";
 /**
  * Is the LocalStack Azure emulator usable? Its health and info are read over plain HTTP from the
  * gateway every tool uses. The ARM endpoint's HTTPS listener comes up seconds after it, and is
- * checked on the loopback address with the endpoint's name as SNI. That name must also resolve to
+ * checked on that same gateway with the endpoint's name as SNI. That name must also resolve to
  * 127.0.0.1, which some routers' DNS-rebinding protection blocks.
  */
 
@@ -26,8 +26,13 @@ export interface AzureEmulatorStatus {
 export interface EmulatorDeps {
   /** GET a JSON document over plain HTTP; undefined when nothing answers. */
   getJson(url: string, timeoutMs: number): Promise<unknown | undefined>;
-  /** True when an HTTPS server answers at ip:port for `servername`. */
-  httpsReady(ip: string, port: number, servername: string, timeoutMs: number): Promise<boolean>;
+  /** True when an HTTPS server answers at address:port for `servername`. */
+  httpsReady(
+    address: string,
+    port: number,
+    servername: string,
+    timeoutMs: number
+  ): Promise<boolean>;
   lookup(host: string): Promise<string[]>;
   sleep(ms: number): Promise<void>;
   now(): number;
@@ -49,7 +54,7 @@ async function getJson(url: string, timeoutMs: number): Promise<unknown | undefi
 }
 
 function httpsReady(
-  ip: string,
+  address: string,
   port: number,
   servername: string,
   timeoutMs: number
@@ -57,7 +62,7 @@ function httpsReady(
   return new Promise((resolve) => {
     const request = https.request(
       {
-        host: ip,
+        host: address,
         port,
         servername,
         path: "/_localstack/health",
@@ -139,26 +144,32 @@ export async function getAzureEmulatorStatus(
   // Once per emulator session: HTTPS comes up a few seconds after plain HTTP.
   if (sessionId && sessionId === verifiedSession) return { ok: true, ...fields };
   const url = new URL(config.endpoint);
-  const host = url.hostname.replace(/^\[|\]$/g, "");
+  const host = url.hostname;
   const port = Number(url.port) || 443;
-  const ip = host === "::1" ? "::1" : "127.0.0.1";
+  // The gateway LOCALSTACK_HOSTNAME names (host.docker.internal in Docker); localhost as 127.0.0.1.
+  const gateway = new URL(base).hostname.replace(/^\[|\]$/g, "");
+  const address = gateway === "localhost" ? "127.0.0.1" : gateway;
   const waitMs = opts.httpsWaitMs ?? HTTPS_READY_WAIT_MS;
   const deadline = deps.now() + waitMs;
-  let ready = await deps.httpsReady(ip, port, host, HEALTH_TIMEOUT_MS);
+  let ready = await deps.httpsReady(address, port, host, HEALTH_TIMEOUT_MS);
   while (!ready && deps.now() < deadline) {
     await deps.sleep(HTTPS_RETRY_MS);
-    ready = await deps.httpsReady(ip, port, host, HEALTH_TIMEOUT_MS);
+    ready = await deps.httpsReady(address, port, host, HEALTH_TIMEOUT_MS);
   }
   if (!ready) {
+    const notReady =
+      waitMs > 0
+        ? `did not become ready within ${Math.round(waitMs / 1000)} s`
+        : "is not ready yet";
     return {
       ok: false,
       problem: "https-not-ready",
       ...fields,
-      message: `The LocalStack Azure emulator answers on ${base}, but its HTTPS endpoint ${config.endpoint} did not become ready within ${Math.round(waitMs / 1000)} s. It may still be starting; retry in a few seconds.`,
+      message: `The LocalStack Azure emulator answers on ${base}, but its HTTPS endpoint ${config.endpoint} ${notReady}. It may still be starting; retry in a few seconds.`,
     };
   }
   // az resolves the endpoint's name itself.
-  const addresses = /^[\d.]+$|:/.test(host) ? [host] : await deps.lookup(host).catch(() => []);
+  const addresses = await deps.lookup(host).catch(() => []);
   if (!addresses.length || !addresses.every(isLoopback)) {
     return {
       ok: false,

@@ -15,7 +15,6 @@ jest.mock("../lib/azure/preflight", () => ({
 }));
 jest.mock("../lib/azure/services", () => ({
   azureConfig: () => ({ timeoutMs: 300_000, healthBaseUrl: "http://localhost:4566" }),
-  installedExtensionNames: () => new Set<string>(),
   runAzCommand: jest.fn(async () => ({
     exitCode: 0,
     stdout: '[{"name": "rg"}]\n',
@@ -73,5 +72,13 @@ describe("localstack-azure-client", () => {
     expect(text(await call("group list"))).toContain("Emulator Not Ready");
     expect(preflight.requireAzureCliConfigured).not.toHaveBeenCalled();
     expect(runAzCommand).not.toHaveBeenCalled();
+  });
+
+  test("the client's cancel signal reaches the az check, the profile setup and the command", async () => {
+    const signal = new AbortController().signal;
+    await localstackAzureClient({ command: "group list" }, { signal } as never);
+    expect(preflight.requireAzureCli).toHaveBeenCalledWith(signal);
+    expect(preflight.requireAzureCliConfigured).toHaveBeenCalledWith(signal);
+    expect(runAzCommand).toHaveBeenCalledWith(["group", "list"], { signal });
   });
 });

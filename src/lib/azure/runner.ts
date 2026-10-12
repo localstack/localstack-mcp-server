@@ -6,21 +6,19 @@ import type { AzExecutable } from "./resolve-az";
 /**
  * Runs one `az` process. The shared core/command-runner.ts is not used: it decodes each chunk on
  * its own (a character split at a chunk boundary becomes U+FFFD), resolves on 'close' (a
- * grandchild holding the pipe keeps it waiting past its timeout), and has no byte cap.
+ * grandchild holding the pipe keeps it waiting past its timeout), and stops only the process it
+ * started, while the Debian package's `az` is a bash script whose Python would keep running.
  */
 
 /** Byte cap per stream; a breach stops `az` and marks the result truncated. */
 export const MAX_STREAM_BYTES = 10 * 1024 * 1024;
 /** After `'exit'`, how long the pipes may take to drain before they are destroyed. */
 const DRAIN_GRACE_MS = 1000;
-const PROGRESS_INTERVAL_MS = 10_000;
 
 export interface AzRunOptions {
   timeoutMs: number;
   cwd: string;
   signal?: AbortSignal;
-  /** Called every 10 s while `az` runs. */
-  onProgress?: (elapsedMs: number) => void;
   /** Tests only. */
   maxStreamBytes?: number;
 }
@@ -45,7 +43,7 @@ const TASKKILL = path.win32.join(
 /**
  * Stops `az` and everything it started, at once (az has no cleanup to wait for). Windows:
  * `taskkill /T /F` while the root still lives, or its tree cannot be found. POSIX: SIGKILL to the
- * child's own process group.
+ * child's own process group (it is spawned `detached` to lead one).
  */
 function killTree(child: ChildProcess, platform: NodeJS.Platform): void {
   if (!child.pid) return;
@@ -60,37 +58,6 @@ function killTree(child: ChildProcess, platform: NodeJS.Platform): void {
     // the group is gone, or taskkill could not run: the child alone below
   }
   child.kill("SIGKILL");
-}
-
-/**
- * Trees still running when the server stops die with it, or a command the client gave up on would
- * keep changing the emulator: `exit` covers a client that closes stdin, the signals one that sends
- * them. They are listened to only while az runs, since a listener replaces the default action.
- */
-const live = new Set<ChildProcess>();
-const STOP_SIGNALS: NodeJS.Signals[] = ["SIGTERM", "SIGINT", "SIGHUP"];
-const killLiveTrees = () => live.forEach((child) => killTree(child, process.platform));
-
-function onStopSignal(signal: NodeJS.Signals): void {
-  killLiveTrees();
-  live.clear();
-  untrack();
-  process.kill(process.pid, signal); // the default action (or another handler) still ends the server
-}
-
-function track(child: ChildProcess): void {
-  if (live.size === 0) {
-    process.on("exit", killLiveTrees);
-    if (process.platform !== "win32") STOP_SIGNALS.forEach((s) => process.on(s, onStopSignal));
-  }
-  live.add(child);
-}
-
-function untrack(child?: ChildProcess): void {
-  if (child) live.delete(child);
-  if (live.size > 0) return;
-  process.removeListener("exit", killLiveTrees);
-  STOP_SIGNALS.forEach((s) => process.removeListener(s, onStopSignal));
 }
 
 export function runAz(
@@ -125,6 +92,7 @@ export function runAz(
       stdio: ["pipe", "pipe", "pipe"],
       env,
       cwd: opts.cwd,
+      // POSIX: its own process group, which killTree stops as a whole.
       detached: platform !== "win32",
     });
   } catch (error) {
@@ -132,9 +100,7 @@ export function runAz(
     return Promise.resolve(result({ spawnError: (error as Error).message }));
   }
 
-  track(child);
   return new Promise<AzRunResult>((resolve) => {
-    const started = Date.now();
     const maxBytes = opts.maxStreamBytes ?? MAX_STREAM_BYTES;
     const timers: NodeJS.Timeout[] = [];
     let settled = false;
@@ -164,7 +130,6 @@ export function runAz(
     const finish = (fields: Partial<AzRunResult> = {}) => {
       if (settled) return;
       settled = true;
-      untrack(child);
       timers.forEach((timer) => clearTimeout(timer));
       opts.signal?.removeEventListener("abort", onAbort);
       // A capped stream ends mid-character: its tail is dropped rather than decoded as U+FFFD.
@@ -231,33 +196,5 @@ export function runAz(
       }, opts.timeoutMs)
     );
     opts.signal?.addEventListener("abort", onAbort, { once: true });
-    const onProgress = opts.onProgress;
-    if (onProgress) {
-      timers.push(setInterval(() => onProgress(Date.now() - started), PROGRESS_INTERVAL_MS));
-    }
   });
-}
-
-/**
- * `notifications/progress` every 10 s while `az` runs, when the client asked for progress; long
- * commands (`aks create`) would otherwise look hung.
- */
-export function progressSender(extra?: {
-  _meta?: { progressToken?: string | number };
-  sendNotification?: (notification: unknown) => Promise<void>;
-}): ((elapsedMs: number) => void) | undefined {
-  const token = extra?._meta?.progressToken;
-  const send = extra?.sendNotification;
-  if (token === undefined || !send) return undefined;
-  return (elapsedMs) => {
-    const seconds = Math.round(elapsedMs / 1000);
-    void send({
-      method: "notifications/progress",
-      params: {
-        progressToken: token,
-        progress: seconds,
-        message: `az is still running (${seconds} s)`,
-      },
-    }).catch(() => undefined);
-  };
 }

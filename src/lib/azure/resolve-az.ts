@@ -9,8 +9,6 @@ import path from "path";
  * `az`, and `-X utf8` keeps non-ASCII values intact under `-I`.
  */
 
-export const MIN_AZ_VERSION = "2.85.0";
-
 export interface AzExecutable {
   /** The file spawned: the `az` launcher, or the CLI's own Python. */
   file: string;
@@ -32,7 +30,7 @@ export class AzResolveError extends Error {
 }
 
 export const AZURE_CLI_INSTALL_OPTIONS =
-  "Install the Azure CLI (2.85 or newer): https://learn.microsoft.com/cli/azure/install-azure-cli\n\n" +
+  "Install the Azure CLI: https://learn.microsoft.com/cli/azure/install-azure-cli\n\n" +
   "- Windows: winget install --exact --id Microsoft.AzureCLI\n" +
   "- macOS: brew install azure-cli\n" +
   "- Debian or Ubuntu: curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash\n\n" +
@@ -154,16 +152,6 @@ export function locateAz(ctx: LocateAzContext): AzExecutable {
     `The Azure CLI (az) was not found. ${AZURE_CLI_INSTALL_OPTIONS}`,
     reasons
   );
-}
-
-export function compareVersions(a: string, b: string): number {
-  const pa = a.split(/[.+-]/).map((p) => parseInt(p, 10) || 0);
-  const pb = b.split(/[.+-]/).map((p) => parseInt(p, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (d !== 0) return d;
-  }
-  return 0;
 }
 
 /** The azure-cli-core version from `az version -o json`. */

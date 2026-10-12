@@ -1,15 +1,14 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync } from "fs";
+import { mkdtempSync, readFileSync } from "fs";
 import os from "os";
 import path from "path";
 import {
   BootstrapError,
   CLI_CONFIG,
   ensureProfile,
-  LOCK_DIR,
   MARKER_FILE,
   type BootstrapTarget,
 } from "./bootstrap";
-import type { AzRunResult } from "./runner";
+import type { AzRunOptions, AzRunResult } from "./runner";
 
 const ok = (stdout = ""): AzRunResult => ({
   exitCode: 0,
@@ -86,22 +85,20 @@ describe("ensureProfile", () => {
     expect(az.calls).toHaveLength(8);
   });
 
-  test("waits for another server's lock, and breaks one a crashed server left", async () => {
+  test("a cancelled call stops the run it started; a call sharing it that did not cancel runs it again", async () => {
     const t = target();
-    const lock = path.join(t.configDir, LOCK_DIR);
-    mkdirSync(lock);
-    const az = fakeAz();
-    const pending = ensureProfile(t, az.run);
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    expect(az.calls).toHaveLength(0);
-    rmSync(lock, { recursive: true });
-    await pending;
-    expect(az.calls).toHaveLength(4);
-    const stale = target();
-    mkdirSync(path.join(stale.configDir, LOCK_DIR));
-    utimesSync(path.join(stale.configDir, LOCK_DIR), new Date(0), new Date(0));
-    await ensureProfile(stale, fakeAz().run);
-    expect(readFileSync(path.join(stale.configDir, MARKER_FILE), "utf8")).toContain("s1");
+    const cancel = new AbortController();
+    const run = jest.fn(async (_argv: string[], opts: AzRunOptions): Promise<AzRunResult> => {
+      if (opts.signal !== cancel.signal) return ok();
+      cancel.abort(); // the client cancels while the first step runs
+      return { ...ok(), exitCode: null, aborted: true };
+    });
+    const first = ensureProfile(t, run, cancel.signal).catch((error) => error);
+    const second = ensureProfile(t, run);
+    expect(await first).toMatchObject({ step: "cloud register", result: { aborted: true } });
+    await second;
+    expect(run).toHaveBeenCalledTimes(5); // the cancelled step, then a whole run for the second call
+    expect(readFileSync(path.join(t.configDir, MARKER_FILE), "utf8")).toContain("s1");
   });
 
   test("a failed step throws with az's output and leaves no marker, so the next call retries", async () => {

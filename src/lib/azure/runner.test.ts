@@ -63,12 +63,27 @@ describe("runAz", () => {
     expect((await pending).aborted).toBe(true);
   });
 
-  test("while az runs, the server's exit is hooked to kill its tree; then the hook is gone", async () => {
-    const before = process.listenerCount("exit");
-    const pending = runAz(fakeAz("setTimeout(() => {}, 300)"), env, [], opts);
-    expect(process.listenerCount("exit")).toBe(before + 1);
-    await pending;
-    expect(process.listenerCount("exit")).toBe(before);
+  test("a stopped az takes the processes it started with it", async () => {
+    // As the Debian package's bash launcher starts Python, the fake az starts a grandchild.
+    const script =
+      "const c = require('child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }); console.log(c.pid); setInterval(() => {}, 1000)";
+    const result = await runAz(fakeAz(script), env, [], { ...opts, timeoutMs: 1500 });
+    const pid = Number(result.stdout.trim());
+    expect(pid).toBeGreaterThan(0);
+    const alive = () => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    try {
+      for (let i = 0; i < 20 && alive(); i++) await new Promise((r) => setTimeout(r, 100));
+      expect(alive()).toBe(false);
+    } finally {
+      if (alive()) process.kill(pid, "SIGKILL");
+    }
   });
 
   test("a missing executable is a spawn error, not an exception", async () => {

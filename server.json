@@ -159,18 +159,25 @@
           "name": "EXTERNAL_SERVICE_PORTS_END"
         },
         {
+          "description": "Host name of the LocalStack gateway the tools call. Defaults to localhost; when the server runs in Docker, host.docker.internal.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "LOCALSTACK_HOSTNAME"
+        },
+        {
+          "description": "Port of the LocalStack gateway the tools call. Defaults to 4566.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "LOCALSTACK_PORT"
+        },
+        {
           "description": "Docker image the management start action launches for service: azure. Defaults to localstack/localstack-azure:latest.",
           "isRequired": false,
           "format": "string",
           "isSecret": false,
           "name": "LOCALSTACK_AZURE_IMAGE_NAME"
-        },
-        {
-          "description": "ARM endpoint of the Azure emulator for localstack-azure-client, a local https origin. Defaults to https://azure.localhost.localstack.cloud:<LOCALSTACK_PORT>.",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "LOCALSTACK_AZURE_ENDPOINT"
         },
         {
           "description": "The az launcher, or the Azure CLI's Python, for localstack-azure-client. Defaults to the first az on PATH.",

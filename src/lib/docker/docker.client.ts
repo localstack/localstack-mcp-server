@@ -155,7 +155,7 @@ export class DockerApiClient {
   }
 
   private hasLocalStackImage(container: { Image?: string }): boolean {
-    return /^(?:[^/]+\/)?localstack\/(?:localstack(?:-pro)?|snowflake|localstack-azure-alpha)(?::|@|$)/.test(
+    return /^(?:[^/]+\/)?localstack\/(?:localstack(?:-pro)?|snowflake|localstack-azure(?:-alpha)?)(?::|@|$)/.test(
       container.Image || ""
     );
   }

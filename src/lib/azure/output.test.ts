@@ -10,13 +10,7 @@ const result = (over: Partial<AzRunResult>): AzRunResult => ({
   truncated: false,
   ...over,
 });
-const opts = {
-  argv: ["group", "list"],
-  notes: [],
-  timeoutSeconds: 300,
-  healthBaseUrl: "http://localhost:4566",
-  installedExtensions: new Set<string>(),
-};
+const opts = { notes: [], timeoutSeconds: 300, healthBaseUrl: "http://localhost:4566" };
 const text = (r: { content: Array<{ text: string }> }) => r.content[0].text;
 
 describe("formatAzResult", () => {
@@ -53,36 +47,49 @@ describe("formatAzResult", () => {
     expect(answer).toContain("http://localhost:4566/_localstack/coverage");
   });
 
-  test("a command from a missing extension names the extension to add", () => {
+  test("an unknown command group points at the user's own az extension add", () => {
     const stderr = "ERROR: 'graph' is misspelled or not recognized by the system.";
-    const answer = (installed: string[]) =>
-      text(
-        formatAzResult(result({ exitCode: 2, stderr }), {
-          ...opts,
-          argv: ["graph", "query", "-q", "x"],
-          installedExtensions: new Set(installed),
-        })
-      );
-    expect(answer([])).toContain("az extension add --name resource-graph");
-    expect(answer(["resource-graph"])).not.toContain("az extension add");
+    const answer = text(formatAzResult(result({ exitCode: 2, stderr }), opts));
+    expect(answer).toContain("If `graph` comes from an Azure CLI extension");
+    expect(answer).toContain("az extension add --name <extension>");
   });
 
-  test("timeout, cancel, a spawn failure and the capture cap", () => {
+  test("timeout, cancel and a spawn failure", () => {
     expect(text(formatAzResult(result({ exitCode: null, timedOut: true }), opts))).toMatch(
       /^❌ \*\*Command Timed Out\*\*\n\n`az` did not finish within 300 s/
     );
     expect(text(formatAzResult(result({ aborted: true }), opts))).toContain("Command Cancelled");
     expect(text(formatAzResult(result({ spawnError: "ENOENT: x" }), opts))).toContain("ENOENT: x");
-    const big = formatAzResult(
-      result({ stdout: "y".repeat(MAX_OUTPUT_CHARS + 10), truncated: true }),
-      opts
+  });
+
+  test("the capture cap: az was stopped, so the answer has its own title and the output so far", () => {
+    // What the runner returns at the cap: the killed az has no exit code.
+    const big = text(
+      formatAzResult(
+        result({ exitCode: null, stdout: "y".repeat(MAX_OUTPUT_CHARS + 10), truncated: true }),
+        opts
+      )
     );
-    expect(text(big)).toContain("[... 10 more characters of output cut]");
-    expect(text(big)).toMatch(/^Note: `az` printed more than the tool captures/);
+    expect(big).toMatch(/^❌ \*\*Output Too Large\*\*\n\n`az` printed more than the tool captures/);
+    expect(big).toContain("[... 10 more characters of output cut]");
+    expect(big).not.toContain("exit null");
+    expect(big).not.toContain("exited without an error message");
   });
 });
 
-test("prepareStderr caps without splitting a surrogate pair", () => {
-  const capped = prepareStderr("a".repeat(3_999) + "😀" + "b".repeat(100));
-  expect(capped.startsWith("a".repeat(3_999) + "\n[...")).toBe(true);
+describe("prepareStderr", () => {
+  test("keeps the end, where az prints its ERROR: line after a long --debug log", () => {
+    const debug = Array.from({ length: 200 }, (_, i) => `DEBUG: cli.knack: line ${i}`).join("\n");
+    const stderr = `${debug}\nERROR: Please run 'az login' to setup account.\nINFO: telemetry: done`;
+    const prepared = prepareStderr(stderr);
+    expect(prepared).toMatch(/^\[\.\.\. [\d,]+ earlier characters of stderr cut\]\n/);
+    expect(prepared).toContain("ERROR: Please run 'az login' to setup account.");
+    expect(prepared.endsWith("INFO: telemetry: done")).toBe(true);
+  });
+
+  test("caps without splitting a surrogate pair", () => {
+    const capped = prepareStderr("a".repeat(100) + "😀" + "b".repeat(3_999));
+    expect(capped.endsWith("b".repeat(3_999))).toBe(true);
+    expect(capped).not.toMatch(/[\udc00-\udfff]b/);
+  });
 });

@@ -353,9 +353,13 @@ function tailLines(text: string, lines: number): string {
 }
 
 function conflictResponse(processLabel: string, containerName: string, image?: string) {
-  const otherStack = image?.includes("/snowflake")
-    ? "the Snowflake emulator"
-    : "another LocalStack stack (likely the AWS emulator)";
+  const stack = stackFromImage(image);
+  const otherStack =
+    stack === "snowflake"
+      ? "the Snowflake emulator"
+      : stack === "azure"
+        ? "the Azure emulator"
+        : "another LocalStack stack (likely the AWS emulator)";
   return ResponseBuilder.error(
     "LocalStack container already running",
     `Starting ${processLabel} failed because a LocalStack container named "${containerName}"${
@@ -364,14 +368,6 @@ function conflictResponse(processLabel: string, containerName: string, image?: s
       `Stop it first with the localstack-management tool (action: stop), then retry this start.`
   );
 }
-
-/**
- * The Azure emulator shares files with the containers it starts for Function and Web Apps from
- * its state folder, and refuses to ("Mount to /var/lib/localstack needs to be a bind mount") when
- * that folder is a named volume, as it is when this server runs in Docker.
- */
-const AZURE_VOLUME_NOTE =
-  "ℹ️ Function App and Web App deployments need the emulator's state in a host folder, from which it shares files with the apps' containers; this emulator uses a named Docker volume. To deploy apps, set LOCALSTACK_VOLUME_DIR in this MCP server's configuration to an absolute host path, then stop and start the emulator.";
 
 /**
  * Start a LocalStack runtime flavor directly through the Docker Engine API (no
@@ -562,8 +558,6 @@ async function launchRuntimeInner(
       if (envVars)
         resultMessage += `✅ Custom environment variables passed to the LocalStack container: ${Object.keys(envVars).join(", ")}\n`;
       if (status.statusOutput) resultMessage += `\n**${statusHeading}:**\n${status.statusOutput}`;
-      if (stack === "azure" && volume.type === "volume")
-        resultMessage += `\n\n${AZURE_VOLUME_NOTE}`;
       return ResponseBuilder.markdown(resultMessage);
     };
 

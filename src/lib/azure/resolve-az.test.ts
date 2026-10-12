@@ -1,10 +1,4 @@
-import {
-  AzResolveError,
-  compareVersions,
-  locateAz,
-  parseAzVersion,
-  type LocateAzContext,
-} from "./resolve-az";
+import { AzResolveError, locateAz, parseAzVersion, type LocateAzContext } from "./resolve-az";
 
 const PREFIX = ["-X", "utf8", "-W", "ignore::SyntaxWarning", "-IBm", "azure.cli"];
 
@@ -74,9 +68,7 @@ describe("locateAz", () => {
   });
 });
 
-test("compareVersions and parseAzVersion", () => {
-  expect(compareVersions("2.9.0", "2.85.0")).toBeLessThan(0);
-  expect(compareVersions("2.91.0", "2.85.0")).toBeGreaterThan(0);
+test("parseAzVersion", () => {
   expect(parseAzVersion('{"azure-cli": "2.91.0", "azure-cli-core": "2.91.0"}')).toBe("2.91.0");
   expect(parseAzVersion("not json")).toBeUndefined();
 });

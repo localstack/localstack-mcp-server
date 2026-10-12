@@ -63,9 +63,25 @@ describe("getAzureEmulatorStatus", () => {
     const status = await getAzureEmulatorStatus(config, never);
     expect(status).toMatchObject({ ok: false, problem: "https-not-ready" });
     expect(never.sleep).toHaveBeenCalledTimes(20);
+    expect(status.message).toContain("did not become ready within 10 s");
     const once = deps({ health: AZURE_HEALTH, https: [] });
-    await getAzureEmulatorStatus(config, once, { httpsWaitMs: 0 });
+    const single = await getAzureEmulatorStatus(config, once, { httpsWaitMs: 0 });
     expect(once.httpsReady).toHaveBeenCalledTimes(1);
+    expect(single.message).toContain("is not ready yet");
+  });
+
+  test("HTTPS is checked on the gateway LOCALSTACK_HOSTNAME names, with the endpoint as SNI", async () => {
+    const d = deps({ health: AZURE_HEALTH });
+    await getAzureEmulatorStatus(
+      { ...config, healthBaseUrl: "http://host.docker.internal:4566" },
+      d
+    );
+    expect(d.httpsReady).toHaveBeenCalledWith(
+      "host.docker.internal",
+      4566,
+      "azure.localhost.localstack.cloud",
+      5000
+    );
   });
 
   test("the name must resolve to loopback; a session that passed is not checked again", async () => {

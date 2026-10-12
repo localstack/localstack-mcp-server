@@ -43,7 +43,6 @@ const CLIENT_ONLY_ENV_KEYS = new Set([
   "LOCALSTACK_IMAGE_NAME", // selects the image; not runtime config
   "LOCALSTACK_VOLUME_DIR", // host-side path; meaningless inside the container
   // The Azure client tool's settings: the entrypoint would re-export them unprefixed.
-  "LOCALSTACK_AZURE_ENDPOINT",
   "LOCALSTACK_AZURE_IMAGE_NAME",
   "LOCALSTACK_AZ_PATH",
   "LOCALSTACK_AZ_CONFIG_DIR",
@@ -69,8 +68,9 @@ const FORWARDED_CONFIG_ENV_NAMES = new Set([
   "DNS_ADDRESS",
   "MAIN_DOCKER_NETWORK",
 ]);
-// LS_AZURE_ is the Azure emulator's own settings (LS_AZURE_ENFORCE_RBAC, ...).
-const FORWARDED_CONFIG_ENV_PREFIXES = ["LAMBDA_", "CFN_", "SNOWFLAKE_", "SF_", "LS_AZURE_"];
+const FORWARDED_CONFIG_ENV_PREFIXES = ["LAMBDA_", "CFN_", "SNOWFLAKE_", "SF_"];
+/** The Azure emulator's own settings (LS_AZURE_ENFORCE_RBAC, ...), for the Azure stack only. */
+const AZURE_CONFIG_ENV_PREFIX = "LS_AZURE_";
 
 /** Same detector list the localstack CLI uses to tag agent-driven starts. */
 const AI_AGENT_DETECTORS: Array<[string, string[]]> = [
@@ -410,7 +410,8 @@ function buildEnv(input: ContainerSpecInput, ports: ResolvedPorts, name: string)
     if (value === undefined) continue;
     const forwarded =
       FORWARDED_CONFIG_ENV_NAMES.has(key) ||
-      FORWARDED_CONFIG_ENV_PREFIXES.some((prefix) => key.startsWith(prefix));
+      FORWARDED_CONFIG_ENV_PREFIXES.some((prefix) => key.startsWith(prefix)) ||
+      (input.stack === "azure" && key.startsWith(AZURE_CONFIG_ENV_PREFIX));
     if (forwarded) env.set(key, value);
   }
 

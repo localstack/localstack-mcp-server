@@ -330,6 +330,22 @@ describe("localstack.utils", () => {
       expect(client.createAndStartContainer).not.toHaveBeenCalled();
     });
 
+    test("names an Azure container in the way as the Azure emulator", async () => {
+      const { client } = mockDockerClient({
+        findContainerByNameAnyState: jest.fn().mockResolvedValue({
+          id: "abc",
+          name: "localstack-main",
+          state: "running",
+          running: true,
+          image: "localstack/localstack-azure:latest",
+        }),
+      });
+      const getStatus = jest.fn().mockResolvedValue({ isRunning: false });
+
+      const result = await launchRuntime({ ...launchDefaults, getStatus, dockerClient: client });
+      expect(result.content[0].text).toContain("it belongs to the Azure emulator");
+    });
+
     test("removes a stale stopped container and proceeds", async () => {
       const { client } = mockDockerClient({
         findContainerByNameAnyState: jest.fn().mockResolvedValue({

@@ -62,22 +62,15 @@ describe("stackFromImage", () => {
   });
 });
 
-test("the Azure emulator's LS_AZURE_ settings are forwarded; the Azure tool's own are not", () => {
-  const env = envMap(
-    buildLocalStackContainerSpec(
-      baseInput({
-        stack: "azure",
-        hostEnv: {
-          LS_AZURE_ENFORCE_RBAC: "1",
-          LOCALSTACK_AZ_CONFIG_DIR: "/home/u/cfg",
-          LOCALSTACK_AZURE_ENDPOINT: "https://localhost:4566",
-        },
-      })
-    )
-  );
-  expect(env.LS_AZURE_ENFORCE_RBAC).toBe("1");
-  expect(env.LOCALSTACK_AZ_CONFIG_DIR).toBeUndefined();
-  expect(env.LOCALSTACK_AZURE_ENDPOINT).toBeUndefined();
+test("the Azure emulator's LS_AZURE_ settings reach the Azure stack only; the Azure tool's never", () => {
+  const hostEnv = { LS_AZURE_ENFORCE_RBAC: "1", LOCALSTACK_AZ_CONFIG_DIR: "/home/u/cfg" };
+  const azure = envMap(buildLocalStackContainerSpec(baseInput({ stack: "azure", hostEnv })));
+  expect(azure.LS_AZURE_ENFORCE_RBAC).toBe("1");
+  expect(azure.LOCALSTACK_AZ_CONFIG_DIR).toBeUndefined();
+  for (const stack of ["aws", "snowflake"] as const) {
+    const env = envMap(buildLocalStackContainerSpec(baseInput({ stack, hostEnv })));
+    expect(env.LS_AZURE_ENFORCE_RBAC).toBeUndefined();
+  }
 });
 
 describe("resolveContainerName", () => {
