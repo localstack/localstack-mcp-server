@@ -44,7 +44,6 @@ The server connects MCP-compatible apps directly to your local LocalStack enviro
 This server eliminates custom scripts and manual LocalStack management. Your agent can:
 
 - Start, stop, restart, and monitor the LocalStack for AWS, Snowflake and Azure emulators with built-in auth.
-- Run Azure CLI (`az`) commands against the LocalStack for Azure emulator.
 - Deploy CDK, Terraform, and SAM projects with automatic configuration detection.
 - Search LocalStack documentation for guides, API references, and configuration details.
 - Parse logs, catch errors, and auto-generate IAM policies from violations.
@@ -127,7 +126,7 @@ Run `npx -y @localstack/localstack-mcp-server init --help` for all options.
 - Docker installed and running. The MCP server manages the LocalStack container directly through the Docker API.
 - [`cdklocal`](https://github.com/localstack/aws-cdk-local), [`tflocal`](https://github.com/localstack/terraform-local), or [`samlocal`](https://github.com/localstack/aws-sam-cli-local) installed in your system path if you want to deploy CDK, Terraform, or SAM projects
 - Snowflake CLI (`snow`) installed in your system path if you want to use the Snowflake tool
-- Azure CLI (`az`) installed in your system path if you want to use the Azure tool (see [Azure tool](#azure-tool))
+- Azure CLI (`az`) installed in your system path if you want to use the Azure tool (see [docs/AZURE.md](./docs/AZURE.md))
 - A [valid LocalStack Auth Token](https://docs.localstack.cloud/aws/getting-started/auth-token/) configured as `LOCALSTACK_AUTH_TOKEN` (**required for all MCP tools**)
 - [Node.js v20](https://nodejs.org/en/download/) or higher installed in your system path
 
@@ -233,17 +232,7 @@ See **[docs/DOCKER.md](./docs/DOCKER.md)** for the run command, MCP client confi
 | `LOCALSTACK_AZ_WORKDIR`                                        | The directory the Azure tool runs `az` in; relative file paths resolve against it.                                                                                                                                                | The server's working directory     |
 | `LOCALSTACK_AZ_TIMEOUT_SECONDS`                                | Time limit for one Azure CLI command (5–3600).                                                                                                                                                                                    | `300`                              |
 
-### Azure tool
-
-`localstack-azure-client` runs the Azure CLI (`az`) installed on your machine against the LocalStack for Azure emulator; start the emulator with `localstack-management` (`service: azure`).
-
-- The tool keeps its own Azure CLI profile (`LOCALSTACK_AZ_CONFIG_DIR`), logged in to the emulator with a dummy account, so your own Azure login is never used or changed.
-- It uses your Azure CLI extensions: install one with `az extension add --name <extension>`.
-- Bicep templates need the `bicep` binary on your `PATH` (for example `brew install bicep` or `winget install Microsoft.Bicep`).
-- Relative file paths in commands resolve against `LOCALSTACK_AZ_WORKDIR`, by default the directory the MCP client starts the server in.
-- `rest` calls the emulator: give it a relative URL. An absolute URL must name a local host; a `management.azure.com` URL is turned into a relative one.
-- Only `rest` URLs are checked: an endpoint given in a command, such as `--blob-endpoint` or a connection string, is used as it is.
-- The Docker image does not include the Azure CLI yet: run the server with npx or from source to use the Azure tool.
+See **[docs/AZURE.md](./docs/AZURE.md)** for how the Azure tool runs the Azure CLI.
 
 ### Migration notes (CLI-free lifecycle)
 
