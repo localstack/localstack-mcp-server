@@ -22,21 +22,31 @@ import {
 import { ResponseBuilder } from "../core/response-builder";
 import { ProFeature } from "../lib/localstack/license-checker";
 import { withToolAnalytics } from "../core/analytics";
+import { azureStartedCheck, getAzureRuntimeStatus } from "../lib/azure/runtime-status";
 
 const AWS_ALREADY_RUNNING_MESSAGE =
   "⚠️  LocalStack is already running. Use 'restart' if you want to apply new configuration.";
 const SNOWFLAKE_ALREADY_RUNNING_MESSAGE =
   "⚠️  Snowflake emulator is already running. Use 'restart' if you want to apply new configuration.";
+const AZURE_ALREADY_RUNNING_MESSAGE =
+  "⚠️  The LocalStack Azure emulator is already running. Use 'restart' if you want to apply new configuration.";
+
+type Service = "aws" | "snowflake" | "azure";
+const SERVICE_LABELS: Record<Service, string> = {
+  aws: "AWS",
+  snowflake: "Snowflake",
+  azure: "Azure",
+};
 
 export const schema = {
   action: z
     .enum(["start", "stop", "restart", "status"])
     .describe("The LocalStack management action to perform"),
   service: z
-    .enum(["aws", "snowflake"])
+    .enum(["aws", "snowflake", "azure"])
     .default("aws")
     .describe(
-      "The LocalStack stack/service to manage. Use 'aws' for the default AWS emulator, or 'snowflake' for the Snowflake emulator."
+      "The LocalStack stack/service to manage. Use 'aws' for the default AWS emulator, 'snowflake' for the Snowflake emulator, or 'azure' for the Azure emulator."
     ),
   envVars: z
     .record(z.string(), z.string())
@@ -134,9 +144,25 @@ async function handleStart({
   overrides,
 }: {
   envVars?: Record<string, string>;
-  service: "aws" | "snowflake";
+  service: Service;
   overrides?: StartOverrides;
 }) {
+  if (service === "azure") {
+    return await launchRuntime({
+      stack: "azure",
+      envVars,
+      getStatus: getAzureRuntimeStatus,
+      processLabel: "LocalStack Azure emulator",
+      alreadyRunningMessage: AZURE_ALREADY_RUNNING_MESSAGE,
+      successTitle: "🚀 LocalStack Azure emulator started successfully!",
+      statusHeading: "Health check",
+      timeoutMessage:
+        "❌ LocalStack Azure emulator start timed out after 120 seconds. Its health check did not report the Azure edition. If this was the first start, the image pull may still be in progress — retry in a bit.",
+      onReady: azureStartedCheck,
+      ...overrides,
+    });
+  }
+
   if (service === "snowflake") {
     return await launchRuntime({
       stack: "snowflake",
@@ -230,7 +256,7 @@ async function handleRestart({
   service,
 }: {
   envVars?: Record<string, string>;
-  service: "aws" | "snowflake";
+  service: Service;
 }) {
   const dockerClient = new DockerApiClient();
   let containerId: string;
@@ -283,7 +309,7 @@ async function handleRestart({
 }
 
 // Handle status action
-async function handleStatus({ service }: { service: "aws" | "snowflake" }) {
+async function handleStatus({ service }: { service: Service }) {
   const statusResult = await getLocalStackStatus();
   let result = "📊 LocalStack Status:\n\n";
   result += statusResult.statusOutput || "LocalStack status is unavailable.";
@@ -293,15 +319,30 @@ async function handleStatus({ service }: { service: "aws" | "snowflake" }) {
     return ResponseBuilder.markdown(result);
   }
 
-  if (service === "snowflake") {
+  if (service !== "aws") {
     const metadata = await inspectRunningContainer();
-    if (metadata && stackFromImage(metadata.image) === "aws") {
+    const running = metadata ? stackFromImage(metadata.image) : undefined;
+    if (metadata && running && running !== service) {
       result +=
-        `\n\n⚠️  The running LocalStack container ("${metadata.name}", image: ${metadata.image}) is the AWS stack — ` +
-        "the Snowflake emulator is not running. Stop it first, then start with service: snowflake.";
+        `\n\n⚠️  The running LocalStack container ("${metadata.name}", image: ${metadata.image}) is the ${SERVICE_LABELS[running]} stack — ` +
+        `the ${SERVICE_LABELS[service]} emulator is not running. Stop it first, then start with service: ${service}.`;
       return ResponseBuilder.markdown(result);
     }
+  }
 
+  if (service === "azure") {
+    const azure = await getAzureRuntimeStatus();
+    if (azure.isReady) {
+      result += "\n\n✅ LocalStack is running and the Azure emulator health check passed.";
+    } else {
+      result +=
+        "\n\n⚠️  LocalStack is running, but the Azure emulator health check did not pass." +
+        (azure.status.message ? ` (${azure.status.message})` : "");
+    }
+    return ResponseBuilder.markdown(result);
+  }
+
+  if (service === "snowflake") {
     const snowflakeStatus = await getSnowflakeEmulatorStatus();
 
     if (snowflakeStatus.isReady || snowflakeStatus.isRunning) {

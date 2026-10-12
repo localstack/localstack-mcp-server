@@ -125,6 +125,10 @@ alias covers bootstrap asset uploads.
   on the host even if your editor restarts the MCP container — reconnecting finds
   your stack still up. State persists in the `localstack-mcp` named volume (or
   `LOCALSTACK_VOLUME_DIR` if you set one).
+- **No Azure CLI.** The image lists all 15 tools, but it does not include the Azure
+  CLI, so `localstack-azure-client` answers that `az` is not available. To use the
+  Azure tool, run the server with npx or from source. `localstack-management` can
+  still start and stop the Azure emulator (`service: azure`) from the image.
 
 ## Troubleshooting
 

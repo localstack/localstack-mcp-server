@@ -127,6 +127,17 @@ describe("DockerApiClient", () => {
     await expect(client.findLocalStackContainer()).resolves.toBe("azure123");
   });
 
+  test("findLocalStackContainer detects the Azure image the start action launches by image", async () => {
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      { Id: "other", Names: ["/redis"], Image: "redis:latest" },
+      { Id: "azure456", Names: ["/my-azure"], Image: "localstack/localstack-azure:latest" },
+    ]);
+
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).resolves.toBe("azure456");
+  });
+
   test("findLocalStackContainer matches MAIN_CONTAINER_NAME when configured", async () => {
     process.env.MAIN_CONTAINER_NAME = "my-custom-localstack";
 

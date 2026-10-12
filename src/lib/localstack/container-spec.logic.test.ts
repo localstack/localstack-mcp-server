@@ -5,6 +5,7 @@ import {
   resolveContainerName,
   resolveImage,
   resolveVolume,
+  stackFromImage,
   type ContainerSpecInput,
 } from "./container-spec.logic";
 
@@ -43,6 +44,33 @@ describe("resolveImage", () => {
       "localstack/snowflake:latest"
     );
   });
+
+  test("azure stack: the Azure image, overridable only by LOCALSTACK_AZURE_IMAGE_NAME", () => {
+    expect(resolveImage("azure", { LOCALSTACK_IMAGE_NAME: "my/img:1" })).toBe(
+      "localstack/localstack-azure:latest"
+    );
+    expect(resolveImage("azure", { LOCALSTACK_AZURE_IMAGE_NAME: "my/azure:2" })).toBe("my/azure:2");
+  });
+});
+
+describe("stackFromImage", () => {
+  test("names the Azure and Snowflake images; any other image is AWS", () => {
+    expect(stackFromImage("localstack/localstack-azure:dev19-pinned")).toBe("azure");
+    expect(stackFromImage("localstack/localstack-azure-alpha@sha256:ab")).toBe("azure");
+    expect(stackFromImage("localstack/snowflake:latest")).toBe("snowflake");
+    expect(stackFromImage("localstack/localstack-pro:latest")).toBe("aws");
+  });
+});
+
+test("the Azure emulator's LS_AZURE_ settings reach the Azure stack only; the Azure tool's never", () => {
+  const hostEnv = { LS_AZURE_ENFORCE_RBAC: "1", LOCALSTACK_AZ_CONFIG_DIR: "/home/u/cfg" };
+  const azure = envMap(buildLocalStackContainerSpec(baseInput({ stack: "azure", hostEnv })));
+  expect(azure.LS_AZURE_ENFORCE_RBAC).toBe("1");
+  expect(azure.LOCALSTACK_AZ_CONFIG_DIR).toBeUndefined();
+  for (const stack of ["aws", "snowflake"] as const) {
+    const env = envMap(buildLocalStackContainerSpec(baseInput({ stack, hostEnv })));
+    expect(env.LS_AZURE_ENFORCE_RBAC).toBeUndefined();
+  }
 });
 
 describe("resolveContainerName", () => {

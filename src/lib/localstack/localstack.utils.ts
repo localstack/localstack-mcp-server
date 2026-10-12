@@ -353,9 +353,13 @@ function tailLines(text: string, lines: number): string {
 }
 
 function conflictResponse(processLabel: string, containerName: string, image?: string) {
-  const otherStack = image?.includes("/snowflake")
-    ? "the Snowflake emulator"
-    : "another LocalStack stack (likely the AWS emulator)";
+  const stack = stackFromImage(image);
+  const otherStack =
+    stack === "snowflake"
+      ? "the Snowflake emulator"
+      : stack === "azure"
+        ? "the Azure emulator"
+        : "another LocalStack stack (likely the AWS emulator)";
   return ResponseBuilder.error(
     "LocalStack container already running",
     `Starting ${processLabel} failed because a LocalStack container named "${containerName}"${

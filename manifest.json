@@ -68,6 +68,10 @@
       "description": "Runs AWS CLI commands inside the running LocalStack container"
     },
     {
+      "name": "localstack-azure-client",
+      "description": "Runs Azure CLI (az) commands against the LocalStack for Azure emulator"
+    },
+    {
       "name": "localstack-aws-replicator",
       "description": "Replicates external AWS resources into a running LocalStack instance using the AWS Replicator HTTP API"
     },
@@ -155,6 +159,12 @@
       "description": "Runs AWS CLI commands inside the LocalStack container",
       "arguments": ["description"],
       "text": "Please query the LocalStack container for ${arguments.description}."
+    },
+    {
+      "name": "localstack-azure-client",
+      "description": "Runs Azure CLI commands against the LocalStack Azure emulator",
+      "arguments": ["description"],
+      "text": "Please query the LocalStack Azure emulator for ${arguments.description}."
     },
     {
       "name": "aws-replicator-start",

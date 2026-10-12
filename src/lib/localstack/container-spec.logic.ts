@@ -17,6 +17,7 @@
 export const DEFAULT_CONTAINER_NAME = "localstack-main";
 export const DEFAULT_AWS_IMAGE = "localstack/localstack-pro:latest";
 export const DEFAULT_SNOWFLAKE_IMAGE = "localstack/snowflake:latest";
+export const DEFAULT_AZURE_IMAGE = "localstack/localstack-azure:latest";
 export const DEFAULT_GATEWAY_CONTAINER_PORT = 4566;
 export const DEFAULT_HTTPS_GATEWAY_PORT = 443;
 export const DEFAULT_SERVICE_PORT_START = 4510;
@@ -41,6 +42,12 @@ const CLIENT_ONLY_ENV_KEYS = new Set([
   "LOCALSTACK_API_KEY",
   "LOCALSTACK_IMAGE_NAME", // selects the image; not runtime config
   "LOCALSTACK_VOLUME_DIR", // host-side path; meaningless inside the container
+  // The Azure client tool's settings: the entrypoint would re-export them unprefixed.
+  "LOCALSTACK_AZURE_IMAGE_NAME",
+  "LOCALSTACK_AZ_PATH",
+  "LOCALSTACK_AZ_CONFIG_DIR",
+  "LOCALSTACK_AZ_WORKDIR",
+  "LOCALSTACK_AZ_TIMEOUT_SECONDS",
 ]);
 
 /**
@@ -62,6 +69,8 @@ const FORWARDED_CONFIG_ENV_NAMES = new Set([
   "MAIN_DOCKER_NETWORK",
 ]);
 const FORWARDED_CONFIG_ENV_PREFIXES = ["LAMBDA_", "CFN_", "SNOWFLAKE_", "SF_"];
+/** The Azure emulator's own settings (LS_AZURE_ENFORCE_RBAC, ...), for the Azure stack only. */
+const AZURE_CONFIG_ENV_PREFIX = "LS_AZURE_";
 
 /** Same detector list the localstack CLI uses to tag agent-driven starts. */
 const AI_AGENT_DETECTORS: Array<[string, string[]]> = [
@@ -80,7 +89,7 @@ const AI_AGENT_DETECTORS: Array<[string, string[]]> = [
   ["replit", ["REPL_ID"]],
 ];
 
-export type LocalStackStack = "aws" | "snowflake";
+export type LocalStackStack = "aws" | "snowflake" | "azure";
 
 export type VolumeResolution = { type: "bind"; source: string } | { type: "volume"; name: string };
 
@@ -128,6 +137,8 @@ export function resolveImage(
   hostEnv: Record<string, string | undefined>
 ): string {
   if (stack === "snowflake") return DEFAULT_SNOWFLAKE_IMAGE;
+  // Only the Azure override: an AWS IMAGE_NAME must not replace the Azure image.
+  if (stack === "azure") return hostEnv.LOCALSTACK_AZURE_IMAGE_NAME?.trim() || DEFAULT_AZURE_IMAGE;
   const override = hostEnv.LOCALSTACK_IMAGE_NAME?.trim() || hostEnv.IMAGE_NAME?.trim();
   return override || DEFAULT_AWS_IMAGE;
 }
@@ -136,6 +147,7 @@ export function resolveImage(
 export function stackFromImage(image?: string): LocalStackStack | undefined {
   if (!image) return undefined;
   if (/\/snowflake(:|@|$)/.test(image)) return "snowflake";
+  if (/(^|\/)localstack-azure(-alpha)?(:|@|$)/.test(image)) return "azure";
   return "aws";
 }
 
@@ -398,7 +410,8 @@ function buildEnv(input: ContainerSpecInput, ports: ResolvedPorts, name: string)
     if (value === undefined) continue;
     const forwarded =
       FORWARDED_CONFIG_ENV_NAMES.has(key) ||
-      FORWARDED_CONFIG_ENV_PREFIXES.some((prefix) => key.startsWith(prefix));
+      FORWARDED_CONFIG_ENV_PREFIXES.some((prefix) => key.startsWith(prefix)) ||
+      (input.stack === "azure" && key.startsWith(AZURE_CONFIG_ENV_PREFIX));
     if (forwarded) env.set(key, value);
   }
 

@@ -73,6 +73,7 @@ const EXPECTED_TOOLS = [
   "localstack-snowflake-client",
   "localstack-ephemeral-instances",
   "localstack-aws-client",
+  "localstack-azure-client",
   "localstack-aws-replicator",
   "localstack-docs",
   "localstack-app-inspector",
@@ -263,7 +264,7 @@ async function main() {
   const missing = EXPECTED_TOOLS.filter((t) => !toolNames.includes(t));
   record(
     "tools",
-    "tools/list exposes all 14 tools",
+    "tools/list exposes all 15 tools",
     missing.length === 0,
     `found ${toolNames.length} tools`,
     missing.length ? `MISSING: ${missing.join(", ")}` : undefined
