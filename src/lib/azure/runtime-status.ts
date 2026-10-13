@@ -18,8 +18,7 @@ export async function getAzureRuntimeStatus(): Promise<AzureRuntimeStatus> {
   const status = await getAzureEmulatorStatus(getAzureConfig(), undefined, {
     httpsWaitMs: 0,
   });
-  const isRunning =
-    status.ok || ["https-not-ready", "license", "dns"].includes(status.problem ?? "");
+  const isRunning = status.ok || ["https-not-ready", "license"].includes(status.problem ?? "");
   const details = [
     status.edition && `edition: ${status.edition}`,
     status.version && `version: ${status.version}`,

@@ -1,3 +1,4 @@
+import net from "net";
 import { ensureProfile as ensureBootstrapped } from "./bootstrap";
 import { AzResolveError } from "./resolve-az";
 import { runAz, type AzRunOptions, type AzRunResult } from "./runner";
@@ -108,4 +109,31 @@ test("ensureProfile keys the profile on the az version and the emulator session,
     expect.any(Function),
     signal
   );
+});
+
+test("each az run gets an egress guard of its own, closed after it; its refusals come back", async () => {
+  resetAzureServices();
+  jest.mocked(runAz).mockResolvedValueOnce(version("2.91.0"));
+  // The stand-in az asks the guard for a host outside the emulator, as a --blob-endpoint would.
+  jest.mocked(runAz).mockImplementationOnce(async (_az, env) => {
+    const { port } = new URL(env.HTTPS_PROXY);
+    await new Promise<void>((resolve) => {
+      const socket = net.connect(Number(port), "127.0.0.1", () =>
+        socket.write("CONNECT storage.evil.example:443 HTTP/1.1\r\n\r\n")
+      );
+      socket.once("data", () => (socket.destroy(), resolve()));
+    });
+    return result({ exitCode: 1 });
+  });
+  const answer = await runAzCommand(["storage", "blob", "upload"], {});
+  const env = jest.mocked(runAz).mock.lastCall![1];
+  expect(env).toMatchObject({ AZURE_CONFIG_DIR: "/cfg", HTTP_PROXY: env.HTTPS_PROXY });
+  expect(answer.refused).toEqual(["storage.evil.example"]);
+  const closed = await new Promise((resolve) =>
+    net
+      .connect(Number(new URL(env.HTTPS_PROXY).port), "127.0.0.1")
+      .once("connect", () => resolve(false))
+      .once("error", () => resolve(true))
+  );
+  expect(closed).toBe(true);
 });

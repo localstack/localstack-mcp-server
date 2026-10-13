@@ -1,16 +1,14 @@
-import { promises as dns } from "dns";
 import https from "https";
 import type { AzureConfig } from "./config";
 
 /**
  * Is the LocalStack Azure emulator usable? Its health and info are read over plain HTTP from the
  * gateway every tool uses. The ARM endpoint's HTTPS listener comes up seconds after it, and is
- * checked on that same gateway with the endpoint's name as SNI. That name must also resolve to
- * 127.0.0.1, which some routers' DNS-rebinding protection blocks.
+ * checked on that same gateway with the endpoint's name as SNI. No DNS is involved: `az` reaches
+ * the emulator through the egress guard, which maps its names to 127.0.0.1 itself.
  */
 
-export type EmulatorProblem =
-  "not-running" | "wrong-edition" | "license" | "https-not-ready" | "dns";
+export type EmulatorProblem = "not-running" | "wrong-edition" | "license" | "https-not-ready";
 
 export interface AzureEmulatorStatus {
   ok: boolean;
@@ -33,7 +31,6 @@ export interface EmulatorDeps {
     servername: string,
     timeoutMs: number
   ): Promise<boolean>;
-  lookup(host: string): Promise<string[]>;
   sleep(ms: number): Promise<void>;
   now(): number;
 }
@@ -86,15 +83,11 @@ function httpsReady(
 export const defaultEmulatorDeps: EmulatorDeps = {
   getJson,
   httpsReady,
-  lookup: async (host) => (await dns.lookup(host, { all: true })).map((a) => a.address),
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   now: () => Date.now(),
 };
 
-const isLoopback = (address: string) =>
-  /^127\./.test(address) || address === "::1" || /^::ffff:127\./i.test(address);
-
-/** The emulator session whose HTTPS endpoint and DNS name were checked. */
+/** The emulator session whose HTTPS endpoint was checked. */
 let verifiedSession: string | undefined;
 
 export function resetEmulatorStatusCache(): void {
@@ -166,16 +159,6 @@ export async function getAzureEmulatorStatus(
       problem: "https-not-ready",
       ...fields,
       message: `The LocalStack Azure emulator answers on ${base}, but its HTTPS endpoint ${config.endpoint} ${notReady}. It may still be starting; retry in a few seconds.`,
-    };
-  }
-  // az resolves the endpoint's name itself.
-  const addresses = await deps.lookup(host).catch(() => []);
-  if (!addresses.length || !addresses.every(isLoopback)) {
-    return {
-      ok: false,
-      problem: "dns",
-      ...fields,
-      message: `${host} ${addresses.length ? `resolved to ${addresses.join(", ")}` : "did not resolve"}, not to 127.0.0.1. It is a public DNS name for 127.0.0.1, which some routers and corporate resolvers block (DNS-rebinding protection): allow localhost.localstack.cloud there, or add \`127.0.0.1 ${host}\` to your hosts file.`,
     };
   }
   if (sessionId) verifiedSession = sessionId;

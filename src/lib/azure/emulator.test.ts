@@ -14,7 +14,6 @@ function deps(over: Partial<EmulatorDeps> & { health?: unknown; https?: boolean[
       url.endsWith("/health") ? over.health : { session_id: "s1", version: "4.9.0" }
     ),
     httpsReady: jest.fn(async () => https.shift() ?? false),
-    lookup: jest.fn(async () => ["127.0.0.1"]),
     sleep: jest.fn(async (ms: number) => {
       now += ms;
     }),
@@ -27,7 +26,7 @@ function deps(over: Partial<EmulatorDeps> & { health?: unknown; https?: boolean[
 describe("getAzureEmulatorStatus", () => {
   beforeEach(() => resetEmulatorStatusCache());
 
-  test("ready: the Azure edition, HTTPS answering, the name on loopback", async () => {
+  test("ready: the Azure edition and HTTPS answering", async () => {
     const d = deps({ health: AZURE_HEALTH });
     expect(await getAzureEmulatorStatus(config, d)).toEqual({
       ok: true,
@@ -84,18 +83,10 @@ describe("getAzureEmulatorStatus", () => {
     );
   });
 
-  test("the name must resolve to loopback; a session that passed is not checked again", async () => {
-    const blocked = deps({ health: AZURE_HEALTH, lookup: jest.fn(async () => []) });
-    expect((await getAzureEmulatorStatus(config, blocked)).message).toContain("did not resolve");
-    const elsewhere = deps({ health: AZURE_HEALTH, lookup: jest.fn(async () => ["10.0.0.5"]) });
-    expect((await getAzureEmulatorStatus(config, elsewhere)).message).toContain(
-      "resolved to 10.0.0.5"
-    );
-    // Once a session has passed, HTTPS and DNS are not checked again.
+  test("a session that passed is not checked over HTTPS again", async () => {
     const d = deps({ health: AZURE_HEALTH, https: [true, true] });
     await getAzureEmulatorStatus(config, d);
     await getAzureEmulatorStatus(config, d);
     expect(d.httpsReady).toHaveBeenCalledTimes(1);
-    expect(d.lookup).toHaveBeenCalledTimes(1);
   });
 });
