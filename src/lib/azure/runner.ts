@@ -32,6 +32,8 @@ export interface AzRunResult {
   truncated: boolean;
   /** The spawn itself failed (ENOENT, EINVAL, ...). */
   spawnError?: string;
+  /** The hosts the egress guard refused during the run (egress-guard.ts). */
+  refused?: string[];
 }
 
 const TASKKILL = path.win32.join(

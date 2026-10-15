@@ -78,6 +78,17 @@ function failureHint(stderr: string, opts: FormatOptions): string | undefined {
   return undefined;
 }
 
+/** Hosts the egress guard refused, which az's own error often does not name. */
+function refusedNote(result: AzRunResult): string | undefined {
+  if (!result.refused?.length) return undefined;
+  const hosts = result.refused.map((host) => `\`${host}\``).join(", ");
+  return (
+    `The tool kept \`az\` from reaching ${hosts}: it only lets \`az\` reach the emulator ` +
+    "(`localhost.localstack.cloud` and its subdomains, `localhost`) on the emulator's ports. " +
+    "An endpoint in the command, such as `--blob-endpoint` or a connection string, must point there."
+  );
+}
+
 export function formatAzResult(result: AzRunResult, opts: FormatOptions): ToolResponse {
   if (result.spawnError) {
     return ResponseBuilder.error("Azure CLI Could Not Start", result.spawnError);
@@ -96,7 +107,7 @@ export function formatAzResult(result: AzRunResult, opts: FormatOptions): ToolRe
       "`--no-wait` where the command has it.";
     return ResponseBuilder.error(
       "Command Timed Out",
-      [advice, stderr].filter(Boolean).join("\n\n")
+      [advice, stderr, refusedNote(result)].filter(Boolean).join("\n\n")
     );
   }
   const stdout = cap(
@@ -126,6 +137,7 @@ export function formatAzResult(result: AzRunResult, opts: FormatOptions): ToolRe
   const blocks = [
     stderr || "`az` exited without an error message.",
     stdout && `Output:\n${stdout}`,
+    refusedNote(result),
     failureHint(result.stderr, opts),
     ...opts.notes,
   ];
