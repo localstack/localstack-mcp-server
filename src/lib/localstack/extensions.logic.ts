@@ -43,32 +43,10 @@ export const EXTENSIONS_VENV_REPAIR_SCRIPT = [
 export const EXTENSION_NAME_RE =
   /^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9,._-]+\])?(==[A-Za-z0-9.*+!-]+)?$/;
 
-/** Git sources are limited to https on well-known hosts (matches the documented usage). */
-export const EXTENSION_GIT_SOURCE_RE =
-  /^git\+https:\/\/(github\.com|gitlab\.com|bitbucket\.org)\/[A-Za-z0-9._/-]+(@[A-Za-z0-9._/-]+)?(#[A-Za-z0-9._&=/-]+)?$/;
-
 /** Returns an error message for an invalid install/uninstall target, or null when fine. */
-export function validateExtensionTarget({
-  name,
-  source,
-}: {
-  name?: string;
-  source?: string;
-}): string | null {
-  // Treat an empty name as "not provided" so a source-only install isn't rejected
-  // for a name it never supplied.
+export function validateExtensionTarget({ name }: { name?: string }): string | null {
   if (name && !EXTENSION_NAME_RE.test(name)) {
     return `"${name}" is not a valid extension package name. Expected a PyPI-style name like localstack-extension-typedb, optionally with extras or a ==version pin.`;
-  }
-  if (source) {
-    if (!EXTENSION_GIT_SOURCE_RE.test(source)) {
-      return `"${source}" is not a supported extension source. Use a git+https:// URL on github.com, gitlab.com, or bitbucket.org (e.g. git+https://github.com/org/repo.git#egg=my-extension).`;
-    }
-    // Defense-in-depth: reject `..` path segments in the fragment (pip's subdirectory=
-    // could otherwise point its build root outside the clone).
-    if (/(^|[?#&/])\.\.(?=$|[/&])/.test(source)) {
-      return `"${source}" is not a supported extension source: '..' path segments are not allowed.`;
-    }
   }
   return null;
 }

@@ -42,12 +42,6 @@ export const schema = {
     .describe(
       "Extension package name (e.g. 'localstack-extension-typedb' or 'localstack-extension-typedb==1.0.0'). Required for install and uninstall actions."
     ),
-  source: z
-    .string()
-    .optional()
-    .describe(
-      "Git URL to install from (e.g. 'git+https://github.com/org/repo.git'). Use this instead of name when installing from a repository."
-    ),
 };
 
 export const metadata: ToolMetadata = {
@@ -61,12 +55,8 @@ export const metadata: ToolMetadata = {
   },
 };
 
-export default async function localstackExtensions({
-  action,
-  name,
-  source,
-}: InferSchema<typeof schema>) {
-  return withToolAnalytics("localstack-extensions", { action, name, source }, async () => {
+export default async function localstackExtensions({ action, name }: InferSchema<typeof schema>) {
+  return withToolAnalytics("localstack-extensions", { action, name }, async () => {
     // `available` only needs the platform API; the container-touching actions need a
     // running LocalStack (the extension manager runs inside it) + the Docker daemon.
     const checks =
@@ -86,7 +76,7 @@ export default async function localstackExtensions({
       case "list":
         return await handleList();
       case "install":
-        return await handleInstall(name, source);
+        return await handleInstall(name);
       case "uninstall":
         return await handleUninstall(name);
       case "available":
@@ -183,22 +173,20 @@ async function handleList() {
   return ResponseBuilder.markdown(formatInstalledExtensions(extensions));
 }
 
-async function handleInstall(name?: string, source?: string) {
-  const hasName = !!name;
-  const hasSource = !!source;
-  if ((hasName && hasSource) || (!hasName && !hasSource)) {
+async function handleInstall(name?: string) {
+  if (!name) {
     return ResponseBuilder.error(
-      "Invalid Parameters",
-      "Provide either `name` or `source` for install, but not both."
+      "Missing Required Parameter",
+      "The `install` action requires the `name` parameter to be specified."
     );
   }
 
-  const validationError = validateExtensionTarget({ name, source });
+  const validationError = validateExtensionTarget({ name });
   if (validationError) {
     return ResponseBuilder.error("Invalid Extension Target", validationError);
   }
 
-  const target = source || name!;
+  const target = name;
   let result;
   try {
     result = await runExtensionManager(["install", target], { repairVenv: true });
@@ -216,7 +204,7 @@ async function handleInstall(name?: string, source?: string) {
   if (outcome.kind === "not-found") {
     return ResponseBuilder.error(
       "Extension Not Found",
-      `Could not resolve the extension package '${target}'. Please verify it exists on PyPI, or provide a git repository URL using the source parameter.`
+      `Could not resolve the extension package '${target}'. Please verify it exists on PyPI.`
     );
   }
   if (!outcome.success) {

@@ -162,68 +162,18 @@ describe("validateExtensionTarget", () => {
     }
   });
 
-  test("accepts documented git+https sources on known hosts", () => {
+  test("rejects git URLs, which LocalStack no longer installs", () => {
     expect(
       validateExtensionTarget({
-        source:
-          "git+https://github.com/localstack/localstack-extensions.git#egg=localstack-keycloak&subdirectory=keycloak",
+        name: "git+https://github.com/localstack/localstack-extensions.git#egg=localstack-keycloak&subdirectory=keycloak",
       })
-    ).toBeNull();
-    expect(
-      validateExtensionTarget({ source: "git+https://gitlab.com/org/repo.git@v1.2.3" })
-    ).toBeNull();
-  });
-
-  test("rejects non-https, unknown-host, and non-git sources", () => {
-    for (const source of [
-      "git+ssh://git@github.com/org/repo.git",
-      "git+https://evil.example/org/repo.git",
-      "https://github.com/org/repo.git",
-      "file:///etc/passwd",
-      "git+https://github.com/org/repo.git --index-url=x",
-    ]) {
-      expect(validateExtensionTarget({ source })).toMatch(/not a supported extension source/);
-    }
-  });
-
-  test("rejects host-confusion sources (suffix / userinfo tricks)", () => {
-    for (const source of [
-      "git+https://github.com.evil.com/org/repo.git",
-      "git+https://github.com@evil.com/org/repo.git",
-      "git+https://evil.com@github.com/org/repo.git",
-      "git+https://github.comX/org/repo.git",
-    ]) {
-      expect(validateExtensionTarget({ source })).toMatch(/not a supported extension source/);
-    }
-  });
-
-  test("rejects '..' path traversal in the source fragment (subdirectory=)", () => {
-    expect(
-      validateExtensionTarget({
-        source: "git+https://github.com/org/repo#subdirectory=../../../../opt/code",
-      })
-    ).toMatch(/'\.\.'/);
-    expect(
-      validateExtensionTarget({
-        source: "git+https://github.com/org/repo#egg=x&subdirectory=../../etc",
-      })
-    ).toMatch(/'\.\.'/);
-  });
-
-  test("treats an empty name as absent so a source-only install is accepted", () => {
-    expect(
-      validateExtensionTarget({
-        name: "",
-        source: "git+https://github.com/org/repo.git",
-      })
-    ).toBeNull();
+    ).toMatch(/not a valid extension package name/);
   });
 
   test("validates in linear time (no catastrophic backtracking)", () => {
     const evil = "a".repeat(100000);
     const start = Date.now();
     validateExtensionTarget({ name: `${evil} ` }); // fails the regex
-    validateExtensionTarget({ source: `git+https://github.com/${evil}` });
     expect(Date.now() - start).toBeLessThan(1000);
   });
 });
