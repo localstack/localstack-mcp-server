@@ -37,6 +37,15 @@
     "@ai-sdk/provider-utils" "4.0.40"
     "@vercel/oidc" "3.2.0"
 
+"@ai-sdk/gateway@3.0.223":
+  version "3.0.223"
+  resolved "https://registry.yarnpkg.com/@ai-sdk/gateway/-/gateway-3.0.223.tgz#dbbb5fff8d5c41f2e5715627a89ad7b797fd8bb5"
+  integrity sha512-edH4CW5q3zFAw2+o9vkcafgT+Iomk/BJoA1IP9dmmm+z2vbAfCB01Vuml8zX2FF16cUJqwnRTt6DGjAFd6DGRg==
+  dependencies:
+    "@ai-sdk/provider" "3.0.19"
+    "@ai-sdk/provider-utils" "4.0.62"
+    "@vercel/oidc" "3.2.0"
+
 "@ai-sdk/google-vertex@^4.0.68":
   version "4.0.169"
   resolved "https://registry.yarnpkg.com/@ai-sdk/google-vertex/-/google-vertex-4.0.169.tgz#9f73aca62e0ac808e80d40c553f8bbf3b8ec649b"
@@ -90,10 +99,27 @@
     "@standard-schema/spec" "^1.1.0"
     eventsource-parser "^3.0.8"
 
+"@ai-sdk/provider-utils@4.0.62":
+  version "4.0.62"
+  resolved "https://registry.yarnpkg.com/@ai-sdk/provider-utils/-/provider-utils-4.0.62.tgz#2170a8341e7d3ef26ccb7c4fdc43613bde07ecb9"
+  integrity sha512-+FXkZ2e169zASBHP5HAakP0Iai3Eoa8zgh7bnuZExsek3N9HgGt/c7l1Oibdxb79vvsn5Mrg2Sjam80mR6bL8A==
+  dependencies:
+    "@ai-sdk/provider" "3.0.19"
+    "@standard-schema/spec" "^1.1.0"
+    eventsource-parser "^3.0.8"
+    undici "^6.28.0"
+
 "@ai-sdk/provider@3.0.14":
   version "3.0.14"
   resolved "https://registry.yarnpkg.com/@ai-sdk/provider/-/provider-3.0.14.tgz#5893a90e0b5355ec6a5c148f06bd7f08355c1a6f"
   integrity sha512-5X1k57JBJ4H7H1QjX7CnJYAB1I19r/trVZTMcSms7/kLNZ8RaU4Nt2agcwZzv82Hfx6Q7/TOLU7agAKeFfc8cA==
+  dependencies:
+    json-schema "^0.4.0"
+
+"@ai-sdk/provider@3.0.19":
+  version "3.0.19"
+  resolved "https://registry.yarnpkg.com/@ai-sdk/provider/-/provider-3.0.19.tgz#9adebbcb183f41d6f726f00efd528485b58d56d3"
+  integrity sha512-5lWq7zSfRaU5ylDESn3sDQjgGl2AI1vjZKO/6JY3aFW70ct4zcP1kN+ZUYOuTXr28fVsYbyu2YFhddLdIgQFZQ==
   dependencies:
     json-schema "^0.4.0"
 
@@ -1697,6 +1723,16 @@ agent-base@^7.1.2:
   version "7.1.4"
   resolved "https://registry.yarnpkg.com/agent-base/-/agent-base-7.1.4.tgz#e3cd76d4c548ee895d3c3fd8dc1f6c5b9032e7a8"
   integrity sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==
+
+ai@^6.0.0:
+  version "6.0.317"
+  resolved "https://registry.yarnpkg.com/ai/-/ai-6.0.317.tgz#7f67bd28c5871dd0395dbad0d8162334e67deb5d"
+  integrity sha512-tcaVx6LAyn3ren5cMmThHVbOxQCwfCXzjrLU4GJakJM9D4qAn+oJiLXwRFqluD44jIiFNg0ckfDM/fXsfG0yMQ==
+  dependencies:
+    "@ai-sdk/gateway" "3.0.223"
+    "@ai-sdk/provider" "3.0.19"
+    "@ai-sdk/provider-utils" "4.0.62"
+    "@opentelemetry/api" "^1.9.0"
 
 ai@^6.0.97:
   version "6.0.235"
@@ -4723,6 +4759,11 @@ undici-types@~8.3.0:
   version "8.3.0"
   resolved "https://registry.yarnpkg.com/undici-types/-/undici-types-8.3.0.tgz#44e9fc9f3244648cdea35e4f9bb2d681e9410809"
   integrity sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==
+
+undici@^6.28.0:
+  version "6.29.1"
+  resolved "https://registry.yarnpkg.com/undici/-/undici-6.29.1.tgz#a3317c5df0236e0633727d9a7bd4f7ed195d8575"
+  integrity sha512-EvRlUt/QqAEvXdQeRMYUfwOQsfzpDztykrG2owGEE/rBOBoYv9uF39ZzsNDh4lTFHhTr2XOZjKkYgueD12ZmGA==
 
 undici@^7.22.0:
   version "7.28.0"
