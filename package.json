@@ -15,7 +15,7 @@
     "format": "prettier --write .",
     "test": "jest",
     "test:mcp:direct": "yarn build && playwright test -c playwright.config.mjs tests/mcp/direct.spec.mjs tests/mcp/azure-offline.spec.mjs",
-    "test:mcp:evals": "yarn build && playwright test -c playwright.config.mjs tests/mcp/evals-gemini.spec.mjs",
+    "test:mcp:evals": "yarn build && playwright test -c playwright.config.mjs tests/mcp/evals.spec.mjs",
     "test:mcp": "yarn test:mcp:direct && yarn test:mcp:evals"
   },
   "dependencies": {
@@ -26,10 +26,12 @@
   "devDependencies": {
     "@clack/prompts": "^1.8.1",
     "@gleanwork/mcp-server-tester": "1.1.1",
+    "@openrouter/ai-sdk-provider": "^2.0.0",
     "@playwright/test": "^1.64.1",
     "@types/dockerode": "^4.0.2",
     "@types/jest": "^30.0.0",
     "@xmcp-dev/compiler": "^1.9.0",
+    "ai": "^6.0.0",
     "audit-ci": "^7.1.0",
     "esbuild": "^0.28.2",
     "eslint-config-prettier": "^10.1.8",
