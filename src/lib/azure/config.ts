@@ -9,6 +9,8 @@ export interface AzureConfig {
   port: number;
   /** The ARM endpoint `az` talks to: https://azure.localhost.localstack.cloud:<port>. */
   endpoint: string;
+  /** The ports the egress guard relays to: the gateway's, 443 and the external-service range. */
+  emulatorPorts: number[];
   /** The tool's own Azure CLI config dir; `az` never sees the user's ~/.azure. */
   configDir: string;
   /** The child's private home and temp dir, inside the config dir. */
@@ -33,8 +35,9 @@ export interface AzureConfigDeps {
 }
 
 /**
- * The hosts an absolute `rest` URL may name: LocalStack's public DNS names for 127.0.0.1
- * (localhost.localstack.cloud and its subdomains) and the loopback names and addresses.
+ * The hosts an absolute `rest` URL may name, and the egress guard relays to: LocalStack's
+ * public DNS names for 127.0.0.1 (localhost.localstack.cloud and its subdomains) and the
+ * loopback names and addresses.
  */
 export function isLocalHost(host: string): boolean {
   const h = host
@@ -83,6 +86,20 @@ export function getAzureConfig(
   };
 
   const port = wholeNumber("LOCALSTACK_PORT", "4566", 1, 65535);
+  // The external-service range as the start action publishes it (an invalid one is reported there).
+  const rangeSetting = (name: string) =>
+    Number(setting(name) ?? setting(`LOCALSTACK_${name}`) ?? NaN);
+  let first = rangeSetting("EXTERNAL_SERVICE_PORTS_START");
+  first = Number.isInteger(first) ? first : 4510;
+  let last = rangeSetting("EXTERNAL_SERVICE_PORTS_END");
+  last = Number.isInteger(last) ? last : first + 50;
+  if (first < 1 || last > 65535 || last < first || last - first >= 1000)
+    [first, last] = [4510, 4560];
+  const emulatorPorts = [
+    port,
+    443,
+    ...Array.from({ length: last - first + 1 }, (_, i) => first + i),
+  ];
 
   const userProfile = userPath(setting("AZURE_CONFIG_DIR") ?? P.join(home, ".azure"));
   const configSetting = setting("LOCALSTACK_AZ_CONFIG_DIR");
@@ -110,6 +127,7 @@ export function getAzureConfig(
     healthBaseUrl: `http://${setting("LOCALSTACK_HOSTNAME") ?? "localhost"}:${port}`,
     port,
     endpoint: `https://azure.localhost.localstack.cloud:${port}`,
+    emulatorPorts: [...new Set(emulatorPorts)],
     configDir,
     homeDir: P.join(configDir, "home"),
     tmpDir: P.join(configDir, "tmp"),

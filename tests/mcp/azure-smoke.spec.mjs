@@ -54,5 +54,18 @@ test("az commands through the Azure tool", async ({ mcp }) => {
     const answer = text(await mcp.callTool("localstack-azure-client", { command: "login" }));
     expect(answer).toMatch(/^❌ \*\*Command not allowed\*\*/);
   });
+  await test.step("an endpoint outside the emulator is refused", async () => {
+    // An http endpoint is refused on the plain-HTTP proxy path; an https one works too but az's
+    // SDK retries the tunnel's 403 for over a minute before it gives up.
+    const outside = `${account}.blob.core.windows.net`;
+    const key = Buffer.from("not-a-real-account-key").toString("base64");
+    const answer = text(
+      await mcp.callTool("localstack-azure-client", {
+        command: `storage blob upload --blob-endpoint http://${outside} --account-name ${account} --account-key ${key} --container-name data --name leak.txt --file data/sample-azure/hello.txt`,
+      })
+    );
+    expect(answer).toMatch(/^❌/);
+    expect(answer).toContain(`kept \`az\` from reaching \`${outside}\``);
+  });
   await test.step("delete the resource group", () => az(`group delete --name ${group} --yes`));
 });

@@ -64,6 +64,17 @@ describe("formatAzResult", () => {
     );
   });
 
+  test("a failure or timeout names the hosts the egress guard refused; a success does not", () => {
+    const refused = ["storage.evil.example", "localhost:2375"];
+    const note = "The tool kept `az` from reaching `storage.evil.example`, `localhost:2375`";
+    const failed = text(formatAzResult(result({ exitCode: 1, stderr: "ERROR: x", refused }), opts));
+    expect(failed).toContain(note);
+    expect(failed).toContain("`--blob-endpoint` or a connection string, must point there");
+    const timedOut = result({ exitCode: null, timedOut: true, refused });
+    expect(text(formatAzResult(timedOut, opts))).toContain(note);
+    expect(text(formatAzResult(result({ stdout: "{}", refused }), opts))).toBe("{}");
+  });
+
   test("timeout, cancel and a spawn failure", () => {
     expect(text(formatAzResult(result({ exitCode: null, timedOut: true }), opts))).toMatch(
       /^❌ \*\*Command Timed Out\*\*\n\n`az` did not finish within 300 s/
