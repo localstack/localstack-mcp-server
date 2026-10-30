@@ -705,7 +705,7 @@
     protobufjs "^7.5.5"
     yargs "^17.7.2"
 
-"@hono/node-server@^1.19.9", "@hono/node-server@^2.0.5":
+"@hono/node-server@^1.19.9 || ^2.0.5", "@hono/node-server@^2.0.5":
   version "2.0.11"
   resolved "https://registry.yarnpkg.com/@hono/node-server/-/node-server-2.0.11.tgz#0e947b19fe8602232cf6049feeda8f15dea47569"
   integrity sha512-bjD221KPLoJTWUwso1J6fGKiTXEUFedG/s0visavY4zakFPkeGURMRNly+FhBHs7T8Dz4qHaZIMX9ZoJHSJtKA==
@@ -1168,11 +1168,11 @@
     "@jsonjoy.com/codegen" "^1.0.0"
 
 "@modelcontextprotocol/sdk@^1.26.0", "@modelcontextprotocol/sdk@^1.27.1", "@modelcontextprotocol/sdk@^1.29.0":
-  version "1.29.0"
-  resolved "https://registry.yarnpkg.com/@modelcontextprotocol/sdk/-/sdk-1.29.0.tgz#79786d8b525e269de850ac82b1f1f757f3915f44"
-  integrity sha512-zo37mZA9hJWpULgkRpowewez1y6ML5GsXJPY8FI0tBBCd77HEvza4jDqRKOXgHNn867PVGCyTdzqpz0izu5ZjQ==
+  version "1.32.2"
+  resolved "https://registry.yarnpkg.com/@modelcontextprotocol/sdk/-/sdk-1.32.2.tgz#6ede940e436998cc20a70092f0af875735bc78f8"
+  integrity sha512-SWsVtH/0vULSQStoZ6xxH2K09Li8fXYTMC64ZeogCdpZ3XSi1eCPOByV1OpuJxuI3OcmHhosDWYyii07tpPsLw==
   dependencies:
-    "@hono/node-server" "^1.19.9"
+    "@hono/node-server" "^1.19.9 || ^2.0.5"
     ajv "^8.17.1"
     ajv-formats "^3.0.1"
     content-type "^1.0.5"
