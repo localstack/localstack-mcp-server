@@ -40,8 +40,6 @@ describe("buildDockerServerSpec", () => {
       "--add-host",
       "host.docker.internal:host-gateway",
       "--add-host",
-      "s3.host.docker.internal:host-gateway",
-      "--add-host",
       "snowflake.localhost.localstack.cloud:host-gateway",
       "-e",
       "LOCALSTACK_AUTH_TOKEN",

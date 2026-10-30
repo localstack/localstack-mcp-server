@@ -14,7 +14,6 @@
  *     docker run -i --rm \
  *       -v /var/run/docker.sock:/var/run/docker.sock \
  *       --add-host host.docker.internal:host-gateway \
- *       --add-host s3.host.docker.internal:host-gateway \
  *       --add-host snowflake.localhost.localstack.cloud:host-gateway \
  *       -e LOCALSTACK_AUTH_TOKEN -e LOCALSTACK_HOSTNAME=host.docker.internal \
  *       -v "$PWD/data:/work/data" \
@@ -843,7 +842,7 @@ async function main() {
         /(completed successfully|Apply complete|bucket_name|Terraform Outputs)/i.test(r.text);
       record(
         "deploy",
-        "localstack-deployer terraform deploy (tflocal -> LS)",
+        "localstack-deployer terraform deploy (lstk terraform -> LS)",
         ok,
         snip(r.text, 600)
       );
@@ -852,7 +851,7 @@ async function main() {
     }
   }
 
-  // 7b. deployer CDK — validates cdklocal endpoint injection and path-style S3 asset uploads.
+  // 7b. deployer CDK — validates lstk cdk endpoint injection and path-style S3 asset uploads.
   if (!SKIP.has("deploy-cdk")) {
     try {
       const r = await callTool(
@@ -866,10 +865,10 @@ async function main() {
         !ls.isError &&
         /CDK stack deployed successfully/i.test(r.text) &&
         ls.text.includes("mcp-cdk-sample-bucket") &&
-        !/Error during `cdklocal/i.test(r.text);
+        !/Error during `lstk cdk/i.test(r.text);
       record(
         "deploy-cdk",
-        "localstack-deployer CDK deploy (cdklocal -> LS)",
+        "localstack-deployer CDK deploy (lstk cdk -> LS)",
         ok,
         `deploy: ${snip(r.text, 500)} | s3 ls: ${snip(ls.text, 160)}`
       );
