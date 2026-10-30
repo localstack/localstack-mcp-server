@@ -26,6 +26,7 @@
  * Env knobs:
  *   HARNESS_DEPLOY_DIR   In-container path to the terraform sample (default /work/data/sample-terraform)
  *   HARNESS_CDK_DIR      In-container path to the CDK sample (default /work/data/sample-cdk)
+ *   HARNESS_AZURE_FILE   In-container path to the file the Azure scenario uploads (default /work/data/sample-azure/hello.txt)
  *   HARNESS_TOKEN_REAL   "1" if LOCALSTACK_AUTH_TOKEN is a real/valid token (affects Pro-tool expectations)
  *   HARNESS_SKIP         Comma-separated scenario keys to skip (e.g. "deploy,extensions")
  *   HARNESS_NO_CLEANUP   "1" to leave LocalStack running afterwards
@@ -47,6 +48,7 @@ const serverArgs = argv.slice(sep + 2);
 const DEPLOY_DIR = process.env.HARNESS_DEPLOY_DIR || "/work/data/sample-terraform";
 const CDK_DIR = process.env.HARNESS_CDK_DIR || "/work/data/sample-cdk";
 const SQL_FILE = process.env.HARNESS_SQL_FILE || "/work/data/sample-sql/snowflake_test.sql";
+const AZURE_FILE = process.env.HARNESS_AZURE_FILE || "/work/data/sample-azure/hello.txt";
 const TOKEN_REAL = process.env.HARNESS_TOKEN_REAL === "1";
 const SKIP = new Set(
   (process.env.HARNESS_SKIP || "")
@@ -974,6 +976,57 @@ async function main() {
       record("snowflake", "snowflake-client", false, String(e.message));
     } finally {
       if (!NO_CLEANUP) {
+        try {
+          await callTool("localstack-management", { action: "stop" }, 60000);
+        } catch {}
+      }
+    }
+  }
+
+  // 11. Azure stack — the bundled az CLI. The blob upload goes to a per-account
+  // *.localhost.localstack.cloud host, so it also validates the loopback forwarder.
+  if (!SKIP.has("azure")) {
+    const id = RUN_ID.replace(/[^a-z0-9]/g, "").slice(-12);
+    const group = `mcp-harness-${id}`;
+    const account = `mcpharness${id}`;
+    const storage = `--account-name ${account} --auth-mode key`;
+    const az = (command) => callTool("localstack-azure-client", { command }, 300000);
+    try {
+      const start = await callTool(
+        "localstack-management",
+        { action: "start", service: "azure" },
+        300000
+      );
+      const answers = [`start: ${start.text}`];
+      let ok = !start.isError;
+      let blobs = "";
+      for (const command of [
+        `group create --name ${group} --location westeurope`,
+        `storage account create --name ${account} --resource-group ${group} --location westeurope --sku Standard_LRS`,
+        `storage container create --name data ${storage}`,
+        `storage blob upload --container-name data --name hello.txt --file ${AZURE_FILE} ${storage}`,
+        `storage blob list --container-name data ${storage} --query "[].name"`,
+      ]) {
+        if (!ok) break;
+        const r = await az(command);
+        answers.push(`${command.split(" --")[0]}: ${r.text}`);
+        ok = !r.isError;
+        blobs = r.text;
+      }
+      ok = ok && /hello\.txt/.test(blobs);
+      recordToolResult(
+        "azure",
+        "localstack-azure-client group/storage account/blob upload",
+        { text: answers.join("\n"), isError: !ok },
+        () => ok
+      );
+    } catch (e) {
+      record("azure", "azure-client", false, String(e.message));
+    } finally {
+      if (!NO_CLEANUP) {
+        try {
+          await az(`group delete --name ${group} --yes`);
+        } catch {}
         try {
           await callTool("localstack-management", { action: "stop" }, 60000);
         } catch {}

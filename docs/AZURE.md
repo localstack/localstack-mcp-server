@@ -8,4 +8,4 @@
 - Relative file paths in commands resolve against `LOCALSTACK_AZ_WORKDIR`, by default the directory the MCP client starts the server in.
 - `rest` calls the emulator: give it a relative URL. An absolute URL must name a local host; a `management.azure.com` URL is turned into a relative one.
 - Only `rest` URLs are checked: an endpoint given in a command, such as `--blob-endpoint` or a connection string, is used as it is.
-- The Docker image does not include the Azure CLI yet: run the server with npx or from source to use the Azure tool.
+- The Docker image includes the Azure CLI. Mount the files your commands use and set `LOCALSTACK_AZ_WORKDIR` to the mount (see [DOCKER.md](./DOCKER.md#azure-cli)). The image has no Azure CLI extensions or `bicep`, and its Azure CLI profile lasts only as long as the container.

@@ -23,8 +23,13 @@ RUN set -eux; \
     chmod a+r /usr/share/keyrings/hashicorp-archive-keyring.gpg; \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com bookworm main" \
       > /etc/apt/sources.list.d/hashicorp.list; \
+    curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
+      | gpg --dearmor -o /usr/share/keyrings/microsoft.gpg; \
+    chmod a+r /usr/share/keyrings/microsoft.gpg; \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ bookworm main" \
+      > /etc/apt/sources.list.d/azure-cli.list; \
     apt-get update; \
-    apt-get install -y --no-install-recommends terraform; \
+    apt-get install -y --no-install-recommends terraform azure-cli; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
@@ -57,6 +62,7 @@ RUN set -eux; \
     terraform version; \
     sam --version; \
     cdk --version; \
+    az version; \
     snow --version; \
     node dist/cli.js version; \
     node -e "require('dockerode'); console.log('dockerode ok')"

@@ -7,6 +7,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 import { exitWhenClientDisconnects } from "./lifecycle";
+import { forwardLoopbackGateway } from "./loopback-forward";
 
 function getVersion(): string {
   try {
@@ -58,6 +59,7 @@ async function main(): Promise<void> {
         );
       }
       exitWhenClientDisconnects();
+      forwardLoopbackGateway();
       require("./stdio.js");
   }
 }
