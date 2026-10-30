@@ -15,7 +15,7 @@ import {
   isInteractive,
 } from "./ui";
 
-function preWriteAnswer<T>(value: T | symbol): T {
+function preWriteAnswer<T>(value: T | typeof p.CANCEL_SYMBOL): T {
   return ensureAnswer(value, "Cancelled — nothing was removed.");
 }
 
