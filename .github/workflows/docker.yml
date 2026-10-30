@@ -46,7 +46,7 @@ jobs:
 
       - name: Smoke test MCP startup
         env:
-          HARNESS_SKIP: prompt,docs,status,start,aws,logs,state,cloudpods,appinspector,chaos,iam,replicator,ephemeral,deploy,deploy-cdk,extensions,restart,stop,snowflake
+          HARNESS_SKIP: prompt,docs,status,start,aws,logs,state,cloudpods,appinspector,chaos,iam,replicator,ephemeral,deploy,deploy-cdk,extensions,restart,stop,snowflake,azure
         run: |
           node tests/docker/validate-image.mjs -- \
             docker run -i --rm \

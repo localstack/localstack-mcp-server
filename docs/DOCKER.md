@@ -1,7 +1,7 @@
 # Running the LocalStack MCP Server in Docker
 
 The published image bundles everything the server shells out to — `lstk` with
-Terraform, AWS CDK, and AWS SAM, and the Snowflake `snow`
+Terraform, AWS CDK, and AWS SAM, the Azure CLI, and the Snowflake `snow`
 CLI — so the **only dependency on your machine is Docker itself**. LocalStack
 lifecycle, logs, and `awslocal` run through the Docker Engine API and LocalStack's
 REST APIs.
@@ -29,7 +29,9 @@ Because LocalStack is a sibling container, one thing must be configured at run t
 
 - **Reachability** — set `LOCALSTACK_HOSTNAME=host.docker.internal` so the server
   and the IaC CLIs target the sibling's published port instead of the container's
-  own `localhost`.
+  own `localhost`. The server also forwards the container's `127.0.0.1:4566`
+  (`LOCALSTACK_PORT`) to that host, because `*.localhost.localstack.cloud` names,
+  such as the Azure emulator's per-account storage hosts, resolve to `127.0.0.1`.
 
 LocalStack state lives in a **named Docker volume** (`localstack-mcp`) by default,
 so no host directory needs to be mounted or path-mirrored. To keep state in a host
@@ -113,6 +115,21 @@ receives the LocalStack endpoint automatically when
 publishing to path-style S3, so no extra S3 host alias is needed. Existing configs
 that still pass `--add-host s3.host.docker.internal:host-gateway` keep working.
 
+## Azure CLI
+
+The `localstack-azure-client` tool runs the bundled Azure CLI. As with IaC
+projects, mount the files your commands use (templates, uploads) and point
+`LOCALSTACK_AZ_WORKDIR` at the mount so relative paths resolve there:
+
+```
+-v "/Users/you/projects/my-app:/Users/you/projects/my-app"
+-e LOCALSTACK_AZ_WORKDIR=/Users/you/projects/my-app
+```
+
+The tool's Azure CLI profile lives inside the container, so it is set up again
+each time the container starts. The image has no Azure CLI extensions and no
+`bicep`.
+
 ## Known limitations
 
 - **Extra host aliases.** Include the aliases shown in the quick-start command.
@@ -122,10 +139,6 @@ that still pass `--add-host s3.host.docker.internal:host-gateway` keep working.
   on the host even if your editor restarts the MCP container — reconnecting finds
   your stack still up. State persists in the `localstack-mcp` named volume (or
   `LOCALSTACK_VOLUME_DIR` if you set one).
-- **No Azure CLI.** The image lists all 15 tools, but it does not include the Azure
-  CLI, so `localstack-azure-client` answers that `az` is not available. To use the
-  Azure tool, run the server with npx or from source. `localstack-management` can
-  still start and stop the Azure emulator (`service: azure`) from the image.
 
 ## Troubleshooting
 
