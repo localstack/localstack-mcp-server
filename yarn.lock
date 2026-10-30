@@ -1262,7 +1262,7 @@
     "@jsonjoy.com/buffers" "^1.0.0"
     "@jsonjoy.com/codegen" "^1.0.0"
 
-"@modelcontextprotocol/sdk@^1.26.0", "@modelcontextprotocol/sdk@^1.27.1", "@modelcontextprotocol/sdk@^1.29.0":
+"@modelcontextprotocol/sdk@^1.27.1", "@modelcontextprotocol/sdk@^1.29.0":
   version "1.32.2"
   resolved "https://registry.yarnpkg.com/@modelcontextprotocol/sdk/-/sdk-1.32.2.tgz#6ede940e436998cc20a70092f0af875735bc78f8"
   integrity sha512-SWsVtH/0vULSQStoZ6xxH2K09Li8fXYTMC64ZeogCdpZ3XSi1eCPOByV1OpuJxuI3OcmHhosDWYyii07tpPsLw==
@@ -1904,6 +1904,16 @@
   version "3.2.0"
   resolved "https://registry.yarnpkg.com/@vercel/oidc/-/oidc-3.2.0.tgz#5782a4d4904443f015808705b5537cf9c3b68528"
   integrity sha512-UycprH3T6n3jH0k44NHMa7pnFHGu/N05MjojYr+Mc6I7obkoLIJujSWwin1pCvdy/eOxrI/l3uDLQsmcrOb4ug==
+
+"@xmcp-dev/compiler@^1.9.0":
+  version "1.9.0"
+  resolved "https://registry.yarnpkg.com/@xmcp-dev/compiler/-/compiler-1.9.0.tgz#16deb41969f2042dbfc5c4746917c0029423bdd6"
+  integrity sha512-N84k0ojc7+QlmjKLyidEV9an2B7U1sYeAuF0tiPxLj5TYKHwH8XhLQXlZiovhwQ7iX44mOlSKMrnYz0/bFllcw==
+  dependencies:
+    "@rspack/core" "^1.6.7"
+    postcss-loader "^8.2.0"
+    ts-checker-rspack-plugin "^1.2.1"
+    typescript "^5.9.3"
 
 abort-controller@^3.0.0:
   version "3.0.0"
@@ -5452,17 +5462,10 @@ wsl-utils@^0.1.0:
   dependencies:
     is-wsl "^3.1.0"
 
-xmcp@^0.6.13:
-  version "0.6.13"
-  resolved "https://registry.yarnpkg.com/xmcp/-/xmcp-0.6.13.tgz#c4f2b3111b2c9dd8d4bd60e1ae429bdd6e1d6b0d"
-  integrity sha512-RGjaBr05bSaG/NF0OUHIUfX4fhZf4oKLF3PtN3fgHZAzpmVYUMyunPPLB+sE15p3fVG8q77nJCLmVyt+6XicbQ==
-  dependencies:
-    "@modelcontextprotocol/sdk" "^1.26.0"
-    "@rspack/core" "^1.6.7"
-    jose "^6.1.3"
-    postcss-loader "^8.2.0"
-    ts-checker-rspack-plugin "^1.2.1"
-    typescript "^5.9.3"
+xmcp@^1.9.0:
+  version "1.9.0"
+  resolved "https://registry.yarnpkg.com/xmcp/-/xmcp-1.9.0.tgz#b5cb5ea5988d4f3cfe891fe67451f46f2a37f141"
+  integrity sha512-tu6W+p6DLwXPfCaPJH/nezcaKlVQX6feROX3cjO6IdbRcFht3c5X5fgREdIkSdvwdpzfZQoNGyDBKc8hNosDng==
 
 xml-naming@^0.3.0:
   version "0.3.0"
@@ -5516,7 +5519,6 @@ zod@4.3.6:
   version "4.3.6"
   resolved "https://registry.yarnpkg.com/zod/-/zod-4.3.6.tgz#89c56e0aa7d2b05107d894412227087885ab112a"
   integrity sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==
-
 
 "zod@^3.25 || ^4.0", zod@^4.3.6:
   version "4.4.3"
