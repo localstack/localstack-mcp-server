@@ -10,3 +10,10 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # xmcp's runtime inlines its own zod (4.4.x in xmcp 0.6.13) to turn tool
+      # schemas into JSON Schema; newer zod schemas break that converter and
+      # tools/list fails. Lift this when xmcp ships a matching zod.
+      - dependency-name: zod
+        update-types:
+          - version-update:semver-minor
