@@ -31,34 +31,16 @@ RUN set -eux; \
 RUN python3 -m venv /opt/venv \
  && pip install --no-cache-dir --upgrade pip \
  && pip install --no-cache-dir --no-compile \
-      terraform-local \
       aws-sam-cli \
-      aws-sam-cli-local \
       snowflake-cli \
  && find /opt/venv/lib \
       \( -type d \( -name __pycache__ -o -name tests -o -name test \) -o -type f \( -name '*.pyc' -o -name '*.pyo' \) \) \
       -prune -exec rm -rf '{}' +
 
-RUN npm install -g aws-cdk@2.1133.0 aws-cdk-local \
+# lstk wraps terraform, cdk, and sam for the deployer tool. aws-cdk >= 2.1138 honors the
+# CDK_S3_FORCE_PATH_STYLE that lstk sets, so S3 assets reach host.docker.internal path-style.
+RUN npm install -g aws-cdk@2.1145.0 @localstack/lstk@1.4.2 \
  && npm cache clean --force
-
-RUN node <<'NODE'
-const fs = require("fs");
-const path = require("path");
-const { execSync } = require("child_process");
-const globalRoot = execSync("npm root -g").toString().trim();
-const file = path.join(globalRoot, "aws-cdk/lib/index.js");
-const source = fs.readFileSync(file, "utf8");
-const target = `      s3() {\n        const client = new import_client_s33.S3Client(this.config);`;
-const replacement = `      s3() {\n        if (/^(1|true|yes)$/i.test(process.env.AWS_S3_FORCE_PATH_STYLE || "")) {\n          this.config.forcePathStyle = true;\n        }\n        const client = new import_client_s33.S3Client(this.config);`;
-
-if (!source.includes(replacement)) {
-  if (!source.includes(target)) {
-    throw new Error("Could not patch aws-cdk S3 forcePathStyle hook");
-  }
-  fs.writeFileSync(file, source.replace(target, replacement));
-}
-NODE
 
 WORKDIR /app
 RUN mkdir -p /tmp/dockerode-deps \
@@ -71,11 +53,10 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./package.json
 
 RUN set -eux; \
+    lstk --version; \
     terraform version; \
-    tflocal --version; \
     sam --version; \
-    command -v samlocal; \
-    cdklocal --version; \
+    cdk --version; \
     snow --version; \
     node dist/cli.js version; \
     node -e "require('dockerode'); console.log('dockerode ok')"

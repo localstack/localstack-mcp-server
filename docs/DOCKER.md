@@ -1,7 +1,7 @@
 # Running the LocalStack MCP Server in Docker
 
-The published image bundles everything the server shells out to — Terraform +
-`tflocal`, AWS CDK + `cdklocal`, AWS SAM + `samlocal`, and the Snowflake `snow`
+The published image bundles everything the server shells out to — `lstk` with
+Terraform, AWS CDK, and AWS SAM, and the Snowflake `snow`
 CLI — so the **only dependency on your machine is Docker itself**. LocalStack
 lifecycle, logs, and `awslocal` run through the Docker Engine API and LocalStack's
 REST APIs.
@@ -47,21 +47,19 @@ interpreted by the **host** daemon).
 docker run -i --rm \
   -v /var/run/docker.sock:/var/run/docker.sock \
   --add-host host.docker.internal:host-gateway \
-  --add-host s3.host.docker.internal:host-gateway \
   --add-host snowflake.localhost.localstack.cloud:host-gateway \
   -e LOCALSTACK_AUTH_TOKEN="<YOUR_TOKEN>" \
   -e LOCALSTACK_HOSTNAME=host.docker.internal \
   localstack/localstack-mcp-server:latest
 ```
 
-| Flag                                                           | Why it's needed                                                                                                               |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `-v /var/run/docker.sock:/var/run/docker.sock`                 | Lets the server create/stop/restart the sibling LocalStack container, read its logs, and run `awslocal` inside it.            |
-| `--add-host host.docker.internal:host-gateway`                 | Resolves `host.docker.internal` on Linux. Harmless on Docker Desktop (Mac/Windows), where it already resolves.                |
-| `--add-host s3.host.docker.internal:host-gateway`              | Lets CDK's virtual-hosted S3 endpoint resolve when `cdklocal` uses `AWS_ENDPOINT_URL_S3=http://s3.host.docker.internal:4566`. |
-| `--add-host snowflake.localhost.localstack.cloud:host-gateway` | Lets the Snowflake CLI reach the sibling Snowflake emulator through the hostname the emulator expects for routing.            |
-| `-e LOCALSTACK_AUTH_TOKEN`                                     | Required by **every** tool in this server.                                                                                    |
-| `-e LOCALSTACK_HOSTNAME=host.docker.internal`                  | Tells the server + IaC CLIs where the sibling LocalStack lives.                                                               |
+| Flag                                                           | Why it's needed                                                                                                    |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `-v /var/run/docker.sock:/var/run/docker.sock`                 | Lets the server create/stop/restart the sibling LocalStack container, read its logs, and run `awslocal` inside it. |
+| `--add-host host.docker.internal:host-gateway`                 | Resolves `host.docker.internal` on Linux. Harmless on Docker Desktop (Mac/Windows), where it already resolves.     |
+| `--add-host snowflake.localhost.localstack.cloud:host-gateway` | Lets the Snowflake CLI reach the sibling Snowflake emulator through the hostname the emulator expects for routing. |
+| `-e LOCALSTACK_AUTH_TOKEN`                                     | Required by **every** tool in this server.                                                                         |
+| `-e LOCALSTACK_HOSTNAME=host.docker.internal`                  | Tells the server + IaC CLIs where the sibling LocalStack lives.                                                    |
 
 ## MCP client configuration
 
@@ -81,8 +79,6 @@ expand `$HOME`/`$PWD` — use absolute paths.
         "/var/run/docker.sock:/var/run/docker.sock",
         "--add-host",
         "host.docker.internal:host-gateway",
-        "--add-host",
-        "s3.host.docker.internal:host-gateway",
         "--add-host",
         "snowflake.localhost.localstack.cloud:host-gateway",
         "-e",
@@ -111,10 +107,11 @@ The simplest convention is to mount it at the same absolute path:
 
 Then tell the tool `directory: /Users/you/projects/my-infra`.
 
-Terraform, SAM, and CDK receive the LocalStack endpoint automatically when
-`LOCALSTACK_HOSTNAME=host.docker.internal` is set. CDK asset publishing is forced
-to path-style S3 inside the Docker image, so the single `s3.host.docker.internal`
-alias covers bootstrap asset uploads.
+The deployer runs Terraform, SAM, and CDK through `lstk terraform|sam|cdk`, which
+receives the LocalStack endpoint automatically when
+`LOCALSTACK_HOSTNAME=host.docker.internal` is set. `lstk` forces CDK asset
+publishing to path-style S3, so no extra S3 host alias is needed. Existing configs
+that still pass `--add-host s3.host.docker.internal:host-gateway` keep working.
 
 ## Known limitations
 
@@ -153,7 +150,6 @@ node tests/docker/validate-image.mjs -- \
   docker run -i --rm \
     -v /var/run/docker.sock:/var/run/docker.sock \
     --add-host host.docker.internal:host-gateway \
-    --add-host s3.host.docker.internal:host-gateway \
     --add-host snowflake.localhost.localstack.cloud:host-gateway \
     -e LOCALSTACK_AUTH_TOKEN \
     -e LOCALSTACK_HOSTNAME=host.docker.internal \

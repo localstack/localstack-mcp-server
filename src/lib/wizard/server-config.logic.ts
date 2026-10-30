@@ -36,8 +36,6 @@ export function buildDockerServerSpec(
     "--add-host",
     "host.docker.internal:host-gateway",
     "--add-host",
-    "s3.host.docker.internal:host-gateway",
-    "--add-host",
     "snowflake.localhost.localstack.cloud:host-gateway",
     "-e",
     AUTH_TOKEN_ENV,
