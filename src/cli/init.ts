@@ -39,7 +39,7 @@ function expandPath(input: string, homeDir: string): string {
   return path.resolve(expanded);
 }
 
-function preWriteAnswer<T>(value: T | symbol): T {
+function preWriteAnswer<T>(value: T | typeof p.CANCEL_SYMBOL): T {
   return ensureAnswer(value, "Cancelled — nothing was written.");
 }
 
