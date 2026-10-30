@@ -1,0 +1,62 @@
+name: MCP evals
+
+# The LLM-driven eval dataset through OpenRouter, weekly and on demand.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "OpenRouter model ID for every case (empty keeps the dataset's model)"
+        required: false
+        default: ""
+  schedule:
+    - cron: "0 7 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  mcp-evals:
+    runs-on: ubuntu-latest
+    # The spec itself times out after 90 minutes.
+    timeout-minutes: 100
+    env:
+      LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      EVAL_MODEL: ${{ inputs.model }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: Install dependencies
+        run: yarn
+
+      # The deployer case runs tflocal; the wrapper would garble its output.
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Install tflocal and the Snowflake CLI
+        run: pipx install terraform-local && pipx install snowflake-cli
+
+      # Pulled up front so a start inside a case doesn't time out on the download.
+      - name: Pull the LocalStack images
+        run: |
+          docker pull localstack/localstack-pro:latest
+          docker pull localstack/snowflake:latest
+
+      - name: Run the eval dataset
+        run: yarn test:mcp:evals
+
+      - name: Keep the eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-evals-results
+          path: .mcp-test-results
+          if-no-files-found: ignore

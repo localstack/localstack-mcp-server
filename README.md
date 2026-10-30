@@ -264,12 +264,13 @@ This repository includes [MCP Server Tester](https://github.com/gleanwork/mcp-se
   ```bash
   yarn test:mcp:direct
   ```
-- Run Gemini-based MCP host evals:
+- Run MCP host evals through [OpenRouter](https://openrouter.ai) (default model `google/gemini-2.5-flash`; set `EVAL_MODEL` to any OpenRouter model ID to override it):
   ```bash
-  export GOOGLE_GENERATIVE_AI_API_KEY="<your-gemini-key>"
+  export OPENROUTER_API_KEY="<your-openrouter-key>"
   export LOCALSTACK_AUTH_TOKEN="<your-localstack-auth-token>"
   yarn test:mcp:evals
   ```
+  The [MCP evals workflow](./.github/workflows/mcp-evals.yml) runs them weekly and on demand; it needs the `OPENROUTER_API_KEY` repository secret.
 - Open the latest MCP Server Tester HTML report:
   ```bash
   npx mcp-server-tester open
