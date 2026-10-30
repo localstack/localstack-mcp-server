@@ -110,7 +110,14 @@ export default async function localstackDeployer({
       saveParams,
     },
     async () => {
-      const preflightError = await runPreflights([requireAuthToken(), requireLocalStackRunning()]);
+      const deploymentEndpoint =
+        action === "deploy" || action === "destroy"
+          ? process.env.AWS_ENDPOINT_URL?.trim().replace(/\/+$/, "") || undefined
+          : undefined;
+      const preflightError = await runPreflights([
+        requireAuthToken(),
+        requireLocalStackRunning(deploymentEndpoint),
+      ]);
       if (preflightError) return preflightError;
 
       if (action === "create-stack") {
