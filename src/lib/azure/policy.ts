@@ -205,10 +205,16 @@ export function evaluateAzCommand(
         continue;
       }
       const host = URL.canParse(url) ? new URL(url).hostname : undefined;
-      if (hasScheme(url) && !(host && isLocalHost(host))) {
+      // The egress guard tunnels https to the emulator only, and refuses plain http.
+      if (hasScheme(url) && !(host && isLocalHost(host) && /^https:/i.test(url))) {
+        const why = !host
+          ? `"${url}" is not a valid URL.`
+          : isLocalHost(host)
+            ? "The emulator is reached over https."
+            : `"${host}" is not the emulator.`;
         return refuse(
           "URL not allowed",
-          `\`rest\` calls the emulator only: give a relative URL such as \`/subscriptions?api-version=2022-12-01\`, or one on a local host. ${host ? `"${host}" is not a local host.` : `"${url}" is not a valid URL.`}`
+          `\`rest\` reaches only the emulator: give a relative URL such as \`/subscriptions?api-version=2022-12-01\`, or an https URL on the emulator. ${why}`
         );
       }
     }

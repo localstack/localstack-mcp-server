@@ -1,5 +1,6 @@
 import net from "net";
 import { ensureProfile as ensureBootstrapped } from "./bootstrap";
+import { startEgressGuard } from "./egress-guard";
 import { AzResolveError } from "./resolve-az";
 import { runAz, type AzRunOptions, type AzRunResult } from "./runner";
 import {
@@ -17,6 +18,11 @@ jest.mock("./resolve-az", () => ({
   locateAz: jest.fn(() => ({ file: "/usr/bin/az", prefixArgs: [] })),
 }));
 jest.mock("./runner", () => ({ runAz: jest.fn() }));
+// The real guard, watched.
+jest.mock("./egress-guard", () => {
+  const actual = jest.requireActual("./egress-guard");
+  return { startEgressGuard: jest.fn(actual.startEgressGuard) };
+});
 // No private dirs under the real home.
 jest.mock("./child-env", () => ({
   ensurePrivateDirs: jest.fn(),
@@ -136,4 +142,37 @@ test("each az run gets an egress guard of its own, closed after it; its refusals
       .once("error", () => resolve(true))
   );
   expect(closed).toBe(true);
+});
+
+test("the guard gets the emulator's ports: a tunnel to its ARM name on LOCALSTACK_PORT opens", async () => {
+  // An echo server stands in for the emulator's gateway on LOCALSTACK_PORT.
+  const gateway = net.createServer((socket) => socket.pipe(socket));
+  await new Promise<void>((resolve) => gateway.listen(0, "127.0.0.1", resolve));
+  const port = (gateway.address() as net.AddressInfo).port;
+  const saved = process.env.LOCALSTACK_PORT;
+  process.env.LOCALSTACK_PORT = String(port);
+  try {
+    resetAzureServices();
+    jest.mocked(startEgressGuard).mockClear();
+    jest.mocked(runAz).mockResolvedValueOnce(version("2.91.0"));
+    let status = "";
+    jest.mocked(runAz).mockImplementationOnce(async (_az, env) => {
+      status = await new Promise<string>((resolve) => {
+        const socket = net.connect(Number(new URL(env.HTTPS_PROXY).port), "127.0.0.1", () =>
+          socket.write(`CONNECT azure.localhost.localstack.cloud:${port} HTTP/1.1\r\n\r\n`)
+        );
+        socket.once("data", (d) => (socket.destroy(), resolve(String(d).split("\r\n")[0])));
+      });
+      return result({});
+    });
+    await runAzCommand(["group", "list"], {});
+    expect(status).toBe("HTTP/1.1 200 Connection Established");
+    expect(startEgressGuard).toHaveBeenLastCalledWith({ ports: azureConfig().emulatorPorts });
+    expect(azureConfig().emulatorPorts).toEqual(expect.arrayContaining([port, 443, 4510, 4560]));
+  } finally {
+    if (saved === undefined) delete process.env.LOCALSTACK_PORT;
+    else process.env.LOCALSTACK_PORT = saved;
+    resetAzureServices();
+    gateway.close();
+  }
 });

@@ -1,3 +1,4 @@
+import { createServer } from "node:net";
 import { expect, test } from "@gleanwork/mcp-server-tester/fixtures/mcp";
 
 // The Azure tool against a live LocalStack Azure emulator (.github/workflows/azure-smoke.yml):
@@ -55,17 +56,29 @@ test("az commands through the Azure tool", async ({ mcp }) => {
     expect(answer).toMatch(/^❌ \*\*Command not allowed\*\*/);
   });
   await test.step("an endpoint outside the emulator is refused", async () => {
-    // An http endpoint is refused on the plain-HTTP proxy path; an https one works too but az's
-    // SDK retries the tunnel's 403 for over a minute before it gives up.
-    const outside = `${account}.blob.core.windows.net`;
+    // A listener stands in for a server outside the emulator: on this machine, on no emulator
+    // port, so nothing goes towards real Azure if the guard ever regresses. http keeps it quick:
+    // an https refusal is final too, but az's SDK retries the tunnel for over a minute.
+    let connections = 0;
+    const listener = createServer((socket) => {
+      connections += 1;
+      socket.destroy();
+    });
+    await new Promise((resolve) => listener.listen(0, "127.0.0.1", resolve));
+    const outside = `127.0.0.1:${listener.address().port}`;
     const key = Buffer.from("not-a-real-account-key").toString("base64");
-    const answer = text(
-      await mcp.callTool("localstack-azure-client", {
-        command: `storage blob upload --blob-endpoint http://${outside} --account-name ${account} --account-key ${key} --container-name data --name leak.txt --file data/sample-azure/hello.txt`,
-      })
-    );
-    expect(answer).toMatch(/^❌/);
-    expect(answer).toContain(`kept \`az\` from reaching \`${outside}\``);
+    try {
+      const answer = text(
+        await mcp.callTool("localstack-azure-client", {
+          command: `storage blob upload --blob-endpoint http://${outside} --account-name ${account} --account-key ${key} --container-name data --name leak.txt --file data/sample-azure/hello.txt`,
+        })
+      );
+      expect(answer).toMatch(/^❌/);
+      expect(answer).toContain(`could not reach \`http://${outside}\``);
+      expect(connections).toBe(0);
+    } finally {
+      listener.close();
+    }
   });
   await test.step("delete the resource group", () => az(`group delete --name ${group} --yes`));
 });

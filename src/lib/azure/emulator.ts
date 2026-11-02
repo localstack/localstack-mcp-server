@@ -4,8 +4,10 @@ import type { AzureConfig } from "./config";
 /**
  * Is the LocalStack Azure emulator usable? Its health and info are read over plain HTTP from the
  * gateway every tool uses. The ARM endpoint's HTTPS listener comes up seconds after it, and is
- * checked on that same gateway with the endpoint's name as SNI. No DNS is involved: `az` reaches
- * the emulator through the egress guard, which maps its names to 127.0.0.1 itself.
+ * checked on that same gateway with the endpoint's name as SNI. `az` needs no DNS for it: it
+ * reaches the emulator through the egress guard, which maps its names to 127.0.0.1 itself.
+ * Programs that use the URLs `az` prints (the user's app, kubectl, Docker) still resolve them;
+ * docs/AZURE.md covers routers that block those answers.
  */
 
 export type EmulatorProblem = "not-running" | "wrong-edition" | "license" | "https-not-ready";

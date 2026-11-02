@@ -45,10 +45,27 @@ describe("getAzureConfig", () => {
     expect(
       ports({ LOCALSTACK_EXTERNAL_SERVICE_PORTS_START: "6000", EXTERNAL_SERVICE_PORTS_END: "6001" })
     ).toEqual([4566, 443, 6000, 6001]);
-    // An invalid range falls back to the default one (the start action reports it).
-    expect(
-      ports({ EXTERNAL_SERVICE_PORTS_START: "9", EXTERNAL_SERVICE_PORTS_END: "5" })
-    ).toHaveLength(53);
+  });
+
+  test("443 only when GATEWAY_LISTEN is unset, as the start action publishes it", () => {
+    expect(config({ GATEWAY_LISTEN: ":4566,:5566" }).emulatorPorts).toEqual([
+      4566,
+      5566,
+      ...Array.from({ length: 51 }, (_, i) => 4510 + i),
+    ]);
+  });
+
+  test.each([
+    [{ EXTERNAL_SERVICE_PORTS_START: "6000", EXTERNAL_SERVICE_PORTS_END: "abc" }],
+    [{ EXTERNAL_SERVICE_PORTS_START: "0" }],
+    [{ EXTERNAL_SERVICE_PORTS_START: "4510.5" }],
+    [{ EXTERNAL_SERVICE_PORTS_START: "6000", EXTERNAL_SERVICE_PORTS_END: "5000" }],
+    [{ GATEWAY_LISTEN: ":not-a-port" }],
+  ])("an invalid port setting is a configuration error, as for the start action: %j", (env) => {
+    const c = config(env);
+    expect(c.errors).toHaveLength(1);
+    expect(c.errors[0]).toMatch(/EXTERNAL_SERVICE_PORTS|GATEWAY_LISTEN|port/i);
+    expect(c.emulatorPorts).toEqual([]);
   });
 
   test("the extension dir is the user's own: AZURE_EXTENSION_DIR, else their config dir's", () => {

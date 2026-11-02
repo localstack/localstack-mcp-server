@@ -10,7 +10,12 @@ const result = (over: Partial<AzRunResult>): AzRunResult => ({
   truncated: false,
   ...over,
 });
-const opts = { notes: [], timeoutSeconds: 300, healthBaseUrl: "http://localhost:4566" };
+const opts = {
+  argv: ["group", "list"],
+  notes: [],
+  timeoutSeconds: 300,
+  healthBaseUrl: "http://localhost:4566",
+};
 const text = (r: { content: Array<{ text: string }> }) => r.content[0].text;
 
 describe("formatAzResult", () => {
@@ -62,17 +67,61 @@ describe("formatAzResult", () => {
     expect(hint('ERROR: Could not find the "bicep" executable on PATH.')).toContain(
       "The tool runs Bicep from PATH."
     );
+    expect(
+      hint("ERROR: main.bicep(1,8) : Error BCP192: Unable to restore the artifact with reference")
+    ).toContain("Use a local module path instead.");
   });
 
-  test("a failure or timeout names the hosts the egress guard refused; a success does not", () => {
-    const refused = ["storage.evil.example", "localhost:2375"];
-    const note = "The tool kept `az` from reaching `storage.evil.example`, `localhost:2375`";
-    const failed = text(formatAzResult(result({ exitCode: 1, stderr: "ERROR: x", refused }), opts));
-    expect(failed).toContain(note);
-    expect(failed).toContain("`--blob-endpoint` or a connection string, must point there");
-    const timedOut = result({ exitCode: null, timedOut: true, refused });
-    expect(text(formatAzResult(timedOut, opts))).toContain(note);
-    expect(text(formatAzResult(result({ stdout: "{}", refused }), opts))).toBe("{}");
+  test("a refused host the command names gets the endpoint advice; az's own refusals do not", () => {
+    const argv = [
+      "storage",
+      "blob",
+      "upload",
+      "--blob-endpoint",
+      "https://acct.blob.core.windows.net",
+    ];
+    const refused = ["acct.blob.core.windows.net", "aka.ms"];
+    const failed = text(
+      formatAzResult(result({ exitCode: 1, stderr: "ERROR: x", refused }), { ...opts, argv })
+    );
+    expect(failed).toContain("`az` could not reach `acct.blob.core.windows.net`");
+    expect(failed).toContain("`127.0.0.1` and `::1`), over https and on the emulator's ports");
+    expect(failed).toContain("Point the endpoint in the command");
+    expect(failed).toContain("also tried to reach `aka.ms`, which the tool does not allow.");
+    // A Bicep deployment that failed in the emulator: only Bicep's own call was refused.
+    const deploy = ["deployment", "group", "create", "-g", "rg", "-f", "main.bicep"];
+    const bicep = text(
+      formatAzResult(
+        result({ exitCode: 1, stderr: "ERROR: (InvalidName) x", refused: ["aka.ms"] }),
+        {
+          ...opts,
+          argv: deploy,
+        }
+      )
+    );
+    expect(bicep).toContain(
+      "`az` (or a program it ran, such as Bicep) tried to reach `aka.ms`, which the tool does not allow."
+    );
+    expect(bicep).not.toContain("Point the endpoint");
+    expect(text(formatAzResult(result({ stdout: "{}", refused }), { ...opts, argv }))).toBe("{}");
+  });
+
+  test("a timeout after a refusal leads with the refusal, not with raising the timeout", () => {
+    const argv = [
+      "storage",
+      "blob",
+      "upload",
+      "--blob-endpoint",
+      "https://acct.blob.core.windows.net",
+    ];
+    const timedOut = result({
+      exitCode: null,
+      timedOut: true,
+      refused: ["acct.blob.core.windows.net"],
+    });
+    const answer = text(formatAzResult(timedOut, { ...opts, argv }));
+    expect(answer).toMatch(/^❌ \*\*Command Timed Out\*\*\n\n`az` could not reach `acct\.blob/);
+    expect(answer.indexOf("could not reach")).toBeLessThan(answer.indexOf("LOCALSTACK_AZ_TIMEOUT"));
   });
 
   test("timeout, cancel and a spawn failure", () => {

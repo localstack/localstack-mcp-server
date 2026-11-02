@@ -73,7 +73,8 @@ async function probeAz(signal?: AbortSignal): Promise<AzExecutable> {
     homedir: os.homedir(),
     ...nodeResolveFs,
   });
-  // `az version` makes no network call (`az --version` does).
+  // `az version` needs no network (`az --version` asks PyPI for updates). On a fresh profile az
+  // still tries a download of its own, which the egress guard refuses; the version comes back anyway.
   const result = await runner(az)(["version", "-o", "json"], {
     timeoutMs: PROBE_TIMEOUT_MS,
     cwd: config.tmpDir,
