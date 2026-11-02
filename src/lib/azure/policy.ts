@@ -1,6 +1,6 @@
 import os from "os";
 import { AzSyntaxError, splitAzArgs } from "./argv";
-import { isLocalHost } from "./config";
+import { isEmulatorName, isLocalHost } from "./config";
 
 /**
  * The Azure command policy: a decision over one `az` command string, made before anything runs.
@@ -205,16 +205,17 @@ export function evaluateAzCommand(
         continue;
       }
       const host = URL.canParse(url) ? new URL(url).hostname : undefined;
-      // The egress guard tunnels https to the emulator only, and refuses plain http.
-      if (hasScheme(url) && !(host && isLocalHost(host) && /^https:/i.test(url))) {
+      // The egress guard refuses plain http, and the emulator's certificate is for its
+      // localhost.localstack.cloud names only, so `https://localhost` fails az's check.
+      if (hasScheme(url) && !(host && isEmulatorName(host) && /^https:/i.test(url))) {
         const why = !host
           ? `"${url}" is not a valid URL.`
           : isLocalHost(host)
-            ? "The emulator is reached over https."
+            ? `"${url}" fails az's certificate check or the egress guard.`
             : `"${host}" is not the emulator.`;
         return refuse(
           "URL not allowed",
-          `\`rest\` reaches only the emulator: give a relative URL such as \`/subscriptions?api-version=2022-12-01\`, or an https URL on the emulator. ${why}`
+          `\`rest\` reaches only the emulator: give a relative URL such as \`/subscriptions?api-version=2022-12-01\`, or one on \`https://azure.localhost.localstack.cloud:<LOCALSTACK_PORT>\`. ${why}`
         );
       }
     }

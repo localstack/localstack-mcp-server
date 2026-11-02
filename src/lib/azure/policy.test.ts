@@ -136,16 +136,22 @@ describe("evaluateAzCommand", () => {
     ]) {
       expect(refusal(command).message).toContain("is not the emulator");
     }
-    // The egress guard relays https only, so plain http to the emulator is refused up front.
+    // Plain http is refused by the egress guard, and the emulator's certificate does not cover
+    // localhost or 127.0.0.1, so only https on its own names gets through.
     for (const command of [
       "rest --url http://localhost:4566/_localstack/health",
       "rest --url http://127.0.0.1:2375/version",
+      "rest --url https://localhost:4566/subscriptions?api-version=2021-04-01",
+      "rest --url https://127.0.0.1:4566/x",
+      "rest --url http://azure.localhost.localstack.cloud:4566/x",
     ]) {
-      expect(refusal(command).message).toContain("The emulator is reached over https.");
+      const { message } = refusal(command);
+      expect(message).toContain("fails az's certificate check or the egress guard");
+      expect(message).toContain("`https://azure.localhost.localstack.cloud:<LOCALSTACK_PORT>`");
     }
     for (const url of [
       "https://azure.localhost.localstack.cloud:4566/x",
-      "https://localhost:4566/_localstack/health",
+      "https://localhost.localstack.cloud:4566/x",
       "/subscriptions?api-version=2022-12-01",
       "//evil.example/x", // no scheme: az puts the emulator's endpoint before it
     ]) {

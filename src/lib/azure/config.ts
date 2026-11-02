@@ -1,7 +1,6 @@
 import { statSync } from "fs";
 import os from "os";
 import path from "path";
-import { publishedHostPorts } from "../localstack/container-spec.logic";
 
 /** The Azure client tool's settings, read from the server's environment. */
 export interface AzureConfig {
@@ -10,11 +9,6 @@ export interface AzureConfig {
   port: number;
   /** The ARM endpoint `az` talks to: https://azure.localhost.localstack.cloud:<port>. */
   endpoint: string;
-  /**
-   * The ports the egress guard relays to: the ones the start action publishes (the gateway, 443
-   * unless GATEWAY_LISTEN is set, the external-service range) and LOCALSTACK_PORT.
-   */
-  emulatorPorts: number[];
   /** The tool's own Azure CLI config dir; `az` never sees the user's ~/.azure. */
   configDir: string;
   /** The child's private home and temp dir, inside the config dir. */
@@ -38,20 +32,24 @@ export interface AzureConfigDeps {
   isDirectory?: (p: string) => boolean;
 }
 
-/**
- * The hosts an absolute `rest` URL may name, and the egress guard relays to: LocalStack's
- * public DNS names for 127.0.0.1 (localhost.localstack.cloud and its subdomains) and the
- * loopback names and addresses.
- */
-export function isLocalHost(host: string): boolean {
-  const h = host
+const canonical = (host: string) =>
+  host
     .toLowerCase()
     .replace(/\.$/, "")
     .replace(/^\[(.*)\]$/, "$1");
-  return (
-    ["localhost", "127.0.0.1", "::1", "localhost.localstack.cloud"].includes(h) ||
-    h.endsWith(".localhost.localstack.cloud")
-  );
+
+/**
+ * LocalStack's public DNS names for 127.0.0.1: localhost.localstack.cloud and its subdomains,
+ * the names the emulator's certificate is for.
+ */
+export function isEmulatorName(host: string): boolean {
+  const h = canonical(host);
+  return h === "localhost.localstack.cloud" || h.endsWith(".localhost.localstack.cloud");
+}
+
+/** The hosts the egress guard tunnels to: the emulator's names and the loopback ones. */
+export function isLocalHost(host: string): boolean {
+  return isEmulatorName(host) || ["localhost", "127.0.0.1", "::1"].includes(canonical(host));
 }
 
 function isDirectory(p: string): boolean {
@@ -90,16 +88,6 @@ export function getAzureConfig(
   };
 
   const port = wholeNumber("LOCALSTACK_PORT", "4566", 1, 65535);
-  // The ports the start action publishes, read with its own rules from this server's environment
-  // (a start call's envVars are not seen here). A bad LOCALSTACK_PORT is reported above.
-  let emulatorPorts: number[] = [];
-  if (Number.isInteger(port)) {
-    try {
-      emulatorPorts = [...new Set([port, ...publishedHostPorts(env)])];
-    } catch (error) {
-      errors.push((error as Error).message);
-    }
-  }
 
   const userProfile = userPath(setting("AZURE_CONFIG_DIR") ?? P.join(home, ".azure"));
   const configSetting = setting("LOCALSTACK_AZ_CONFIG_DIR");
@@ -127,7 +115,6 @@ export function getAzureConfig(
     healthBaseUrl: `http://${setting("LOCALSTACK_HOSTNAME") ?? "localhost"}:${port}`,
     port,
     endpoint: `https://azure.localhost.localstack.cloud:${port}`,
-    emulatorPorts,
     configDir,
     homeDir: P.join(configDir, "home"),
     tmpDir: P.join(configDir, "tmp"),

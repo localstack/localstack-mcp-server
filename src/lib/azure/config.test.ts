@@ -1,4 +1,4 @@
-import { getAzureConfig, isLocalHost } from "./config";
+import { getAzureConfig, isEmulatorName, isLocalHost } from "./config";
 
 const HOME = "/home/u";
 const deps = {
@@ -11,12 +11,10 @@ const config = (env: NodeJS.ProcessEnv) => getAzureConfig(env, deps);
 
 describe("getAzureConfig", () => {
   test("defaults: the gateway every tool uses, the emulator's ARM host, a per-port profile", () => {
-    const servicePorts = Array.from({ length: 51 }, (_, i) => 4510 + i);
     expect(config({})).toEqual({
       healthBaseUrl: "http://localhost:4566",
       port: 4566,
       endpoint: "https://azure.localhost.localstack.cloud:4566",
-      emulatorPorts: [4566, 443, ...servicePorts],
       configDir: "/home/u/.localstack/azure/mcp-config-4566",
       homeDir: "/home/u/.localstack/azure/mcp-config-4566/home",
       tmpDir: "/home/u/.localstack/azure/mcp-config-4566/tmp",
@@ -35,39 +33,6 @@ describe("getAzureConfig", () => {
     expect(config({ LOCALSTACK_PORT: "abc" }).errors[0]).toContain("LOCALSTACK_PORT");
   });
 
-  test("the guard's ports follow LOCALSTACK_PORT and the external-service range the start action uses", () => {
-    const ports = (env: NodeJS.ProcessEnv) => config(env).emulatorPorts;
-    expect(ports({ LOCALSTACK_PORT: "4666", EXTERNAL_SERVICE_PORTS_START: "5000" })).toEqual([
-      4666,
-      443,
-      ...Array.from({ length: 51 }, (_, i) => 5000 + i),
-    ]);
-    expect(
-      ports({ LOCALSTACK_EXTERNAL_SERVICE_PORTS_START: "6000", EXTERNAL_SERVICE_PORTS_END: "6001" })
-    ).toEqual([4566, 443, 6000, 6001]);
-  });
-
-  test("443 only when GATEWAY_LISTEN is unset, as the start action publishes it", () => {
-    expect(config({ GATEWAY_LISTEN: ":4566,:5566" }).emulatorPorts).toEqual([
-      4566,
-      5566,
-      ...Array.from({ length: 51 }, (_, i) => 4510 + i),
-    ]);
-  });
-
-  test.each([
-    [{ EXTERNAL_SERVICE_PORTS_START: "6000", EXTERNAL_SERVICE_PORTS_END: "abc" }],
-    [{ EXTERNAL_SERVICE_PORTS_START: "0" }],
-    [{ EXTERNAL_SERVICE_PORTS_START: "4510.5" }],
-    [{ EXTERNAL_SERVICE_PORTS_START: "6000", EXTERNAL_SERVICE_PORTS_END: "5000" }],
-    [{ GATEWAY_LISTEN: ":not-a-port" }],
-  ])("an invalid port setting is a configuration error, as for the start action: %j", (env) => {
-    const c = config(env);
-    expect(c.errors).toHaveLength(1);
-    expect(c.errors[0]).toMatch(/EXTERNAL_SERVICE_PORTS|GATEWAY_LISTEN|port/i);
-    expect(c.emulatorPorts).toEqual([]);
-  });
-
   test("the extension dir is the user's own: AZURE_EXTENSION_DIR, else their config dir's", () => {
     expect(config({ AZURE_EXTENSION_DIR: "~/ext" }).extensionDir).toBe("/home/u/ext");
     expect(config({ AZURE_CONFIG_DIR: "/cfg" }).extensionDir).toBe("/cfg/cliextensions");
@@ -79,6 +44,19 @@ describe("getAzureConfig", () => {
     }
     for (const host of ["example.com", "localhost.localstack.cloud.evil.example", "10.0.0.5"]) {
       expect(isLocalHost(host)).toBe(false);
+    }
+  });
+
+  test("isEmulatorName: the names the emulator's certificate is for, not the loopback ones", () => {
+    expect(isEmulatorName("Azure.LocalHost.LocalStack.Cloud.")).toBe(true);
+    expect(isEmulatorName("localhost.localstack.cloud")).toBe(true);
+    for (const host of [
+      "localhost",
+      "127.0.0.1",
+      "[::1]",
+      "localhost.localstack.cloud.evil.example",
+    ]) {
+      expect(isEmulatorName(host)).toBe(false);
     }
   });
 

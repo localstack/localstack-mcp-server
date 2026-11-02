@@ -58,7 +58,6 @@ export default async function localstackAzureClient(
       const config = azureConfig();
       const result = await runAzCommand(policy.argv, { signal });
       return formatAzResult(result, {
-        argv: policy.argv,
         notes: policy.notes,
         timeoutSeconds: config.timeoutMs / 1000,
         healthBaseUrl: config.healthBaseUrl,

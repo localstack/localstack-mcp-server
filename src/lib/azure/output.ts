@@ -8,8 +8,6 @@ export const MAX_STDERR_CHARS = 4_000;
 type ToolResponse = ReturnType<typeof ResponseBuilder.markdown>;
 
 export interface FormatOptions {
-  /** The argv that ran, without `az`: a refused host it names is the command's own endpoint. */
-  argv: string[];
   /** The policy's notes, such as a rewritten URL. */
   notes: string[];
   timeoutSeconds: number;
@@ -83,41 +81,26 @@ function failureHint(stderr: string, opts: FormatOptions): string | undefined {
   return undefined;
 }
 
-/** The host in a refused entry: `host`, `host:port`, `[v6]:port` or `http://host[:port]`. */
-const hostOf = (entry: string) =>
-  entry
-    .replace(/^http:\/\//, "")
-    .replace(/:\d+$/, "")
-    .replace(/^\[|\]$/g, "");
-
 /**
- * What the egress guard refused, which az's own error often does not name. Only a host the
- * command names gets the endpoint advice: `az` and Bicep also call hosts of their own (Bicep's
- * module index on aka.ms, for one), and those refusals are harmless.
+ * Hosts `az` and Bicep call on their own, even in runs that succeed: Bicep's module index, and
+ * az's version and update checks. Their refusals are not the command's doing.
  */
-function refusedNote(result: AzRunResult, argv: string[]): string | undefined {
-  const refused = result.refused ?? [];
+const BACKGROUND_HOSTS = new Set([
+  "aka.ms",
+  "raw.githubusercontent.com",
+  "azcliprod.blob.core.windows.net",
+]);
+
+/** What the egress guard refused, which az's own error often does not name. */
+function refusedNote(result: AzRunResult): string | undefined {
+  const refused = (result.refused ?? []).filter((host) => !BACKGROUND_HOSTS.has(host));
   if (refused.length === 0) return undefined;
-  const command = argv.join(" ").toLowerCase();
-  const named = refused.filter((entry) => command.includes(hostOf(entry)));
-  const other = refused.filter((entry) => !named.includes(entry));
-  const list = (entries: string[]) => entries.map((entry) => `\`${entry}\``).join(", ");
-  const lines: string[] = [];
-  if (named.length > 0) {
-    lines.push(
-      `\`az\` could not reach ${list(named)}: the tool lets \`az\` reach only the emulator ` +
-        "(`localhost.localstack.cloud` and every name under it, `localhost`, `127.0.0.1` and " +
-        "`::1`), over https and on the emulator's ports. Point the endpoint in the command, such " +
-        "as `--blob-endpoint` or a connection string, at the emulator."
-    );
-  }
-  if (other.length > 0) {
-    lines.push(
-      `\`az\` (or a program it ran, such as Bicep) ${named.length > 0 ? "also " : ""}tried to ` +
-        `reach ${list(other)}, which the tool does not allow.`
-    );
-  }
-  return lines.join(" ");
+  return (
+    `The tool refused ${refused.map((host) => `\`${host}\``).join(", ")}: \`az\` reaches only ` +
+    "the emulator (`localhost.localstack.cloud` and every name under it), over https. If the " +
+    "command names this host, for example in `--blob-endpoint` or a connection string, point " +
+    "it at the emulator."
+  );
 }
 
 export function formatAzResult(result: AzRunResult, opts: FormatOptions): ToolResponse {
@@ -139,7 +122,7 @@ export function formatAzResult(result: AzRunResult, opts: FormatOptions): ToolRe
     return ResponseBuilder.error(
       "Command Timed Out",
       // A refusal comes first: az's retries after one can be what used up the time.
-      [refusedNote(result, opts.argv), advice, stderr].filter(Boolean).join("\n\n")
+      [refusedNote(result), advice, stderr].filter(Boolean).join("\n\n")
     );
   }
   const stdout = cap(
@@ -169,7 +152,7 @@ export function formatAzResult(result: AzRunResult, opts: FormatOptions): ToolRe
   const blocks = [
     stderr || "`az` exited without an error message.",
     stdout && `Output:\n${stdout}`,
-    refusedNote(result, opts.argv),
+    refusedNote(result),
     failureHint(result.stderr, opts),
     ...opts.notes,
   ];

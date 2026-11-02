@@ -144,7 +144,7 @@ test("each az run gets an egress guard of its own, closed after it; its refusals
   expect(closed).toBe(true);
 });
 
-test("the guard gets the emulator's ports: a tunnel to its ARM name on LOCALSTACK_PORT opens", async () => {
+test("through each run's guard, a tunnel to the emulator's ARM name on LOCALSTACK_PORT opens", async () => {
   // An echo server stands in for the emulator's gateway on LOCALSTACK_PORT.
   const gateway = net.createServer((socket) => socket.pipe(socket));
   await new Promise<void>((resolve) => gateway.listen(0, "127.0.0.1", resolve));
@@ -167,8 +167,7 @@ test("the guard gets the emulator's ports: a tunnel to its ARM name on LOCALSTAC
     });
     await runAzCommand(["group", "list"], {});
     expect(status).toBe("HTTP/1.1 200 Connection Established");
-    expect(startEgressGuard).toHaveBeenLastCalledWith({ ports: azureConfig().emulatorPorts });
-    expect(azureConfig().emulatorPorts).toEqual(expect.arrayContaining([port, 443, 4510, 4560]));
+    expect(startEgressGuard).toHaveBeenCalledTimes(2); // the version check, then the command
   } finally {
     if (saved === undefined) delete process.env.LOCALSTACK_PORT;
     else process.env.LOCALSTACK_PORT = saved;

@@ -305,9 +305,7 @@ function firstDefined(
 /** Upper bound on how many external-service ports we will enumerate (default is 51). */
 const MAX_SERVICE_PORT_SPAN = 1000;
 
-function resolvePorts(
-  input: Pick<ContainerSpecInput, "hostEnv" | "envVars" | "isInDocker">
-): ResolvedPorts {
+function resolvePorts(input: ContainerSpecInput): ResolvedPorts {
   const { hostEnv, envVars = {} } = input;
   const defaultIp = input.isInDocker ? "0.0.0.0" : "127.0.0.1";
 
@@ -401,16 +399,6 @@ function resolvePorts(
   }
 
   return { bindings, containerGatewayListen, servicePortStart, servicePortEnd };
-}
-
-/**
- * The host ports the start action publishes for this environment: the gateway, 443 when
- * GATEWAY_LISTEN is unset, and the external-service range. Throws on an invalid setting, as
- * the start action does.
- */
-export function publishedHostPorts(hostEnv: Record<string, string | undefined>): number[] {
-  const { bindings } = resolvePorts({ hostEnv, isInDocker: false });
-  return [...new Set(bindings.map((binding) => binding.hostPort))];
 }
 
 function buildEnv(input: ContainerSpecInput, ports: ResolvedPorts, name: string): string[] {

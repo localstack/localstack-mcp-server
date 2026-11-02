@@ -54,7 +54,7 @@ function runner(az: AzExecutable) {
   ensurePrivateDirs(config, process.platform);
   const env = buildAzChildEnv(process.env, process.platform, config, az);
   return async (argv: string[], opts: AzRunOptions): Promise<AzRunResult> => {
-    const guard = await startEgressGuard({ ports: config.emulatorPorts });
+    const guard = await startEgressGuard();
     try {
       const result = await runAz(az, { ...env, ...guard.env }, argv, opts);
       return { ...result, refused: guard.refused() };

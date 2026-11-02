@@ -56,9 +56,9 @@ test("az commands through the Azure tool", async ({ mcp }) => {
     expect(answer).toMatch(/^❌ \*\*Command not allowed\*\*/);
   });
   await test.step("an endpoint outside the emulator is refused", async () => {
-    // A listener stands in for a server outside the emulator: on this machine, on no emulator
-    // port, so nothing goes towards real Azure if the guard ever regresses. http keeps it quick:
-    // an https refusal is final too, but az's SDK retries the tunnel for over a minute.
+    // A listener on this machine stands in for a server outside the emulator, so nothing goes
+    // towards real Azure if the guard ever regresses. Plain http is refused at once; an https
+    // refusal is final too, but az's SDK retries the tunnel for over a minute.
     let connections = 0;
     const listener = createServer((socket) => {
       connections += 1;
@@ -74,7 +74,7 @@ test("az commands through the Azure tool", async ({ mcp }) => {
         })
       );
       expect(answer).toMatch(/^❌/);
-      expect(answer).toContain(`could not reach \`http://${outside}\``);
+      expect(answer).toContain(`The tool refused \`http://${outside}\``);
       expect(connections).toBe(0);
     } finally {
       listener.close();
