@@ -1459,17 +1459,17 @@
   dependencies:
     playwright "1.64.1"
 
-"@posthog/core@^1.60.1":
-  version "1.62.0"
-  resolved "https://registry.yarnpkg.com/@posthog/core/-/core-1.62.0.tgz#5a2acaac901c8360bdda1e73d5703d4c07953aac"
-  integrity sha512-KjNwGC7s0141wnWWHubNMdg1lOhZjqKRw2OTNstuzdVvNDfvv2RbFJQSSvvABmbCmTXwlMpdnbb/M/aAigDnNQ==
+"@posthog/core@^1.62.0":
+  version "1.62.1"
+  resolved "https://registry.yarnpkg.com/@posthog/core/-/core-1.62.1.tgz#09b5747c7f76cec11562415b0dd0ad37efe81b38"
+  integrity sha512-IncceYaKKQ6kirQuUWATQOjg0nDc4QXKJdvDfpIYhcaYJJb9Nk8S5Xqs+QMfuRGQs4NbemNzds/m+FyPRGUqyA==
   dependencies:
-    "@posthog/types" "^1.418.0"
+    "@posthog/types" "^1.419.0"
 
-"@posthog/types@^1.418.0":
-  version "1.418.0"
-  resolved "https://registry.yarnpkg.com/@posthog/types/-/types-1.418.0.tgz#5dabde5adedc147a96565ffb68ea674625e34a99"
-  integrity sha512-WqDXUWH1R8OilBp2PfDpQIRZSCs3QyOnw7H3YK7lvZLCMIsOqSZAKJrrqYWt4f7FvnVCACRuNGCC0HKh3J/HWw==
+"@posthog/types@^1.419.0":
+  version "1.419.0"
+  resolved "https://registry.yarnpkg.com/@posthog/types/-/types-1.419.0.tgz#285d54a635584b38d800004e90fb18b439170fa8"
+  integrity sha512-XX7zRYt/vK8AzaD6V+oDquAzacZf5exJv971dja9En8Qf6g84Qvc3rpT0w6hDYYLWrjaSSkdjFfvvoXI0ouJDg==
 
 "@protobufjs/aspromise@^1.1.1", "@protobufjs/aspromise@^1.1.2":
   version "1.1.2"
@@ -4580,12 +4580,12 @@ postcss-loader@^8.2.0:
     jiti "^2.5.1"
     semver "^7.6.2"
 
-posthog-node@5.57.2:
-  version "5.57.2"
-  resolved "https://registry.yarnpkg.com/posthog-node/-/posthog-node-5.57.2.tgz#cc865291ed8cccd7c2bb54288bb7b851b5fa9235"
-  integrity sha512-S03L9YC21EV0CIo7GW1lv/faTU0ENjO4uyFTuERxGIuDebjl3+UcRvJIq8RzAM2YJumpAlXPoDNyrxAvUZctfg==
+posthog-node@5.61.1:
+  version "5.61.1"
+  resolved "https://registry.yarnpkg.com/posthog-node/-/posthog-node-5.61.1.tgz#b12a14b638372e4d79e44771ce587bd0daf61c15"
+  integrity sha512-Az2H3hHyxxZ5PQpQAQEoJfa9FrLsM4OnuyIQwzi9hei5mtN0/mepw1yvLtAmPAbEkC6+muWXiBShBnVMKeBSXw==
   dependencies:
-    "@posthog/core" "^1.60.1"
+    "@posthog/core" "^1.62.0"
 
 prettier@^3.9.10:
   version "3.9.10"

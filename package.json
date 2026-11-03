@@ -35,7 +35,7 @@
     "eslint-config-prettier": "^10.1.8",
     "jest": "^30.5.2",
     "jsonc-parser": "^3.3.1",
-    "posthog-node": "5.57.2",
+    "posthog-node": "5.61.1",
     "prettier": "^3.9.10",
     "swc-loader": "^0.2.6",
     "ts-jest": "^29.4.15",
