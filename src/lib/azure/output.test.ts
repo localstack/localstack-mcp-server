@@ -10,7 +10,11 @@ const result = (over: Partial<AzRunResult>): AzRunResult => ({
   truncated: false,
   ...over,
 });
-const opts = { notes: [], timeoutSeconds: 300, healthBaseUrl: "http://localhost:4566" };
+const opts = {
+  notes: [],
+  timeoutSeconds: 300,
+  healthBaseUrl: "http://localhost:4566",
+};
 const text = (r: { content: Array<{ text: string }> }) => r.content[0].text;
 
 describe("formatAzResult", () => {
@@ -61,6 +65,72 @@ describe("formatAzResult", () => {
     ).toContain("Re-run it with `--yes`.");
     expect(hint('ERROR: Could not find the "bicep" executable on PATH.')).toContain(
       "The tool runs Bicep from PATH."
+    );
+    expect(
+      hint("ERROR: main.bicep(1,8) : Error BCP192: Unable to restore the artifact with reference")
+    ).toContain("Use a local module path instead.");
+  });
+
+  test("a URL az downloads itself gets a hint, since az's message does not say why", () => {
+    const hint = (stderr: string) => text(formatAzResult(result({ exitCode: 1, stderr }), opts));
+    const url = "https://raw.githubusercontent.com/Azure/azure-quickstart-templates/x.json";
+    for (const stderr of [
+      `ERROR: Unable to retrieve url ${url}`,
+      `ERROR: Unable to parse parameter: ${url}`,
+      `ERROR: Unable to parse parameter: @${url}`,
+    ]) {
+      expect(hint(stderr)).toContain("download the file and pass its path.");
+    }
+    // A malformed inline parameter is not a download.
+    expect(hint("ERROR: Unable to parse parameter: name")).not.toContain("download the file");
+  });
+
+  test("a refusal gets one note, worded for an endpoint the command may name", () => {
+    // A connection string's account endpoint, a canonical IP: neither is in the command's text.
+    for (const host of ["acct.blob.example.com", "10.0.0.5"]) {
+      const failed = text(
+        formatAzResult(result({ exitCode: 1, stderr: "ERROR: x", refused: [host] }), opts)
+      );
+      expect(failed).toContain(
+        `The tool refused \`${host}\`: \`az\` reaches only the emulator (\`localhost.localstack.cloud\` and every name under it), over https. If the command names this host, for example in \`--blob-endpoint\` or a connection string, point it at the emulator over https.`
+      );
+    }
+    const both = result({
+      exitCode: 1,
+      stderr: "ERROR: x",
+      refused: ["a.example", "http://b.example"],
+    });
+    const note = text(formatAzResult(both, opts));
+    expect(note).toContain("The tool refused `a.example`, `http://b.example`:");
+    expect(note).toContain("If the command names one of these hosts,");
+    expect(text(formatAzResult(result({ stdout: "{}", refused: ["a.example"] }), opts))).toBe("{}");
+  });
+
+  test("hosts az and Bicep call on their own are left out of the note", () => {
+    const refused = ["aka.ms", "raw.githubusercontent.com", "azcliprod.blob.core.windows.net"];
+    const failed = text(
+      formatAzResult(result({ exitCode: 1, stderr: "ERROR: (InvalidName) x", refused }), opts)
+    );
+    expect(failed).not.toContain("The tool refused");
+    // A Bicep deployment that times out for an ordinary reason opens with the timeout advice.
+    const timedOut = text(
+      formatAzResult(result({ exitCode: null, timedOut: true, refused }), opts)
+    );
+    expect(timedOut).toMatch(/^❌ \*\*Command Timed Out\*\*\n\n`az` did not finish within 300 s/);
+  });
+
+  test("a timeout after a refusal leads with the refusal, not with raising the timeout", () => {
+    const timedOut = result({
+      exitCode: null,
+      timedOut: true,
+      refused: ["aka.ms", "acct.blob.core.windows.net"],
+    });
+    const answer = text(formatAzResult(timedOut, opts));
+    expect(answer).toMatch(
+      /^❌ \*\*Command Timed Out\*\*\n\nThe tool refused `acct\.blob\.core\.windows\.net`:/
+    );
+    expect(answer.indexOf("The tool refused")).toBeLessThan(
+      answer.indexOf("LOCALSTACK_AZ_TIMEOUT")
     );
   });
 

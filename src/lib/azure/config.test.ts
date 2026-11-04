@@ -1,4 +1,4 @@
-import { getAzureConfig, isLocalHost } from "./config";
+import { getAzureConfig, isEmulatorName, isLocalHost } from "./config";
 
 const HOME = "/home/u";
 const deps = {
@@ -44,6 +44,19 @@ describe("getAzureConfig", () => {
     }
     for (const host of ["example.com", "localhost.localstack.cloud.evil.example", "10.0.0.5"]) {
       expect(isLocalHost(host)).toBe(false);
+    }
+  });
+
+  test("isEmulatorName: the names the emulator's certificate is for, not the loopback ones", () => {
+    expect(isEmulatorName("Azure.LocalHost.LocalStack.Cloud.")).toBe(true);
+    expect(isEmulatorName("localhost.localstack.cloud")).toBe(true);
+    for (const host of [
+      "localhost",
+      "127.0.0.1",
+      "[::1]",
+      "localhost.localstack.cloud.evil.example",
+    ]) {
+      expect(isEmulatorName(host)).toBe(false);
     }
   });
 

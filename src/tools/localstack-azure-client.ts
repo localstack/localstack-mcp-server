@@ -26,7 +26,7 @@ export const schema = {
 export const metadata: ToolMetadata = {
   name: "localstack-azure-client",
   description:
-    "Run Azure CLI (`az`) commands against the LocalStack Azure emulator. The tool keeps its own Azure CLI profile, logged in to the emulator with a dummy account, so your own Azure login is never used or changed. Relative file paths resolve against the server's working directory (LOCALSTACK_AZ_WORKDIR), and a leading `~` in any argument is your home directory. For an operation without a command, use `rest` with a relative URL; `rest` reaches the emulator and other local hosts only. Start the emulator with `localstack-management` (service: azure).",
+    "Run Azure CLI (`az`) commands against the LocalStack Azure emulator. The tool keeps its own Azure CLI profile, logged in to the emulator with a dummy account, so your own Azure login is never used or changed. Relative file paths resolve against the server's working directory (LOCALSTACK_AZ_WORKDIR), and a leading `~` in any argument is your home directory. For an operation without a command, use `rest` with a relative URL. `az` reaches only the emulator: an endpoint or URL anywhere else is refused. Start the emulator with `localstack-management` (service: azure).",
   annotations: {
     title: "LocalStack Azure Client",
     readOnlyHint: false,
@@ -45,7 +45,8 @@ export default async function localstackAzureClient(
       // The token, the settings and the policy first: a refusal needs no emulator.
       const early = requireAuthToken() ?? requireAzureConfig();
       if (early) return early;
-      const policy = evaluateAzCommand(command);
+      const config = azureConfig();
+      const policy = evaluateAzCommand(command, { endpoint: config.endpoint });
       if (!policy.ok) return ResponseBuilder.error(policy.title, policy.message);
 
       // Both run at once; a missing az is reported first, as the more basic prerequisite.
@@ -55,7 +56,6 @@ export default async function localstackAzureClient(
         (await requireAzureCliConfigured(signal));
       if (preflightError) return preflightError;
 
-      const config = azureConfig();
       const result = await runAzCommand(policy.argv, { signal });
       return formatAzResult(result, {
         notes: policy.notes,

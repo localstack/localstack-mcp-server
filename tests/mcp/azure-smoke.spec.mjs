@@ -1,3 +1,4 @@
+import { createServer } from "node:net";
 import { expect, test } from "@gleanwork/mcp-server-tester/fixtures/mcp";
 
 // The Azure tool against a live LocalStack Azure emulator (.github/workflows/azure-smoke.yml):
@@ -53,6 +54,31 @@ test("az commands through the Azure tool", async ({ mcp }) => {
   await test.step("a refused command", async () => {
     const answer = text(await mcp.callTool("localstack-azure-client", { command: "login" }));
     expect(answer).toMatch(/^❌ \*\*Command not allowed\*\*/);
+  });
+  await test.step("an endpoint outside the emulator is refused", async () => {
+    // A listener on this machine stands in for a server outside the emulator, so nothing goes
+    // towards real Azure if the guard ever regresses. Plain http is refused at once; an https
+    // refusal is final too, but az's SDK retries the tunnel for over a minute.
+    let connections = 0;
+    const listener = createServer((socket) => {
+      connections += 1;
+      socket.destroy();
+    });
+    await new Promise((resolve) => listener.listen(0, "127.0.0.1", resolve));
+    const outside = `127.0.0.1:${listener.address().port}`;
+    const key = Buffer.from("not-a-real-account-key").toString("base64");
+    try {
+      const answer = text(
+        await mcp.callTool("localstack-azure-client", {
+          command: `storage blob upload --blob-endpoint http://${outside} --account-name ${account} --account-key ${key} --container-name data --name leak.txt --file data/sample-azure/hello.txt`,
+        })
+      );
+      expect(answer).toMatch(/^❌/);
+      expect(answer).toContain(`The tool refused \`http://${outside}\``);
+      expect(connections).toBe(0);
+    } finally {
+      listener.close();
+    }
   });
   await test.step("delete the resource group", () => az(`group delete --name ${group} --yes`));
 });

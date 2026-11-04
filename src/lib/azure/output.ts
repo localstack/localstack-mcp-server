@@ -75,7 +75,36 @@ function failureHint(stderr: string, opts: FormatOptions): string | undefined {
     // az's own advice (config set, az bicep install) is refused here.
     return "The tool runs Bicep from PATH. Install it (for example `brew install bicep` or `winget install Microsoft.Bicep`), then restart this MCP server.";
   }
+  if (/\bBCP192\b/.test(stderr)) {
+    return "Bicep could not download a registry module (`br:` or `br/public:`): the tool lets `az` and Bicep reach only the emulator. Use a local module path instead.";
+  }
+  // --template-uri, and a URL given to --parameters; az's message does not say why.
+  if (/Unable to retrieve url |Unable to parse parameter: @?https?:\/\//.test(stderr)) {
+    return "`az` downloads this URL itself, and the tool lets it reach only the emulator: download the file and pass its path.";
+  }
   return undefined;
+}
+
+/**
+ * Hosts `az` and Bicep call on their own, even in runs that succeed: Bicep's module index, and
+ * az's version and update checks. Their refusals are not the command's doing.
+ */
+const BACKGROUND_HOSTS = new Set([
+  "aka.ms",
+  "raw.githubusercontent.com",
+  "azcliprod.blob.core.windows.net",
+]);
+
+/** What the egress guard refused, which az's own error often does not name. */
+function refusedNote(result: AzRunResult): string | undefined {
+  const refused = (result.refused ?? []).filter((host) => !BACKGROUND_HOSTS.has(host));
+  if (refused.length === 0) return undefined;
+  return (
+    `The tool refused ${refused.map((host) => `\`${host}\``).join(", ")}: \`az\` reaches only ` +
+    "the emulator (`localhost.localstack.cloud` and every name under it), over https. If the " +
+    `command names ${refused.length === 1 ? "this host" : "one of these hosts"}, for example ` +
+    "in `--blob-endpoint` or a connection string, point it at the emulator over https."
+  );
 }
 
 export function formatAzResult(result: AzRunResult, opts: FormatOptions): ToolResponse {
@@ -96,7 +125,8 @@ export function formatAzResult(result: AzRunResult, opts: FormatOptions): ToolRe
       "`--no-wait` where the command has it.";
     return ResponseBuilder.error(
       "Command Timed Out",
-      [advice, stderr].filter(Boolean).join("\n\n")
+      // A refusal comes first: az's retries after one can be what used up the time.
+      [refusedNote(result), advice, stderr].filter(Boolean).join("\n\n")
     );
   }
   const stdout = cap(
@@ -126,6 +156,7 @@ export function formatAzResult(result: AzRunResult, opts: FormatOptions): ToolRe
   const blocks = [
     stderr || "`az` exited without an error message.",
     stdout && `Output:\n${stdout}`,
+    refusedNote(result),
     failureHint(result.stderr, opts),
     ...opts.notes,
   ];
