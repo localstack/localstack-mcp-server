@@ -125,7 +125,8 @@ const refuse = (title: string, message: string): PolicyResult => ({ ok: false, t
 
 export function evaluateAzCommand(
   command: string,
-  user: { home?: string; platform?: NodeJS.Platform } = {}
+  /** `endpoint` is the emulator's ARM endpoint, for the `rest` refusal's example URL. */
+  user: { home?: string; platform?: NodeJS.Platform; endpoint?: string } = {}
 ): PolicyResult {
   // One leading `az` is optional.
   const body = command.trim().replace(/^az(\s+|$)/, "");
@@ -215,7 +216,7 @@ export function evaluateAzCommand(
             : `"${host}" is not the emulator.`;
         return refuse(
           "URL not allowed",
-          `\`rest\` reaches only the emulator: give a relative URL such as \`/subscriptions?api-version=2022-12-01\`, or one on \`https://azure.localhost.localstack.cloud:<LOCALSTACK_PORT>\`. ${why}`
+          `\`rest\` reaches only the emulator: give a relative URL such as \`/subscriptions?api-version=2022-12-01\`, or one on \`${user.endpoint ?? "https://azure.localhost.localstack.cloud:4566"}\`. ${why}`
         );
       }
     }

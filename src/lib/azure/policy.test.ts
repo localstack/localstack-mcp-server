@@ -147,8 +147,15 @@ describe("evaluateAzCommand", () => {
     ]) {
       const { message } = refusal(command);
       expect(message).toContain("fails az's certificate check or the egress guard");
-      expect(message).toContain("`https://azure.localhost.localstack.cloud:<LOCALSTACK_PORT>`");
+      expect(message).toContain("`https://azure.localhost.localstack.cloud:4566`");
     }
+    // The configured endpoint, so the agent gets a URL it can use as is.
+    const onPort = evaluateAzCommand("rest --url https://localhost:4567/x", {
+      endpoint: "https://azure.localhost.localstack.cloud:4567",
+    });
+    expect(!onPort.ok && onPort.message).toContain(
+      "or one on `https://azure.localhost.localstack.cloud:4567`."
+    );
     for (const url of [
       "https://azure.localhost.localstack.cloud:4566/x",
       "https://localhost.localstack.cloud:4566/x",

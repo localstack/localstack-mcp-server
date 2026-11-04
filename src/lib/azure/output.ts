@@ -78,6 +78,10 @@ function failureHint(stderr: string, opts: FormatOptions): string | undefined {
   if (/\bBCP192\b/.test(stderr)) {
     return "Bicep could not download a registry module (`br:` or `br/public:`): the tool lets `az` and Bicep reach only the emulator. Use a local module path instead.";
   }
+  // --template-uri, and a URL given to --parameters; az's message does not say why.
+  if (/Unable to retrieve url |Unable to parse parameter: @?https?:\/\//.test(stderr)) {
+    return "`az` downloads this URL itself, and the tool lets it reach only the emulator: download the file and pass its path.";
+  }
   return undefined;
 }
 
@@ -98,8 +102,8 @@ function refusedNote(result: AzRunResult): string | undefined {
   return (
     `The tool refused ${refused.map((host) => `\`${host}\``).join(", ")}: \`az\` reaches only ` +
     "the emulator (`localhost.localstack.cloud` and every name under it), over https. If the " +
-    "command names this host, for example in `--blob-endpoint` or a connection string, point " +
-    "it at the emulator."
+    `command names ${refused.length === 1 ? "this host" : "one of these hosts"}, for example ` +
+    "in `--blob-endpoint` or a connection string, point it at the emulator over https."
   );
 }
 

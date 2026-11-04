@@ -45,7 +45,8 @@ export default async function localstackAzureClient(
       // The token, the settings and the policy first: a refusal needs no emulator.
       const early = requireAuthToken() ?? requireAzureConfig();
       if (early) return early;
-      const policy = evaluateAzCommand(command);
+      const config = azureConfig();
+      const policy = evaluateAzCommand(command, { endpoint: config.endpoint });
       if (!policy.ok) return ResponseBuilder.error(policy.title, policy.message);
 
       // Both run at once; a missing az is reported first, as the more basic prerequisite.
@@ -55,7 +56,6 @@ export default async function localstackAzureClient(
         (await requireAzureCliConfigured(signal));
       if (preflightError) return preflightError;
 
-      const config = azureConfig();
       const result = await runAzCommand(policy.argv, { signal });
       return formatAzResult(result, {
         notes: policy.notes,

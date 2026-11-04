@@ -2,9 +2,10 @@ import http from "http";
 import net, { type AddressInfo } from "net";
 import { startEgressGuard, type EgressGuard } from "./egress-guard";
 
-// Local servers stand in for the emulator: an echo server, one that closes at once, and one that
-// counts the connections it gets.
+// Local servers stand in for the emulator: an echo server that keeps its sockets, one that
+// closes at once, and one that counts the connections it gets.
 let echo: net.Server;
+const echoSockets: net.Socket[] = [];
 let closer: net.Server;
 let counter: net.Server;
 let echoPort: number;
@@ -59,7 +60,11 @@ async function stillServes() {
 }
 
 beforeAll(async () => {
-  echo = net.createServer((socket) => socket.pipe(socket));
+  echo = net.createServer((socket) => {
+    socket.on("error", () => undefined);
+    echoSockets.push(socket);
+    socket.pipe(socket);
+  });
   echoPort = await listen(echo);
   // Resets once the tunnel carries data, so the reset always comes after the guard's 200.
   closer = net.createServer((socket) => socket.once("data", () => socket.resetAndDestroy()));
@@ -81,7 +86,8 @@ beforeEach(async () => {
   guard = await startEgressGuard({
     connect: (port, host) => {
       dialled.push([port, host]);
-      return net.connect({ port, host, allowHalfOpen: true });
+      // 443 is the emulator's https port in the wild; the echo server stands in for it.
+      return net.connect({ port: port === 443 ? echoPort : port, host, allowHalfOpen: true });
     },
   });
 });
@@ -101,7 +107,10 @@ test("tunnels to the emulator's names on loopback, without DNS", async () => {
     expect(await echoed).toBe("ping");
     socket.destroy();
   }
-  (await connectThrough(`[::1]:${echoPort}`)).socket.destroy();
+  // Nothing listens on ::1, so the dial fails and the client gets a 502.
+  const ipv6 = await connectThrough(`[::1]:${echoPort}`);
+  expect(ipv6.line).toBe("HTTP/1.1 502 Bad Gateway");
+  ipv6.socket.destroy();
   expect(dialled).toEqual([
     [echoPort, "127.0.0.1"],
     [echoPort, "127.0.0.1"],
@@ -109,6 +118,13 @@ test("tunnels to the emulator's names on loopback, without DNS", async () => {
     [echoPort, "::1"],
   ]);
   expect(guard.refused()).toEqual([]);
+});
+
+test("URL drops the default port; a tunnel to :443 still dials 443", async () => {
+  const { line, socket } = await connectThrough("azure.localhost.localstack.cloud:443");
+  expect(line).toBe("HTTP/1.1 200 Connection Established");
+  socket.destroy();
+  expect(dialled).toEqual([[443, "127.0.0.1"]]);
 });
 
 test("refuses every other host, naming it in the 403, and never dials it", async () => {
@@ -166,8 +182,14 @@ test("plain HTTP is never relayed, not even to the emulator: 403 naming the targ
 test("a client that resets mid-tunnel takes the upstream down, and the guard keeps serving", async () => {
   const { line, socket } = await connectThrough(`localhost:${echoPort}`);
   expect(line).toBe("HTTP/1.1 200 Connection Established");
+  // An echo makes sure the upstream side exists before the reset.
+  const echoed = new Promise((resolve) => socket.once("data", resolve));
+  socket.write("ping");
+  await echoed;
+  const upstream = echoSockets[echoSockets.length - 1];
+  const upstreamClosed = new Promise((resolve) => upstream.once("close", resolve));
   socket.resetAndDestroy();
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await upstreamClosed;
   expect(await stillServes()).toBe("HTTP/1.1 200 Connection Established");
 });
 

@@ -71,6 +71,20 @@ describe("formatAzResult", () => {
     ).toContain("Use a local module path instead.");
   });
 
+  test("a URL az downloads itself gets a hint, since az's message does not say why", () => {
+    const hint = (stderr: string) => text(formatAzResult(result({ exitCode: 1, stderr }), opts));
+    const url = "https://raw.githubusercontent.com/Azure/azure-quickstart-templates/x.json";
+    for (const stderr of [
+      `ERROR: Unable to retrieve url ${url}`,
+      `ERROR: Unable to parse parameter: ${url}`,
+      `ERROR: Unable to parse parameter: @${url}`,
+    ]) {
+      expect(hint(stderr)).toContain("download the file and pass its path.");
+    }
+    // A malformed inline parameter is not a download.
+    expect(hint("ERROR: Unable to parse parameter: name")).not.toContain("download the file");
+  });
+
   test("a refusal gets one note, worded for an endpoint the command may name", () => {
     // A connection string's account endpoint, a canonical IP: neither is in the command's text.
     for (const host of ["acct.blob.example.com", "10.0.0.5"]) {
@@ -78,7 +92,7 @@ describe("formatAzResult", () => {
         formatAzResult(result({ exitCode: 1, stderr: "ERROR: x", refused: [host] }), opts)
       );
       expect(failed).toContain(
-        `The tool refused \`${host}\`: \`az\` reaches only the emulator (\`localhost.localstack.cloud\` and every name under it), over https. If the command names this host, for example in \`--blob-endpoint\` or a connection string, point it at the emulator.`
+        `The tool refused \`${host}\`: \`az\` reaches only the emulator (\`localhost.localstack.cloud\` and every name under it), over https. If the command names this host, for example in \`--blob-endpoint\` or a connection string, point it at the emulator over https.`
       );
     }
     const both = result({
@@ -86,9 +100,9 @@ describe("formatAzResult", () => {
       stderr: "ERROR: x",
       refused: ["a.example", "http://b.example"],
     });
-    expect(text(formatAzResult(both, opts))).toContain(
-      "The tool refused `a.example`, `http://b.example`:"
-    );
+    const note = text(formatAzResult(both, opts));
+    expect(note).toContain("The tool refused `a.example`, `http://b.example`:");
+    expect(note).toContain("If the command names one of these hosts,");
     expect(text(formatAzResult(result({ stdout: "{}", refused: ["a.example"] }), opts))).toBe("{}");
   });
 

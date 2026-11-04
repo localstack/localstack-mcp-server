@@ -14,14 +14,14 @@
 
 Some `az` commands take an address to send data to, such as `--blob-endpoint` or a connection string. Without a check, a command could point that address at any server and upload a local file there. So the tool makes sure `az` can only talk to the emulator.
 
-It does this with a small local proxy, started for each command. `az` is pointed at the proxy for all its HTTP traffic. The proxy passes on https to the emulator's names (`localhost.localstack.cloud` and every name under it) and the loopback ones, and refuses everything else, including plain `http://`. If the command then fails, the answer names the refused host.
+It does this with a small local proxy, started for each command. `az` is pointed at the proxy for all its HTTP traffic. The proxy passes on https to the emulator's names (`localhost.localstack.cloud` and every name under it) and the loopback ones, and refuses everything else, including plain `http://`. If the command then fails, the answer names the refused host. Any port on those names is allowed, and every LocalStack serves the same certificate for them, so an endpoint with the wrong port can reach another LocalStack running on this machine and write there; the data stays on this machine.
 
 The proxy sends those names to this machine itself, so `az` does not need DNS to find the emulator. Your application, `kubectl` and Docker still look these names up: if your router or company DNS blocks answers that point to `127.0.0.1`, allow `localhost.localstack.cloud` there.
 
 Anything `az` would download from the internet fails, for example:
 
 - Bicep registry modules (`br:` and `br/public:`), with error BCP192: use local module files.
-- `--template-uri`, and parameter files given as URLs (`--parameters @https://...`): download the file and pass its path.
+- `--template-uri`, and parameter files given as URLs (`--parameters https://...`): download the file and pass its path.
 - `az extension list-available`: run it with your own Azure CLI.
 
 The proxy covers `az`, the Azure SDKs, MSAL and Bicep, which all honour `HTTPS_PROXY` and `HTTP_PROXY`. It is not a sandbox, and these are outside it:

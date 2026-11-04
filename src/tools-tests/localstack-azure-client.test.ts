@@ -14,7 +14,11 @@ jest.mock("../lib/azure/preflight", () => ({
   requireAzureCliConfigured: jest.fn(async () => null),
 }));
 jest.mock("../lib/azure/services", () => ({
-  azureConfig: () => ({ timeoutMs: 300_000, healthBaseUrl: "http://localhost:4566" }),
+  azureConfig: () => ({
+    timeoutMs: 300_000,
+    healthBaseUrl: "http://localhost:4567",
+    endpoint: "https://azure.localhost.localstack.cloud:4567",
+  }),
   runAzCommand: jest.fn(async () => ({
     exitCode: 0,
     stdout: '[{"name": "rg"}]\n',
@@ -50,6 +54,10 @@ describe("localstack-azure-client", () => {
 
   test("a refused command needs no emulator and no az", async () => {
     expect(text(await call("login"))).toMatch(/^❌ \*\*Command not allowed\*\*/);
+    // The rest refusal's example URL is on the configured port.
+    expect(text(await call("rest --url https://localhost:4567/x"))).toContain(
+      "`https://azure.localhost.localstack.cloud:4567`"
+    );
     expect(preflight.requireAzureEmulatorRunning).not.toHaveBeenCalled();
     expect(preflight.requireAzureCli).not.toHaveBeenCalled();
     expect(runAzCommand).not.toHaveBeenCalled();
