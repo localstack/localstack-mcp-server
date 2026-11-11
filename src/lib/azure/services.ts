@@ -2,6 +2,7 @@ import os from "os";
 import { ensureProfile as ensureBootstrapped } from "./bootstrap";
 import { buildAzChildEnv, ensurePrivateDirs } from "./child-env";
 import { getAzureConfig, type AzureConfig } from "./config";
+import { startEgressGuard } from "./egress-guard";
 import {
   AzResolveError,
   locateAz,
@@ -47,11 +48,20 @@ export function resetAzureServices(): void {
   emulatorSession = undefined;
 }
 
+/** Runs `az` behind an egress guard of its own, which only lets it reach the emulator. */
 function runner(az: AzExecutable) {
   const config = azureConfig();
   ensurePrivateDirs(config, process.platform);
   const env = buildAzChildEnv(process.env, process.platform, config, az);
-  return (argv: string[], opts: AzRunOptions) => runAz(az, env, argv, opts);
+  return async (argv: string[], opts: AzRunOptions): Promise<AzRunResult> => {
+    const guard = await startEgressGuard();
+    try {
+      const result = await runAz(az, { ...env, ...guard.env }, argv, opts);
+      return { ...result, refused: guard.refused() };
+    } finally {
+      await guard.close();
+    }
+  };
 }
 
 async function probeAz(signal?: AbortSignal): Promise<AzExecutable> {
@@ -63,7 +73,8 @@ async function probeAz(signal?: AbortSignal): Promise<AzExecutable> {
     homedir: os.homedir(),
     ...nodeResolveFs,
   });
-  // `az version` makes no network call (`az --version` does).
+  // `az version` needs no network (`az --version` asks PyPI for updates). On a fresh profile az
+  // still tries a download of its own, which the egress guard refuses; the version comes back anyway.
   const result = await runner(az)(["version", "-o", "json"], {
     timeoutMs: PROBE_TIMEOUT_MS,
     cwd: config.tmpDir,

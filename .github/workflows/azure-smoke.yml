@@ -16,6 +16,8 @@ jobs:
     env:
       # The token's licence must include LocalStack for Azure, or the emulator refuses to start.
       LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+      # The list reporter prints each test step, so the run's log shows the whole tour.
+      PLAYWRIGHT_LIST_PRINT_STEPS: "1"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

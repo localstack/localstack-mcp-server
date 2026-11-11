@@ -70,3 +70,23 @@ describe("buildAzChildEnv", () => {
     });
   });
 });
+
+test("no proxy variable of the server's reaches az: with no_proxy=* the egress guard would see nothing", () => {
+  const proxies = {
+    NO_PROXY: "*",
+    no_proxy: "*",
+    HTTP_PROXY: "http://corp:3128",
+    http_proxy: "http://corp:3128",
+    HTTPS_PROXY: "http://corp:3128",
+    https_proxy: "http://corp:3128",
+    ALL_PROXY: "socks5://corp:1080",
+    all_proxy: "socks5://corp:1080",
+  };
+  for (const platform of ["linux", "darwin", "win32"] as const) {
+    const env = buildAzChildEnv({ PATH: "/usr/bin", ...proxies }, platform, config, launcher);
+    expect([platform, Object.keys(env).filter((name) => /proxy/i.test(name))]).toEqual([
+      platform,
+      [],
+    ]);
+  }
+});

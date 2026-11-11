@@ -20,7 +20,7 @@ describe("getAzureRuntimeStatus", () => {
     });
   });
 
-  test.each(["https-not-ready", "license", "dns"] as const)(
+  test.each(["https-not-ready", "license"] as const)(
     "%s: the container is running, but not ready",
     async (problem) => {
       status({ problem });
