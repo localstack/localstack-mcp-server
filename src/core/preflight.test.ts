@@ -38,6 +38,18 @@ describe("requireLocalStackRunning", () => {
     // No stale advice to install/run a CLI.
     expect(result?.content[0].text).not.toMatch(/localstack start|lstk/);
   });
+
+  test("checks and reports a configured remote endpoint", async () => {
+    mockedGetGatewayHealth.mockResolvedValueOnce({ reachable: false, ready: false });
+    const endpoint = "https://ls-example.sandbox.localstack.cloud";
+
+    const result = await requireLocalStackRunning(endpoint);
+
+    expect(mockedGetGatewayHealth).toHaveBeenCalledWith(endpoint);
+    expect(result?.content[0].text).toContain(endpoint);
+    expect(result?.content[0].text).toMatch(/configured deployment endpoint/i);
+    expect(result?.content[0].text).not.toMatch(/localstack-management/);
+  });
 });
 
 describe("requireDockerDaemon", () => {

@@ -118,6 +118,18 @@ describe("localstack.utils", () => {
   });
 
   describe("getGatewayHealth", () => {
+    test("probes a configured HTTPS gateway", async () => {
+      mockedRequest.mockResolvedValueOnce({ services: { s3: "running" } } as any);
+      const endpoint = "https://ls-example.sandbox.localstack.cloud";
+
+      await getGatewayHealth(endpoint);
+
+      expect(mockedRequest).toHaveBeenCalledWith(
+        "/_localstack/health",
+        expect.objectContaining({ baseUrl: endpoint })
+      );
+    });
+
     test("reports reachable + ready when the gateway answers with running services", async () => {
       mockedRequest.mockResolvedValueOnce({
         services: { s3: "running", lambda: "available" },
