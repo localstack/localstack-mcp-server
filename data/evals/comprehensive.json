@@ -1,13 +1,17 @@
 {
-  "name": "localstack-mcp-gemini-comprehensive",
-  "description": "Scenario-based Gemini evals covering LocalStack MCP tools.",
+  "name": "localstack-mcp-comprehensive",
+  "description": "Scenario-based OpenRouter evals covering LocalStack MCP tools.",
   "cases": [
     {
       "id": "scenario-management-status",
       "description": "localstack-management: status check of the AWS emulator.",
       "mode": "mcp_host",
       "scenario": "Check the current status of the LocalStack AWS emulator using the LocalStack management tool. If it is not running, start it. Report whether it is ready to accept requests.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
       "iterations": 5,
       "accuracyThreshold": 0.8,
       "expect": {
@@ -28,7 +32,11 @@
       "description": "localstack-deployer: deploy the sample Terraform project.",
       "mode": "mcp_host",
       "scenario": "Deploy the Terraform project located in the data/sample-terraform directory of this repository to LocalStack using the LocalStack deployer tool, then report the Terraform outputs.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
       "iterations": 5,
       "accuracyThreshold": 0.8,
       "expect": {
@@ -45,7 +53,11 @@
       "description": "localstack-aws-client: run a pinned AWS CLI command.",
       "mode": "mcp_host",
       "scenario": "Using the LocalStack AWS client tool, run the AWS CLI command \"s3 ls\" against LocalStack. Pass the command string exactly as s3 ls, with no aws or awslocal prefix and no extra flags. Then tell me which S3 buckets exist.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
       "iterations": 5,
       "accuracyThreshold": 0.8,
       "expect": {
@@ -66,7 +78,11 @@
       "description": "localstack-logs-analysis: errors analysis of container logs.",
       "mode": "mcp_host",
       "scenario": "Use the LocalStack logs analysis tool to run an 'errors' analysis of the recent LocalStack container logs and report which AWS API calls failed.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
       "iterations": 5,
       "accuracyThreshold": 0.8,
       "expect": {
@@ -87,7 +103,11 @@
       "description": "localstack-app-inspector: status check plus trace listing.",
       "mode": "mcp_host",
       "scenario": "Using the LocalStack App Inspector tool, first check whether App Inspector is currently enabled, enable it only if it is disabled, and then list the most recent App Inspector traces.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
       "iterations": 5,
       "accuracyThreshold": 0.8,
       "expect": {
@@ -113,7 +133,11 @@
       "description": "localstack-iam-policy-analyzer: read mode, then set SOFT_MODE.",
       "mode": "mcp_host",
       "scenario": "Check the current IAM enforcement mode in LocalStack using the IAM policy analyzer, then set the enforcement mode to SOFT_MODE with the set-mode action. Perform the set-mode call even if the current mode is already SOFT_MODE, so the setting is explicitly confirmed.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
       "iterations": 5,
       "accuracyThreshold": 0.8,
       "expect": {
@@ -139,7 +163,11 @@
       "description": "localstack-state-management: read-only inspect of runtime state.",
       "mode": "mcp_host",
       "scenario": "Using the LocalStack state management tool, inspect the in-memory state of the running LocalStack instance and tell me which AWS services currently hold state. Do not export, import, or reset anything.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
       "iterations": 5,
       "accuracyThreshold": 0.8,
       "expect": {
@@ -161,8 +189,8 @@
       "mode": "mcp_host",
       "scenario": "Using the LocalStack Cloud Pods tool, save the current LocalStack state to a remote Cloud Pod named mcptester-e2e-pod. If saving fails because a pod with that name already exists, delete the existing pod and save again. If a save, load, or delete attempt times out, retry that same operation once before giving up. After saving, load the Cloud Pod mcptester-e2e-pod back into LocalStack. Finally, delete the Cloud Pod mcptester-e2e-pod so nothing is left behind.",
       "mcpHostConfig": {
-        "provider": "google",
-        "model": "gemini-2.5-flash",
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
         "temperature": 0,
         "maxToolCalls": 15
       },
@@ -196,7 +224,11 @@
       "description": "localstack-chaos-injector: inject, verify, and clear latency.",
       "mode": "mcp_host",
       "scenario": "Use the LocalStack chaos injector to add 100 milliseconds of network latency to LocalStack, then read back the currently configured latency to verify it was applied, and finally clear the latency so LocalStack returns to normal.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
       "iterations": 5,
       "accuracyThreshold": 0.8,
       "expect": {
@@ -227,7 +259,11 @@
       "description": "localstack-extensions: browse the marketplace catalog.",
       "mode": "mcp_host",
       "scenario": "Browse the LocalStack Extensions marketplace and show me which extensions are available to install. I want the marketplace catalog of available extensions, not the list of extensions that are already installed.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
       "iterations": 5,
       "accuracyThreshold": 0.8,
       "expect": {
@@ -248,7 +284,11 @@
       "description": "localstack-aws-replicator: read-only supported-resources and job listing.",
       "mode": "mcp_host",
       "scenario": "Using the LocalStack AWS replicator tool, first show me which resource types the AWS replicator supports for replication into LocalStack, and then list any replication jobs that currently exist. Do not start any replication job.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
       "iterations": 5,
       "accuracyThreshold": 0.8,
       "expect": {
@@ -274,7 +314,11 @@
       "description": "localstack-ephemeral-instances: read-only listing.",
       "mode": "mcp_host",
       "scenario": "List all LocalStack Ephemeral Instances that currently exist in my LocalStack Cloud account using the ephemeral instances tool, and summarize their names and statuses. Do not create, modify, or delete any instance.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
       "iterations": 5,
       "accuracyThreshold": 0.8,
       "expect": {
@@ -295,7 +339,11 @@
       "description": "localstack-docs: documentation search.",
       "mode": "mcp_host",
       "scenario": "Search the official LocalStack documentation for how IAM policy enforcement modes work in LocalStack and summarize what the docs say. Use the LocalStack documentation search tool, not the IAM tools that act on the running instance.",
-      "mcpHostConfig": { "provider": "google", "model": "gemini-2.5-flash", "temperature": 0 },
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
       "iterations": 5,
       "accuracyThreshold": 0.8,
       "expect": {
@@ -311,8 +359,8 @@
       "mode": "mcp_host",
       "scenario": "Work with the LocalStack Snowflake emulator: 1) Using the LocalStack management tool with service set to snowflake, start the Snowflake emulator. If it reports that it is already running, continue to step 2. If starting fails because a LocalStack container is already running, that container is the AWS emulator: stop it with the management tool, then start the Snowflake emulator with service snowflake again. If a start attempt times out, keep checking the Snowflake status with the management tool (service snowflake) until it reports ready — do not give up on a timeout. 2) Use the LocalStack Snowflake client to check the connection to the emulator. 3) Use the LocalStack Snowflake client to execute the SQL file data/sample-sql/snowflake_test.sql. 4) Run the query SHOW TABLES IN demo_db.public and tell me whether the customers table exists.",
       "mcpHostConfig": {
-        "provider": "google",
-        "model": "gemini-2.5-flash",
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
         "temperature": 0,
         "maxToolCalls": 15
       },

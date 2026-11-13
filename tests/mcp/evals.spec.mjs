@@ -9,14 +9,21 @@ function requireEnv(name) {
   return value;
 }
 
-test.describe("Gemini comprehensive eval", () => {
+test.describe("OpenRouter comprehensive eval", () => {
   test.describe.configure({ timeout: 5400000 });
 
   test("single comprehensive eval dataset passes", async ({ mcp }, testInfo) => {
-    requireEnv("GOOGLE_GENERATIVE_AI_API_KEY");
+    requireEnv("OPENROUTER_API_KEY");
     requireEnv("LOCALSTACK_AUTH_TOKEN");
 
-    const dataset = await loadEvalDataset("./data/evals/gemini-comprehensive.json");
+    const dataset = await loadEvalDataset("./data/evals/comprehensive.json");
+    // EVAL_MODEL swaps the OpenRouter model for every case, e.g. anthropic/claude-sonnet-4.5.
+    const model = process.env.EVAL_MODEL?.trim();
+    if (model) {
+      for (const evalCase of dataset.cases) {
+        if (evalCase.mcpHostConfig) evalCase.mcpHostConfig.model = model;
+      }
+    }
     const result = await runEvalDataset({ dataset }, { mcp, testInfo });
     const caseResults = result.caseResults || [];
     const passed = caseResults.filter((entry) => entry?.pass === true).length;
