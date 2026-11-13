@@ -266,7 +266,7 @@ export default async function localstackDeployer({
         const nonNullDirectory = directory as string;
 
         // Validate the directory up front; a missing cwd otherwise surfaces as a misleading
-        // "spawn cdklocal/tflocal/samlocal ENOENT". Hint differs by run mode (Docker vs npx).
+        // "spawn lstk ENOENT". Hint differs by run mode (Docker vs npx).
         const resolvedDir = path.resolve(nonNullDirectory);
         const dirExists = await fs.promises
           .stat(resolvedDir)
@@ -394,14 +394,14 @@ async function executeTerraformCommands(
   variables?: Record<string, string>
 ): Promise<DeploymentEvent[]> {
   const events: DeploymentEvent[] = [];
-  const baseCommand = "tflocal";
+  const baseCommand = "lstk";
   const varArgs = variables
     ? Object.entries(variables).flatMap(([k, v]) => ["-var", `${k}=${v}`])
     : [];
 
   if (action === "deploy") {
     events.push({ type: "header", title: "📦 Initializing Terraform", content: "" });
-    const initRes = await runCommand(baseCommand, ["init"], {
+    const initRes = await runCommand(baseCommand, ["terraform", "init"], {
       cwd: directory,
       env: buildIacCliEnv(),
     });
@@ -410,14 +410,14 @@ async function executeTerraformCommands(
     if (initRes.error) {
       events.push({
         type: "error",
-        title: "Error during `tflocal init`",
+        title: "Error during `lstk terraform init`",
         content: initRes.error.message,
       });
       return events;
     }
 
     events.push({ type: "header", title: "🔨 Applying Terraform Configuration", content: "" });
-    const applyArgs = ["apply", "-auto-approve", ...varArgs];
+    const applyArgs = ["terraform", "apply", "-auto-approve", ...varArgs];
     const applyRes = await runCommand(baseCommand, applyArgs, {
       cwd: directory,
       env: buildIacCliEnv(),
@@ -427,13 +427,13 @@ async function executeTerraformCommands(
     if (applyRes.error) {
       events.push({
         type: "error",
-        title: "Error during `tflocal apply`",
+        title: "Error during `lstk terraform apply`",
         content: applyRes.error.message,
       });
       return events;
     }
 
-    const outputRes = await runCommand(baseCommand, ["output", "-json"], {
+    const outputRes = await runCommand(baseCommand, ["terraform", "output", "-json"], {
       cwd: directory,
       env: buildIacCliEnv(),
     });
@@ -444,7 +444,7 @@ async function executeTerraformCommands(
     events.push({ type: "success", content: "Terraform deployment completed successfully!" });
   } else {
     events.push({ type: "header", title: "💥 Destroying Terraform Resources", content: "" });
-    const destroyArgs = ["destroy", "-auto-approve", ...varArgs];
+    const destroyArgs = ["terraform", "destroy", "-auto-approve", ...varArgs];
     const destroyRes = await runCommand(baseCommand, destroyArgs, {
       cwd: directory,
       env: buildIacCliEnv(),
@@ -455,7 +455,7 @@ async function executeTerraformCommands(
     if (destroyRes.error) {
       events.push({
         type: "error",
-        title: "Error during `tflocal destroy`",
+        title: "Error during `lstk terraform destroy`",
         content: destroyRes.error.message,
       });
       return events;
@@ -515,7 +515,7 @@ async function executeSamCommands(
   }
 ): Promise<DeploymentEvent[]> {
   const events: DeploymentEvent[] = [];
-  const baseCommand = "samlocal";
+  const baseCommand = "lstk";
   const defaults = await loadSamConfigDefaults(directory);
   const inferredStackName = `${path.basename(directory).replace(/[^a-zA-Z0-9-]/g, "-")}-stack`;
 
@@ -528,7 +528,7 @@ async function executeSamCommands(
 
   if (action === "deploy") {
     events.push({ type: "header", title: "🏗️ Building SAM Application", content: "" });
-    const buildArgs = ["build", "--cached"];
+    const buildArgs = ["sam", "build", "--cached"];
     if (resolvedTemplatePath) {
       buildArgs.push("--template-file", resolvedTemplatePath);
     }
@@ -542,7 +542,7 @@ async function executeSamCommands(
     if (buildRes.error) {
       events.push({
         type: "error",
-        title: "Error during `samlocal build`",
+        title: "Error during `lstk sam build`",
         content: buildRes.error.message,
       });
       return events;
@@ -550,6 +550,7 @@ async function executeSamCommands(
 
     events.push({ type: "header", title: "🚀 Deploying SAM Application", content: "" });
     const deployArgs = [
+      "sam",
       "deploy",
       "--no-confirm-changeset",
       "--no-fail-on-empty-changeset",
@@ -590,7 +591,7 @@ async function executeSamCommands(
     if (deployRes.error) {
       events.push({
         type: "error",
-        title: "Error during `samlocal deploy`",
+        title: "Error during `lstk sam deploy`",
         content: deployRes.error.message,
       });
       return events;
@@ -599,6 +600,7 @@ async function executeSamCommands(
   } else {
     events.push({ type: "header", title: "💥 Deleting SAM Application", content: "" });
     const deleteArgs = [
+      "sam",
       "delete",
       "--no-prompts",
       "--region",
@@ -617,7 +619,7 @@ async function executeSamCommands(
     if (deleteRes.error) {
       events.push({
         type: "error",
-        title: "Error during `samlocal delete`",
+        title: "Error during `lstk sam delete`",
         content: deleteRes.error.message,
       });
       return events;
@@ -637,14 +639,14 @@ async function executeCdkCommands(
   variables?: Record<string, string>
 ): Promise<DeploymentEvent[]> {
   const events: DeploymentEvent[] = [];
-  const baseCommand = "cdklocal";
+  const baseCommand = "lstk";
   const contextArgs = variables
     ? Object.entries(variables).flatMap(([key, value]) => ["--context", `${key}=${value}`])
     : [];
 
   if (action === "deploy") {
     events.push({ type: "header", title: "🥾 Bootstrapping CDK for LocalStack", content: "" });
-    const bootstrapRes = await runCommand(baseCommand, ["bootstrap"], {
+    const bootstrapRes = await runCommand(baseCommand, ["cdk", "bootstrap"], {
       cwd: directory,
       env: buildIacCliEnv({ CI: "true" }),
     });
@@ -654,7 +656,7 @@ async function executeCdkCommands(
     if (bootstrapRes.error) {
       events.push({
         type: "error",
-        title: "Error during `cdklocal bootstrap`",
+        title: "Error during `lstk cdk bootstrap`",
         content: bootstrapRes.error.message,
       });
       return events;
@@ -663,7 +665,7 @@ async function executeCdkCommands(
     events.push({ type: "header", title: "🚀 Deploying CDK Stack", content: "" });
     const deployRes = await runCommand(
       baseCommand,
-      ["deploy", "--require-approval", "never", "--all", ...contextArgs],
+      ["cdk", "deploy", "--require-approval", "never", "--all", ...contextArgs],
       { cwd: directory, env: buildIacCliEnv({ CI: "true" }) }
     );
     const cleanDeployOutput = stripAnsiCodes(deployRes.stdout);
@@ -679,7 +681,7 @@ async function executeCdkCommands(
     if (deployRes.error) {
       events.push({
         type: "error",
-        title: "Error during `cdklocal deploy`",
+        title: "Error during `lstk cdk deploy`",
         content: deployRes.error.message,
       });
       return events;
@@ -689,7 +691,7 @@ async function executeCdkCommands(
     events.push({ type: "header", title: "💥 Destroying CDK Stack", content: "" });
     const destroyRes = await runCommand(
       baseCommand,
-      ["destroy", "--force", "--all", ...contextArgs],
+      ["cdk", "destroy", "--force", "--all", ...contextArgs],
       { cwd: directory, env: buildIacCliEnv({ CI: "true" }) }
     );
     events.push({ type: "output", content: stripAnsiCodes(destroyRes.stdout) });
@@ -698,7 +700,7 @@ async function executeCdkCommands(
     if (destroyRes.error) {
       events.push({
         type: "error",
-        title: "Error during `cdklocal destroy`",
+        title: "Error during `lstk cdk destroy`",
         content: destroyRes.error.message,
       });
       return events;

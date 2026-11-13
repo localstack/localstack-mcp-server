@@ -1,14 +1,72 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { runCommand, CommandResult } from "../../core/command-runner";
 import {
+  checkDependencies,
   inferProjectType,
   parseCdkOutputs,
   parseTerraformOutputs,
   validateVariables,
 } from "./deployment-utils";
 
+jest.mock("../../core/command-runner", () => ({
+  runCommand: jest.fn(),
+}));
+
+const mockedRunCommand = runCommand as jest.MockedFunction<typeof runCommand>;
+
+function result(overrides: Partial<CommandResult> = {}): CommandResult {
+  return { stdout: "", stderr: "", exitCode: 0, ...overrides };
+}
+
 describe("deployment-utils", () => {
+  describe("checkDependencies", () => {
+    beforeEach(() => mockedRunCommand.mockReset());
+
+    it("requires lstk before the wrapped IaC CLI", async () => {
+      mockedRunCommand.mockResolvedValueOnce(result({ error: new Error("spawn lstk ENOENT") }));
+
+      const check = await checkDependencies("terraform");
+
+      expect(check.isAvailable).toBe(false);
+      expect(check.tool).toBe("lstk");
+      expect(check.errorMessage).toContain("npm install -g @localstack/lstk");
+      expect(mockedRunCommand).toHaveBeenCalledTimes(1);
+    });
+
+    it("requires the IaC CLI lstk wraps", async () => {
+      mockedRunCommand
+        .mockResolvedValueOnce(result({ stdout: "lstk 1.4.2\n" }))
+        .mockResolvedValueOnce(result({ error: new Error("spawn sam ENOENT") }));
+
+      const check = await checkDependencies("sam");
+
+      expect(check.isAvailable).toBe(false);
+      expect(check.tool).toBe("sam");
+      expect(mockedRunCommand).toHaveBeenLastCalledWith("sam", ["--version"], expect.anything());
+    });
+
+    it("reports both versions when lstk and the IaC CLI are installed", async () => {
+      mockedRunCommand
+        .mockResolvedValueOnce(result({ stdout: "lstk 1.4.2\n" }))
+        .mockResolvedValueOnce(result({ stdout: "Terraform v1.13.0\non darwin_arm64\n" }));
+
+      const check = await checkDependencies("terraform");
+
+      expect(check).toEqual({
+        isAvailable: true,
+        tool: "lstk terraform",
+        version: "lstk 1.4.2; Terraform v1.13.0",
+      });
+      expect(mockedRunCommand).toHaveBeenLastCalledWith(
+        "terraform",
+        ["version"],
+        expect.anything()
+      );
+    });
+  });
+
   describe("validateVariables", () => {
     it("should allow valid variables", () => {
       const errors = validateVariables({ key: "value", ANOTHER_KEY: "some-value-123" });

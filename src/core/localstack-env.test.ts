@@ -20,11 +20,17 @@ describe("buildIacCliEnv", () => {
     expect(env.AWS_REGION).toBe("us-east-1");
     expect(env.CDK_DEFAULT_ACCOUNT).toBe("000000000000");
     expect(env.CDK_DEFAULT_REGION).toBe("us-east-1");
-    expect(env.AWS_ENVAR_ALLOWLIST).toContain("AWS_ACCESS_KEY_ID");
-    expect(env.AWS_ENDPOINT_URL).toBeUndefined();
+    expect(env.CI).toBe("true");
   });
 
-  it("adds Docker endpoint overrides when LocalStack runs through the host gateway", () => {
+  it("points lstk at localhost.localstack.cloud for a local LocalStack", () => {
+    const env = buildIacCliEnv();
+
+    expect(env.AWS_ENDPOINT_URL).toBe("http://localhost.localstack.cloud:4566");
+    expect(env.AWS_ENDPOINT_URL_S3).toBeUndefined();
+  });
+
+  it("points lstk at the host gateway when LocalStack runs outside the container", () => {
     process.env.LOCALSTACK_HOSTNAME = "host.docker.internal";
 
     const env = buildIacCliEnv();
@@ -32,10 +38,16 @@ describe("buildIacCliEnv", () => {
     expect(env.AWS_ACCESS_KEY_ID).toBe("test");
     expect(env.AWS_SECRET_ACCESS_KEY).toBe("test");
     expect(env.AWS_ENDPOINT_URL).toBe("http://host.docker.internal:4566");
-    expect(env.AWS_ENDPOINT_URL_S3).toBe("http://s3.host.docker.internal:4566");
-    expect(env.S3_ENDPOINT).toBe("http://host.docker.internal:4566");
-    expect(env.AWS_S3_FORCE_PATH_STYLE).toBe("1");
-    expect(env.LOCALSTACK_HOSTNAME).toBe("host.docker.internal");
+    // lstk derives the S3 endpoint and path-style addressing itself.
+    expect(env.AWS_ENDPOINT_URL_S3).toBeUndefined();
+  });
+
+  it("preserves an explicit endpoint", () => {
+    process.env.LOCALSTACK_HOSTNAME = "host.docker.internal";
+
+    const env = buildIacCliEnv({ AWS_ENDPOINT_URL: "https://example.localstack.cloud" });
+
+    expect(env.AWS_ENDPOINT_URL).toBe("https://example.localstack.cloud");
   });
 
   it("preserves explicit credentials and regions", () => {
