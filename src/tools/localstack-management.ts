@@ -258,7 +258,7 @@ async function handleStop({ service }: { service: Service }) {
 
 // Handle restart action — stop the running container, then start fresh (applies any
 // new envVars). The recreate reuses the original container's image, name, and volume
-// so an externally-provisioned runtime (a legacy localstack-main, custom names/images)
+// so an externally-provisioned runtime (lstk's localstack-aws, custom names/images)
 // is not silently replaced by our defaults — that would strand its state.
 async function handleRestart({
   envVars,

@@ -294,7 +294,7 @@ describe("localstack.utils", () => {
       expect(client.createAndStartContainer).toHaveBeenCalledTimes(1);
       const spec = client.createAndStartContainer.mock.calls[0][0];
       expect(spec.Image).toBe("localstack/localstack-pro:latest");
-      expect(spec.name).toBe("localstack-aws");
+      expect(spec.name).toBe("localstack-main");
     });
 
     test("pulls the image when missing", async () => {
@@ -330,9 +330,9 @@ describe("localstack.utils", () => {
       expect(client.createAndStartContainer).not.toHaveBeenCalled();
     });
 
-    test("reports a conflict when another stack's container runs under its own lstk name", async () => {
-      // Each stack has its own name, so starting Snowflake must still notice a running
-      // localstack-aws: both publish the gateway port.
+    test("reports a conflict when an lstk container runs under its own name", async () => {
+      // lstk names the container localstack-aws, so the localstack-main name check alone
+      // would miss it; both publish the gateway port.
       const { client } = mockDockerClient({
         findContainerByNameAnyState: jest.fn(async (name: string) =>
           name === "localstack-aws"
@@ -362,10 +362,10 @@ describe("localstack.utils", () => {
       expect(client.createAndStartContainer).not.toHaveBeenCalled();
     });
 
-    test("reports a conflict when a container runs under the legacy localstack-main name", async () => {
+    test("reports a conflict when lstk's Azure container holds the gateway port", async () => {
       const { client } = mockDockerClient({
         findContainerByNameAnyState: jest.fn(async (name: string) =>
-          name === "localstack-main"
+          name === "localstack-azure"
             ? {
                 id: "old-1",
                 name,
@@ -380,7 +380,7 @@ describe("localstack.utils", () => {
       const getStatus = jest.fn().mockResolvedValue({ isRunning: false });
 
       const result = await launchRuntime({ ...launchDefaults, getStatus, dockerClient: client });
-      expect(result.content[0].text).toContain('named "localstack-main"');
+      expect(result.content[0].text).toContain('named "localstack-azure"');
       expect(client.createAndStartContainer).not.toHaveBeenCalled();
     });
 
@@ -413,14 +413,14 @@ describe("localstack.utils", () => {
         dockerClient: client,
       });
       expect(result.content[0].text).toContain("started successfully");
-      expect(client.createAndStartContainer.mock.calls[0][0].name).toBe("localstack-snowflake");
+      expect(client.createAndStartContainer.mock.calls[0][0].name).toBe("localstack-main");
     });
 
     test("leaves stopped containers of other names alone", async () => {
       const { client } = mockDockerClient({
         findContainerByNameAnyState: jest.fn(async (name: string) =>
-          name === "localstack-main"
-            ? { id: "old-stopped", name, state: "exited", running: false }
+          name === "localstack-aws"
+            ? { id: "lstk-stopped", name, state: "exited", running: false, publicPorts: [] }
             : null
         ),
       });

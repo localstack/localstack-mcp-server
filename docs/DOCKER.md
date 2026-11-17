@@ -12,7 +12,7 @@ The image is multi-arch (`linux/amd64` and `linux/arm64`).
 
 The container talks to your **host Docker daemon** through the bind-mounted
 `/var/run/docker.sock`. When you ask the server to start LocalStack, it creates a
-**sibling** `localstack-aws` container on the host (not nested inside the MCP
+**sibling** `localstack-main` container on the host (not nested inside the MCP
 container) directly via the Docker API. Stop/restart operations act on the detected
 sibling container the same way. The MCP server and the IaC CLIs reach that sibling
 over the host gateway.
@@ -22,7 +22,7 @@ MCP client ── stdio ──► docker run … (MCP server)
                               │  /var/run/docker.sock (mounted)
                               ▼
                          host Docker daemon
-                              └─ localstack-aws   (sibling, publishes :4566 on the host)
+                              └─ localstack-main  (sibling, publishes :4566 on the host)
 ```
 
 Because LocalStack is a sibling container, one thing must be configured at run time:
@@ -118,7 +118,7 @@ that still pass `--add-host s3.host.docker.internal:host-gateway` keep working.
 - **Extra host aliases.** Include the aliases shown in the quick-start command.
 - **First cold start** of LocalStack can take up to ~2 minutes while the image is
   pulled and the runtime initializes; subsequent starts reuse the persisted volume.
-- **Persistence across MCP restarts.** The sibling `localstack-aws` keeps running
+- **Persistence across MCP restarts.** The sibling `localstack-main` keeps running
   on the host even if your editor restarts the MCP container — reconnecting finds
   your stack still up. State persists in the `localstack-mcp` named volume (or
   `LOCALSTACK_VOLUME_DIR` if you set one).
@@ -129,14 +129,14 @@ that still pass `--add-host s3.host.docker.internal:host-gateway` keep working.
 
 ## Troubleshooting
 
-| Symptom                                                                                                         | Cause / fix                                                                                                                                                                                      |
-| --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Tools report `LocalStack Not Running` after `start`                                                             | Check `LOCALSTACK_HOSTNAME=host.docker.internal` is set and `--add-host` is present (Linux).                                                                                                     |
-| `Auth Token Required`                                                                                           | `LOCALSTACK_AUTH_TOKEN` must be passed through (every tool requires it).                                                                                                                         |
-| `Docker Not Available` / daemon unreachable                                                                     | Ensure `/var/run/docker.sock` is mounted (or pass `DOCKER_HOST` for a non-default daemon).                                                                                                       |
-| `LocalStack container not found` or `Could not find a running LocalStack container named "localstack-aws" or …` | Set `MAIN_CONTAINER_NAME` if you use a custom LocalStack container name.                                                                                                                         |
-| State disappeared after upgrading the image                                                                     | Old configs stored state under `$XDG_CACHE_HOME/localstack/volume` — keep that env var, or point `LOCALSTACK_VOLUME_DIR` at the old directory.                                                   |
-| MCP server containers pile up over time                                                                         | Older images did not exit when the client disconnected. Pull the latest image, then remove strays with `docker ps -aq --filter ancestor=localstack/localstack-mcp-server \| xargs docker rm -f`. |
+| Symptom                                                                                                     | Cause / fix                                                                                                                                                                                      |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Tools report `LocalStack Not Running` after `start`                                                         | Check `LOCALSTACK_HOSTNAME=host.docker.internal` is set and `--add-host` is present (Linux).                                                                                                     |
+| `Auth Token Required`                                                                                       | `LOCALSTACK_AUTH_TOKEN` must be passed through (every tool requires it).                                                                                                                         |
+| `Docker Not Available` / daemon unreachable                                                                 | Ensure `/var/run/docker.sock` is mounted (or pass `DOCKER_HOST` for a non-default daemon).                                                                                                       |
+| `LocalStack container not found` or `Could not find a running LocalStack container named "localstack-main"` | The server looks for `localstack-main` and lstk's `localstack-aws`, `localstack-snowflake` and `localstack-azure`. Set `MAIN_CONTAINER_NAME` if you use another name.                            |
+| State disappeared after upgrading the image                                                                 | Old configs stored state under `$XDG_CACHE_HOME/localstack/volume` — keep that env var, or point `LOCALSTACK_VOLUME_DIR` at the old directory.                                                   |
+| MCP server containers pile up over time                                                                     | Older images did not exit when the client disconnected. Pull the latest image, then remove strays with `docker ps -aq --filter ancestor=localstack/localstack-mcp-server \| xargs docker rm -f`. |
 
 ## Validating an image yourself
 

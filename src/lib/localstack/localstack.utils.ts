@@ -487,10 +487,10 @@ async function launchRuntimeInner(
 
   // Fail fast (or clean up) when the container name is taken. A running container is
   // an actionable conflict; a stopped one is a stale leftover we remove ourselves.
-  // Each stack has its own default name (lstk's `localstack-{type}`), so a running
-  // container under another known name (another stack, or the legacy `localstack-main`)
-  // is a conflict too when it publishes a host port this start binds. One on other
-  // ports (a second emulator on its own GATEWAY_LISTEN) may keep running.
+  // lstk names its containers `localstack-{type}`, so a running container under
+  // another known name is a conflict too when it publishes a host port this start
+  // binds. One on other ports (a second emulator on its own GATEWAY_LISTEN) may keep
+  // running.
   // Short timeouts: this is pre-start housekeeping — a hung daemon should surface
   // as an error in seconds, not block the start for two minutes.
   try {

@@ -121,8 +121,8 @@ describe("localstack-management", () => {
 
     await localstackManagement({ action: "stop", service: "aws" } as any);
     expect(findContainerByNameAnyState.mock.calls.map(([name]) => name)).toEqual([
-      "localstack-aws",
       "localstack-main",
+      "localstack-aws",
     ]);
     expect(removeContainer).not.toHaveBeenCalled();
   });

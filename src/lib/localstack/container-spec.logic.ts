@@ -1,13 +1,12 @@
 /**
  * Pure builder for the LocalStack container spec (dockerode `createContainer` options).
  *
- * Builds the runtime container without any CLI installed. The container name follows
- * lstk (`internal/config/containers.go`, `ContainerConfig.defaultName`); the other
- * behavioral anchors were verified against the 2026.x `localstack_cli` wheel source:
+ * Replicates what `localstack start` used to assemble via the Python CLI so the MCP
+ * server can create the runtime with no CLI installed. Behavioral anchors (verified
+ * against the 2026.x `localstack_cli` wheel source):
  *   - image `localstack/localstack-pro:latest` (pro unconditional), `--stack snowflake`
  *     ⇒ `localstack/snowflake:latest`
- *   - container name `localstack-{stack}` (lstk's default: `localstack-aws`,
- *     `localstack-snowflake`, `localstack-azure`), also injected as `MAIN_CONTAINER_NAME` env
+ *   - container name `localstack-main`, also injected as `MAIN_CONTAINER_NAME` env
  *   - ports 4566, 443 (only when GATEWAY_LISTEN is unset) and the external service
  *     range 4510–4560 inclusive; bind host 127.0.0.1 on a host, 0.0.0.0 in Docker
  *   - volume dir → /var/lib/localstack, docker socket → /var/run/docker.sock
@@ -91,22 +90,26 @@ const AI_AGENT_DETECTORS: Array<[string, string[]]> = [
 
 export type LocalStackStack = "aws" | "snowflake" | "azure";
 
-/** lstk's default container name per stack (`localstack-{type}`). */
-export const DEFAULT_CONTAINER_NAMES: Readonly<Record<LocalStackStack, string>> = {
+/** The name the start action gives a new container when MAIN_CONTAINER_NAME is unset. */
+export const DEFAULT_CONTAINER_NAME = "localstack-main";
+
+/**
+ * lstk's default container name per stack (`localstack-{type}`, from
+ * `ContainerConfig.defaultName` in lstk's `internal/config/containers.go`). The server
+ * does not create containers under these names, but finds and manages ones lstk started.
+ */
+export const LSTK_CONTAINER_NAMES: Readonly<Record<LocalStackStack, string>> = {
   aws: "localstack-aws",
   snowflake: "localstack-snowflake",
   azure: "localstack-azure",
 };
 
-/** The name earlier versions of this server (and the legacy CLI) gave the container. */
-export const LEGACY_CONTAINER_NAME = "localstack-main";
-
 /** Names a LocalStack container may have when no MAIN_CONTAINER_NAME is configured. */
 export const KNOWN_CONTAINER_NAMES: readonly string[] = [
-  DEFAULT_CONTAINER_NAMES.aws,
-  DEFAULT_CONTAINER_NAMES.snowflake,
-  DEFAULT_CONTAINER_NAMES.azure,
-  LEGACY_CONTAINER_NAME,
+  DEFAULT_CONTAINER_NAME,
+  LSTK_CONTAINER_NAMES.aws,
+  LSTK_CONTAINER_NAMES.snowflake,
+  LSTK_CONTAINER_NAMES.azure,
 ];
 
 export type VolumeResolution = { type: "bind"; source: string } | { type: "volume"; name: string };
@@ -180,24 +183,21 @@ export function configuredContainerName(
   );
 }
 
-/** The name for a new container of this stack: the configured one, else lstk's default. */
-export function resolveContainerName(
-  hostEnv: Record<string, string | undefined>,
-  stack: LocalStackStack
-): string {
-  return configuredContainerName(hostEnv) || DEFAULT_CONTAINER_NAMES[stack];
+/** The name for a new container: the configured one, else `localstack-main`. */
+export function resolveContainerName(hostEnv: Record<string, string | undefined>): string {
+  return configuredContainerName(hostEnv) || DEFAULT_CONTAINER_NAME;
 }
 
 /**
- * Names a stopped container of this stack may hold: the configured name, else the
- * stack's lstk name and the legacy `localstack-main`.
+ * Names a stopped container of this stack may hold: the configured name, else
+ * `localstack-main` and the stack's lstk name.
  */
 export function stackContainerNames(
   hostEnv: Record<string, string | undefined>,
   stack: LocalStackStack
 ): string[] {
   const configured = configuredContainerName(hostEnv);
-  return configured ? [configured] : [DEFAULT_CONTAINER_NAMES[stack], LEGACY_CONTAINER_NAME];
+  return configured ? [configured] : [DEFAULT_CONTAINER_NAME, LSTK_CONTAINER_NAMES[stack]];
 }
 
 function parsePort(text: string, context: string): number {
@@ -504,8 +504,7 @@ function buildEnv(input: ContainerSpecInput, ports: ResolvedPorts, name: string)
 }
 
 export function buildLocalStackContainerSpec(input: ContainerSpecInput): LocalStackContainerSpec {
-  const name =
-    input.containerNameOverride?.trim() || resolveContainerName(input.hostEnv, input.stack);
+  const name = input.containerNameOverride?.trim() || resolveContainerName(input.hostEnv);
   const image = input.imageOverride?.trim() || resolveImage(input.stack, input.hostEnv);
   const ports = resolvePorts(input);
 

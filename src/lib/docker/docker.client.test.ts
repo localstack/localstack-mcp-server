@@ -93,7 +93,7 @@ describe("DockerApiClient", () => {
     );
   });
 
-  test("findLocalStackContainer still finds a container under the legacy localstack-main name", async () => {
+  test("findLocalStackContainer returns id when found", async () => {
     const mocks = getDockerMocks();
     mocks.listContainers.mockResolvedValueOnce([
       { Id: "abc123", Names: ["/localstack-main"], Image: "localstack/localstack:latest" },
@@ -286,7 +286,7 @@ describe("DockerApiClient", () => {
 
     const client = new DockerApiClient();
     await expect(client.findLocalStackContainer()).rejects.toThrow(
-      /Could not find a running LocalStack container named "localstack-aws" or "localstack-snowflake" or "localstack-azure" or "localstack-main"/i
+      /Could not find a running LocalStack container named "localstack-main" or "localstack-aws" or "localstack-snowflake" or "localstack-azure"/i
     );
   });
 
@@ -326,15 +326,15 @@ describe("DockerApiClient", () => {
     await expect(client.findLocalStackContainer()).resolves.toBe("snow");
   });
 
-  test("findLocalStackContainer prefers lstk's localstack-aws over the legacy localstack-main", async () => {
+  test("findLocalStackContainer prefers localstack-main over lstk's localstack-aws", async () => {
     const mocks = getDockerMocks();
     mocks.listContainers.mockResolvedValueOnce([
-      { Id: "legacy", Names: ["/localstack-main"], Image: "registry.example/ls:1" },
       { Id: "lstk", Names: ["/localstack-aws"], Image: "registry.example/ls:1" },
+      { Id: "mcp", Names: ["/localstack-main"], Image: "registry.example/ls:1" },
     ]);
 
     const client = new DockerApiClient();
-    await expect(client.findLocalStackContainer()).resolves.toBe("lstk");
+    await expect(client.findLocalStackContainer()).resolves.toBe("mcp");
   });
 
   test("stopContainer stops the container via the Docker API", async () => {
