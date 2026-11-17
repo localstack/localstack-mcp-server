@@ -86,20 +86,62 @@ describe("localstack-management", () => {
       findLocalStackContainer: jest
         .fn()
         .mockRejectedValue(new LocalStackContainerNotFoundError("none running")),
-      findContainerByNameAnyState: jest.fn().mockResolvedValue({
-        id: "stale-1",
-        name: "localstack-main",
-        state: "exited",
-        running: false,
-      }),
+      findContainerByNameAnyState: jest.fn(async (name: string) =>
+        name === "localstack-snowflake"
+          ? { id: "stale-1", name, state: "exited", running: false }
+          : null
+      ),
       removeContainer,
       waitForRemoval,
     });
 
-    const result = await localstackManagement({ action: "stop", service: "aws" } as any);
+    const result = await localstackManagement({ action: "stop", service: "snowflake" } as any);
+    expect(removeContainer).toHaveBeenCalledTimes(1);
     expect(removeContainer).toHaveBeenCalledWith("stale-1");
     expect(waitForRemoval).toHaveBeenCalledWith("stale-1");
-    expect(text(result)).toContain("Removed stopped LocalStack container");
+    expect(text(result)).toContain('Removed stopped LocalStack container "localstack-snowflake"');
+  });
+
+  test("stop leaves a stopped container of another stack alone", async () => {
+    const { LocalStackContainerNotFoundError } = jest.requireActual("../lib/docker/docker.client");
+    const removeContainer = jest.fn().mockResolvedValue(undefined);
+    const findContainerByNameAnyState = jest.fn(async (name: string) =>
+      name === "localstack-snowflake"
+        ? { id: "stale-1", name, state: "exited", running: false, publicPorts: [] }
+        : null
+    );
+    mockDocker({
+      findLocalStackContainer: jest
+        .fn()
+        .mockRejectedValue(new LocalStackContainerNotFoundError("none running")),
+      findContainerByNameAnyState,
+      removeContainer,
+    });
+    mockedGetStatus.mockResolvedValue({ isRunning: false, isReady: false });
+
+    await localstackManagement({ action: "stop", service: "aws" } as any);
+    expect(findContainerByNameAnyState.mock.calls.map(([name]) => name)).toEqual([
+      "localstack-aws",
+      "localstack-main",
+    ]);
+    expect(removeContainer).not.toHaveBeenCalled();
+  });
+
+  test("stop looks only under MAIN_CONTAINER_NAME when it is set", async () => {
+    process.env.MAIN_CONTAINER_NAME = "my-ls";
+    const { LocalStackContainerNotFoundError } = jest.requireActual("../lib/docker/docker.client");
+    const findContainerByNameAnyState = jest.fn().mockResolvedValue(null);
+    mockDocker({
+      findLocalStackContainer: jest
+        .fn()
+        .mockRejectedValue(new LocalStackContainerNotFoundError("none running")),
+      findContainerByNameAnyState,
+    });
+    mockedGetStatus.mockResolvedValue({ isRunning: false, isReady: false });
+
+    await localstackManagement({ action: "stop", service: "aws" } as any);
+    expect(findContainerByNameAnyState).toHaveBeenCalledTimes(1);
+    expect(findContainerByNameAnyState).toHaveBeenCalledWith("my-ls");
   });
 
   test("stop reports nothing to do when no container exists and the gateway is down", async () => {

@@ -1,7 +1,11 @@
 import { PassThrough } from "stream";
 import { createRequire } from "node:module";
 import { LOCALSTACK_PORT } from "../../core/config";
-import type { LocalStackContainerSpec } from "../localstack/container-spec.logic";
+import {
+  configuredContainerName,
+  KNOWN_CONTAINER_NAMES,
+  type LocalStackContainerSpec,
+} from "../localstack/container-spec.logic";
 
 export interface ContainerExecResult {
   stdout: string;
@@ -15,6 +19,8 @@ export interface ContainerStateInfo {
   state: string;
   image?: string;
   running: boolean;
+  /** Host ports the container publishes (only known for a running container). */
+  publicPorts: number[];
 }
 
 /**
@@ -191,12 +197,25 @@ export class DockerApiClient {
     );
   }
 
-  private findByKnownLocalStackName<T extends { Names?: string[] }>(
-    containers: T[]
-  ): T | undefined {
-    return ["localstack-main", "localstack-aws"]
-      .map((name) => containers.find((c) => this.matchesConfiguredContainerName(c, name)))
-      .find(Boolean);
+  /**
+   * The running container under a known LocalStack name. lstk can run several stacks
+   * side by side, each under its own name and port, so when more than one known name is
+   * running, the one publishing the configured gateway port wins; otherwise name order.
+   */
+  private findByKnownLocalStackName<
+    T extends {
+      Names?: string[];
+      Ports?: Array<{ PrivatePort?: number; PublicPort?: number; Type?: string }>;
+    },
+  >(containers: T[]): T | undefined {
+    const known = KNOWN_CONTAINER_NAMES.map((name) =>
+      containers.find((c) => this.matchesConfiguredContainerName(c, name))
+    ).filter((c): c is T => Boolean(c));
+    if (known.length > 1) {
+      const byGatewayPort = known.find((c) => this.publishesConfiguredGatewayPort(c));
+      if (byGatewayPort) return byGatewayPort;
+    }
+    return known[0];
   }
 
   async findLocalStackContainer(): Promise<string> {
@@ -209,16 +228,11 @@ export class DockerApiClient {
       Ports?: Array<{ PrivatePort?: number; PublicPort?: number; Type?: string }>;
     }>;
 
-    const explicitName = (
-      process.env.MAIN_CONTAINER_NAME ||
-      process.env.LOCALSTACK_MAIN_CONTAINER_NAME ||
-      ""
-    ).trim();
-    const configuredName = explicitName || "localstack-main";
+    const explicitName = configuredContainerName(process.env);
 
     if (explicitName) {
       const byConfiguredName = (running || []).find((c) =>
-        this.matchesConfiguredContainerName(c, configuredName)
+        this.matchesConfiguredContainerName(c, explicitName)
       );
       if (byConfiguredName) return byConfiguredName.Id as string;
     }
@@ -248,9 +262,11 @@ export class DockerApiClient {
       }
     }
 
+    const lookedFor = explicitName ? [explicitName] : KNOWN_CONTAINER_NAMES;
     throw new LocalStackContainerNotFoundError(
-      `Could not find a running LocalStack container named "${configuredName}". ` +
-        `Set MAIN_CONTAINER_NAME to your container name if it is custom.`
+      `Could not find a running LocalStack container named ${lookedFor
+        .map((name) => `"${name}"`)
+        .join(" or ")}. ` + `Set MAIN_CONTAINER_NAME to your container name if it is custom.`
     );
   }
 
@@ -578,7 +594,13 @@ export class DockerApiClient {
       (this.docker.listContainers as any)({ all: true, filters: { name: [name] } }),
       10000,
       "Docker container list"
-    )) as Array<{ Id: string; Names?: string[]; State?: string; Image?: string }>;
+    )) as Array<{
+      Id: string;
+      Names?: string[];
+      State?: string;
+      Image?: string;
+      Ports?: Array<{ PublicPort?: number }>;
+    }>;
 
     const match = (containers || []).find((container) =>
       this.matchesConfiguredContainerName(container, name)
@@ -590,6 +612,9 @@ export class DockerApiClient {
       state: match.State || "unknown",
       image: match.Image,
       running: match.State === "running",
+      publicPorts: (match.Ports || [])
+        .map((port) => port.PublicPort)
+        .filter((port): port is number => typeof port === "number"),
     };
   }
 

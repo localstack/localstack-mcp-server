@@ -124,7 +124,7 @@
           "name": "GATEWAY_LISTEN"
         },
         {
-          "description": "Explicit LocalStack container name for Docker-based tools and the container created by start. Defaults to localstack-main (auto-detection covers common names).",
+          "description": "Explicit LocalStack container name for Docker-based tools and the container created by start. Defaults to lstk's name for the stack: localstack-aws, localstack-snowflake or localstack-azure (detection also finds the older localstack-main).",
           "isRequired": false,
           "format": "string",
           "isSecret": false,

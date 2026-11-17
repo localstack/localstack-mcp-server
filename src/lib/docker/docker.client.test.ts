@@ -93,7 +93,7 @@ describe("DockerApiClient", () => {
     );
   });
 
-  test("findLocalStackContainer returns id when found", async () => {
+  test("findLocalStackContainer still finds a container under the legacy localstack-main name", async () => {
     const mocks = getDockerMocks();
     mocks.listContainers.mockResolvedValueOnce([
       { Id: "abc123", Names: ["/localstack-main"], Image: "localstack/localstack:latest" },
@@ -286,8 +286,55 @@ describe("DockerApiClient", () => {
 
     const client = new DockerApiClient();
     await expect(client.findLocalStackContainer()).rejects.toThrow(
-      /Could not find a running LocalStack container named "localstack-main"/i
+      /Could not find a running LocalStack container named "localstack-aws" or "localstack-snowflake" or "localstack-azure" or "localstack-main"/i
     );
+  });
+
+  test("findLocalStackContainer matches lstk's per-stack names for images it does not recognize", async () => {
+    // lstk names containers localstack-{type}; snowflake-next is a preview image lstk
+    // runs with --image, which the image fallback does not know.
+    for (const name of ["localstack-snowflake", "localstack-azure"]) {
+      const mocks = getDockerMocks();
+      mocks.listContainers.mockResolvedValueOnce([
+        { Id: `${name}-id`, Names: [`/${name}`], Image: "localstack/snowflake-next:latest" },
+      ]);
+      const client = new DockerApiClient();
+      await expect(client.findLocalStackContainer()).resolves.toBe(`${name}-id`);
+    }
+  });
+
+  test("findLocalStackContainer picks the known name on the configured gateway port", async () => {
+    // lstk can run localstack-aws on 4566 and localstack-snowflake on 4567 at once.
+    process.env.LOCALSTACK_PORT = "4567";
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      {
+        Id: "aws",
+        Names: ["/localstack-aws"],
+        Image: "localstack/localstack-pro:latest",
+        Ports: [{ PrivatePort: 4566, PublicPort: 4566, Type: "tcp" }],
+      },
+      {
+        Id: "snow",
+        Names: ["/localstack-snowflake"],
+        Image: "localstack/snowflake:latest",
+        Ports: [{ PrivatePort: 4566, PublicPort: 4567, Type: "tcp" }],
+      },
+    ]);
+
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).resolves.toBe("snow");
+  });
+
+  test("findLocalStackContainer prefers lstk's localstack-aws over the legacy localstack-main", async () => {
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      { Id: "legacy", Names: ["/localstack-main"], Image: "registry.example/ls:1" },
+      { Id: "lstk", Names: ["/localstack-aws"], Image: "registry.example/ls:1" },
+    ]);
+
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).resolves.toBe("lstk");
   });
 
   test("stopContainer stops the container via the Docker API", async () => {

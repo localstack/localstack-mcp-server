@@ -5,14 +5,17 @@ import {
   getLocalStackStatus,
   getSnowflakeEmulatorStatus,
   launchRuntime,
-  resolveContainerName,
 } from "../lib/localstack/localstack.utils";
 import {
   DockerApiClient,
   isLocalStackContainerNotFoundError,
   type ContainerMetadata,
 } from "../lib/docker/docker.client";
-import { stackFromImage, type VolumeResolution } from "../lib/localstack/container-spec.logic";
+import {
+  stackContainerNames,
+  stackFromImage,
+  type VolumeResolution,
+} from "../lib/localstack/container-spec.logic";
 import {
   runPreflights,
   requireProFeature,
@@ -96,7 +99,7 @@ export default async function localstackManagement({
       case "start":
         return await handleStart({ envVars, service });
       case "stop":
-        return await handleStop();
+        return await handleStop({ service });
       case "restart":
         return await handleRestart({ envVars, service });
       case "status":
@@ -196,7 +199,7 @@ async function handleStart({
 // Handle stop action — stop the detected container via the Docker API. Also cleans up
 // stopped/stale containers occupying a LocalStack name, so start's conflict advice
 // ("stop it first") always has a working recovery path.
-async function handleStop() {
+async function handleStop({ service }: { service: Service }) {
   const dockerClient = new DockerApiClient();
   let containerId: string;
   try {
@@ -209,15 +212,21 @@ async function handleStop() {
       );
     }
 
-    // No RUNNING container found — check for a stale stopped one holding the name.
+    // No RUNNING container found — check for stale stopped ones holding this stack's name.
     try {
-      const stale = await dockerClient.findContainerByNameAnyState(
-        resolveContainerName(process.env)
-      );
-      if (stale && !stale.running) {
-        await dockerClient.removeContainer(stale.id);
-        await dockerClient.waitForRemoval(stale.id);
-        return ResponseBuilder.markdown(`🛑 Removed stopped LocalStack container "${stale.name}".`);
+      const removed: string[] = [];
+      for (const name of stackContainerNames(process.env, service)) {
+        const stale = await dockerClient.findContainerByNameAnyState(name);
+        if (stale && !stale.running) {
+          await dockerClient.removeContainer(stale.id);
+          await dockerClient.waitForRemoval(stale.id);
+          removed.push(`"${stale.name}"`);
+        }
+      }
+      if (removed.length > 0) {
+        return ResponseBuilder.markdown(
+          `🛑 Removed stopped LocalStack container${removed.length > 1 ? "s" : ""} ${removed.join(", ")}.`
+        );
       }
     } catch {
       // fall through to the gateway-based reporting below
@@ -249,7 +258,7 @@ async function handleStop() {
 
 // Handle restart action — stop the running container, then start fresh (applies any
 // new envVars). The recreate reuses the original container's image, name, and volume
-// so an externally-provisioned runtime (lstk's localstack-aws, custom names/images)
+// so an externally-provisioned runtime (a legacy localstack-main, custom names/images)
 // is not silently replaced by our defaults — that would strand its state.
 async function handleRestart({
   envVars,

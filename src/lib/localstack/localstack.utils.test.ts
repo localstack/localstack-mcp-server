@@ -294,7 +294,7 @@ describe("localstack.utils", () => {
       expect(client.createAndStartContainer).toHaveBeenCalledTimes(1);
       const spec = client.createAndStartContainer.mock.calls[0][0];
       expect(spec.Image).toBe("localstack/localstack-pro:latest");
-      expect(spec.name).toBe("localstack-main");
+      expect(spec.name).toBe("localstack-aws");
     });
 
     test("pulls the image when missing", async () => {
@@ -328,6 +328,110 @@ describe("localstack.utils", () => {
       expect(text).toContain("Snowflake");
       expect(text).toContain("action: stop");
       expect(client.createAndStartContainer).not.toHaveBeenCalled();
+    });
+
+    test("reports a conflict when another stack's container runs under its own lstk name", async () => {
+      // Each stack has its own name, so starting Snowflake must still notice a running
+      // localstack-aws: both publish the gateway port.
+      const { client } = mockDockerClient({
+        findContainerByNameAnyState: jest.fn(async (name: string) =>
+          name === "localstack-aws"
+            ? {
+                id: "aws-1",
+                name,
+                state: "running",
+                running: true,
+                image: "localstack/localstack-pro:latest",
+                publicPorts: [4566, 443],
+              }
+            : null
+        ),
+      });
+      const getStatus = jest.fn().mockResolvedValue({ isRunning: false });
+
+      const result = await launchRuntime({
+        ...launchDefaults,
+        stack: "snowflake",
+        processLabel: "Snowflake emulator",
+        getStatus,
+        dockerClient: client,
+      });
+      const text = result.content[0].text;
+      expect(text).toContain('named "localstack-aws"');
+      expect(text).toContain("action: stop");
+      expect(client.createAndStartContainer).not.toHaveBeenCalled();
+    });
+
+    test("reports a conflict when a container runs under the legacy localstack-main name", async () => {
+      const { client } = mockDockerClient({
+        findContainerByNameAnyState: jest.fn(async (name: string) =>
+          name === "localstack-main"
+            ? {
+                id: "old-1",
+                name,
+                state: "running",
+                running: true,
+                image: "localstack/localstack-pro:latest",
+                publicPorts: [4566],
+              }
+            : null
+        ),
+      });
+      const getStatus = jest.fn().mockResolvedValue({ isRunning: false });
+
+      const result = await launchRuntime({ ...launchDefaults, getStatus, dockerClient: client });
+      expect(result.content[0].text).toContain('named "localstack-main"');
+      expect(client.createAndStartContainer).not.toHaveBeenCalled();
+    });
+
+    test("starts beside another stack's container that publishes other ports", async () => {
+      // lstk runs stacks side by side on their own ports; only a shared host port conflicts.
+      const { client } = mockDockerClient({
+        findContainerByNameAnyState: jest.fn(async (name: string) =>
+          name === "localstack-aws"
+            ? {
+                id: "aws-1",
+                name,
+                state: "running",
+                running: true,
+                image: "localstack/localstack-pro:latest",
+                publicPorts: [5566],
+              }
+            : null
+        ),
+      });
+      const getStatus = jest
+        .fn()
+        .mockResolvedValueOnce({ isRunning: false })
+        .mockResolvedValue({ isRunning: true, isReady: true });
+
+      const result = await launchRuntime({
+        ...launchDefaults,
+        stack: "snowflake",
+        processLabel: "Snowflake emulator",
+        getStatus,
+        dockerClient: client,
+      });
+      expect(result.content[0].text).toContain("started successfully");
+      expect(client.createAndStartContainer.mock.calls[0][0].name).toBe("localstack-snowflake");
+    });
+
+    test("leaves stopped containers of other names alone", async () => {
+      const { client } = mockDockerClient({
+        findContainerByNameAnyState: jest.fn(async (name: string) =>
+          name === "localstack-main"
+            ? { id: "old-stopped", name, state: "exited", running: false }
+            : null
+        ),
+      });
+      const getStatus = jest
+        .fn()
+        .mockResolvedValueOnce({ isRunning: false })
+        .mockResolvedValue({ isRunning: true, isReady: true });
+
+      const result = await launchRuntime({ ...launchDefaults, getStatus, dockerClient: client });
+      expect(result.content[0].text).toContain("started successfully");
+      expect(client.removeContainer).not.toHaveBeenCalled();
     });
 
     test("names an Azure container as the Azure emulator in the conflict message", async () => {

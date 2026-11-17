@@ -15,7 +15,9 @@ import {
 } from "../docker/docker.client";
 import {
   buildLocalStackContainerSpec,
+  KNOWN_CONTAINER_NAMES,
   resolveContainerName,
+  type LocalStackContainerSpec,
   resolveVolume,
   stackFromImage,
   type LocalStackStack,
@@ -352,6 +354,15 @@ function tailLines(text: string, lines: number): string {
   return allLines.slice(-lines).join("\n");
 }
 
+/** Host ports a container spec publishes. */
+function specHostPorts(spec: LocalStackContainerSpec): Set<number> {
+  return new Set(
+    Object.values(spec.HostConfig.PortBindings)
+      .flat()
+      .map((binding) => Number(binding.HostPort))
+  );
+}
+
 function conflictResponse(processLabel: string, containerName: string, image?: string) {
   const stack = stackFromImage(image);
   const otherStack =
@@ -476,6 +487,10 @@ async function launchRuntimeInner(
 
   // Fail fast (or clean up) when the container name is taken. A running container is
   // an actionable conflict; a stopped one is a stale leftover we remove ourselves.
+  // Each stack has its own default name (lstk's `localstack-{type}`), so a running
+  // container under another known name (another stack, or the legacy `localstack-main`)
+  // is a conflict too when it publishes a host port this start binds. One on other
+  // ports (a second emulator on its own GATEWAY_LISTEN) may keep running.
   // Short timeouts: this is pre-start housekeeping — a hung daemon should surface
   // as an error in seconds, not block the start for two minutes.
   try {
@@ -486,6 +501,14 @@ async function launchRuntimeInner(
       }
       await docker.removeContainer(existing.id, 10000);
       await docker.waitForRemoval(existing.id, 10000);
+    }
+    const boundHostPorts = specHostPorts(spec);
+    for (const name of KNOWN_CONTAINER_NAMES) {
+      if (name === spec.name) continue;
+      const other = await docker.findContainerByNameAnyState(name);
+      if (other?.running && other.publicPorts.some((port) => boundHostPorts.has(port))) {
+        return conflictResponse(processLabel, name, other.image);
+      }
     }
   } catch (error) {
     return ResponseBuilder.error(

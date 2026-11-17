@@ -2,6 +2,7 @@ import {
   buildLocalStackContainerSpec,
   detectAiAgent,
   parseGatewayListen,
+  stackContainerNames,
   resolveContainerName,
   resolveImage,
   resolveVolume,
@@ -74,9 +75,32 @@ test("the Azure emulator's LS_AZURE_ settings reach the Azure stack only; the Az
 });
 
 describe("resolveContainerName", () => {
-  test("defaults to localstack-main and honors MAIN_CONTAINER_NAME", () => {
-    expect(resolveContainerName({})).toBe("localstack-main");
-    expect(resolveContainerName({ MAIN_CONTAINER_NAME: "my-ls" })).toBe("my-ls");
+  test("defaults to lstk's localstack-{stack} name", () => {
+    // lstk's ContainerConfig.defaultName: "localstack-" + emulator type (internal/config/containers.go).
+    expect(resolveContainerName({}, "aws")).toBe("localstack-aws");
+    expect(resolveContainerName({}, "snowflake")).toBe("localstack-snowflake");
+    expect(resolveContainerName({}, "azure")).toBe("localstack-azure");
+  });
+
+  test("honors MAIN_CONTAINER_NAME for every stack", () => {
+    for (const stack of ["aws", "snowflake", "azure"] as const) {
+      expect(resolveContainerName({ MAIN_CONTAINER_NAME: "my-ls" }, stack)).toBe("my-ls");
+      expect(resolveContainerName({ LOCALSTACK_MAIN_CONTAINER_NAME: "ls2" }, stack)).toBe("ls2");
+    }
+  });
+});
+
+describe("stackContainerNames", () => {
+  test("lists the stack's lstk name and the legacy localstack-main when nothing is configured", () => {
+    expect(stackContainerNames({}, "aws")).toEqual(["localstack-aws", "localstack-main"]);
+    expect(stackContainerNames({}, "snowflake")).toEqual([
+      "localstack-snowflake",
+      "localstack-main",
+    ]);
+  });
+
+  test("lists only the configured name when MAIN_CONTAINER_NAME is set", () => {
+    expect(stackContainerNames({ MAIN_CONTAINER_NAME: " my-ls " }, "azure")).toEqual(["my-ls"]);
   });
 });
 
@@ -352,7 +376,7 @@ describe("buildLocalStackContainerSpec", () => {
     expect(env.LOCALSTACK_IMAGE_NAME).toBeUndefined();
     expect(env.UNRELATED_VAR).toBeUndefined();
     expect(env.LOCALSTACK_AUTH_TOKEN).toBe("ls-real-token");
-    expect(env.MAIN_CONTAINER_NAME).toBe("localstack-main");
+    expect(env.MAIN_CONTAINER_NAME).toBe("localstack-aws");
     expect(env.DOCKER_HOST).toBe("unix:///var/run/docker.sock");
     expect(env.LOCALSTACK_CLIENT_NAME).toBe("localstack-mcp-server");
     expect(env.LOCALSTACK_CLIENT_VERSION).toBe("0.5.0");
@@ -439,10 +463,17 @@ describe("buildLocalStackContainerSpec", () => {
     expect(buildLocalStackContainerSpec(baseInput()).HostConfig.AutoRemove).toBe(true);
   });
 
-  test("snowflake stack: snowflake image, same container name", () => {
+  test("snowflake stack: snowflake image, lstk's snowflake container name", () => {
     const spec = buildLocalStackContainerSpec(baseInput({ stack: "snowflake" }));
     expect(spec.Image).toBe("localstack/snowflake:latest");
-    expect(spec.name).toBe("localstack-main");
+    expect(spec.name).toBe("localstack-snowflake");
+    expect(envMap(spec).MAIN_CONTAINER_NAME).toBe("localstack-snowflake");
+  });
+
+  test("azure stack: lstk's azure container name", () => {
+    const spec = buildLocalStackContainerSpec(baseInput({ stack: "azure" }));
+    expect(spec.name).toBe("localstack-azure");
+    expect(envMap(spec).MAIN_CONTAINER_NAME).toBe("localstack-azure");
   });
 
   test("restart recreation can pin the original image and name", () => {

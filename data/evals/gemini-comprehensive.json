@@ -307,7 +307,7 @@
     },
     {
       "id": "scenario-snowflake-full-flow",
-      "description": "localstack-snowflake-client: start emulator, check connection, run SQL. Runs LAST: the Snowflake stack and the AWS stack cannot run at the same time (both own the localstack-main container), so the AWS emulator must be stopped first and this case leaves the Snowflake emulator running.",
+      "description": "localstack-snowflake-client: start emulator, check connection, run SQL. Runs LAST: the Snowflake stack and the AWS stack cannot run at the same time (both publish the gateway port), so the AWS emulator must be stopped first and this case leaves the Snowflake emulator running.",
       "mode": "mcp_host",
       "scenario": "Work with the LocalStack Snowflake emulator: 1) Using the LocalStack management tool with service set to snowflake, start the Snowflake emulator. If it reports that it is already running, continue to step 2. If starting fails because a LocalStack container is already running, that container is the AWS emulator: stop it with the management tool, then start the Snowflake emulator with service snowflake again. If a start attempt times out, keep checking the Snowflake status with the management tool (service snowflake) until it reports ready — do not give up on a timeout. 2) Use the LocalStack Snowflake client to check the connection to the emulator. 3) Use the LocalStack Snowflake client to execute the SQL file data/sample-sql/snowflake_test.sql. 4) Run the query SHOW TABLES IN demo_db.public and tell me whether the customers table exists.",
       "mcpHostConfig": {

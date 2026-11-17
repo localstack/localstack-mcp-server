@@ -51,7 +51,7 @@ describe("LocalStackLogRetriever", () => {
         .fn()
         .mockRejectedValue(
           new actual.LocalStackContainerNotFoundError(
-            'Could not find a running LocalStack container named "localstack-main".'
+            'Could not find a running LocalStack container named "localstack-aws".'
           )
         ),
     });
