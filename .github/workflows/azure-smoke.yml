@@ -42,7 +42,7 @@ jobs:
 
       - name: Keep the test results of a failed run
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: azure-smoke-results
           path: .mcp-test-results
