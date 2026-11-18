@@ -1,8 +1,18 @@
 # syntax=docker/dockerfile:1
 
+# Every tool version in this image comes from a file Dependabot updates (.github/dependabot.yml):
+#   node, terraform        FROM lines below                    (docker)
+#   aws-cdk, lstk          docker/tools/npm/package-lock.json  (npm)
+#   aws-sam-cli            docker/tools/sam/requirements.txt   (pip, hashed pip-compile lock)
+#   snowflake-cli          docker/tools/snowflake/requirements.txt
+#   dockerode & co.        yarn.lock                           (npm, same lock as CI)
+# Debian packages (python3, git, curl) come with the node image's bookworm base.
+# Both node FROM lines must stay identical, and their major must match `node-version` in the
+# workflows; src/core/dependency-pins.test.ts checks this.
+
 # The builder only emits platform-independent JS (dist/), so it runs on the build host's
 # platform. A multi-arch build then compiles once instead of once per platform under QEMU.
-FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS builder
+FROM --platform=$BUILDPLATFORM node:22.23.5-bookworm-slim AS builder
 WORKDIR /app
 
 COPY package.json yarn.lock ./
@@ -10,54 +20,44 @@ RUN yarn install --frozen-lockfile
 COPY . .
 RUN yarn build
 
-FROM node:22-bookworm-slim AS runtime
+# Terraform's official image ships a static binary, so it runs on Debian as well.
+FROM hashicorp/terraform:1.17.2 AS terraform
+
+FROM node:22.23.5-bookworm-slim AS runtime
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1
 
-RUN set -eux; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates curl gnupg unzip git \
-      python3 python3-pip python3-venv; \
-    install -m 0755 -d /usr/share/keyrings; \
-    curl -fsSL https://apt.releases.hashicorp.com/gpg \
-      | gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg; \
-    chmod a+r /usr/share/keyrings/hashicorp-archive-keyring.gpg; \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com bookworm main" \
-      > /etc/apt/sources.list.d/hashicorp.list; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends terraform; \
-    apt-get clean; \
-    rm -rf /var/lib/apt/lists/*; \
-    terraform version
-
-# SAM CLI comes from its official Linux installer, which bundles its own Python and dependencies.
-# The checksums are the ones AWS publishes in the release notes. Snowflake CLI gets a venv of its
-# own. Installing both with pip into one venv made the resolver backtrack for minutes (they pin
-# conflicting `rich` versions) and settle on old releases. Snowflake's single-file binary is no
-# alternative: on first run it unpacks ~400 MB of Python into $HOME.
 # python3 and python3-pip also serve `sam build` for Python functions (Debian's Python 3.11;
 # other Python runtimes need `sam build --use-container`).
-ARG TARGETARCH
-ARG SAM_CLI_VERSION=1.172.1
-ARG SAM_CLI_SHA256_AMD64=aa6a5a785c576f5d8e1b783fe1633cb6eea1cbab382fa5aca1b9e17a9250cc07
-ARG SAM_CLI_SHA256_ARM64=fcfc7cd414a75cc17a00c81110b2955ab52b6fae1dd8b7415d637ca95ca931df
 RUN set -eux; \
-    case "$TARGETARCH" in \
-      amd64) sam_arch=x86_64; sam_sha="$SAM_CLI_SHA256_AMD64" ;; \
-      arm64) sam_arch=arm64; sam_sha="$SAM_CLI_SHA256_ARM64" ;; \
-      *) echo "unsupported TARGETARCH '$TARGETARCH'" >&2; exit 1 ;; \
-    esac; \
-    cd /tmp; \
-    curl -fsSLo sam.zip "https://github.com/aws/aws-sam-cli/releases/download/v${SAM_CLI_VERSION}/aws-sam-cli-linux-${sam_arch}.zip"; \
-    echo "${sam_sha}  sam.zip" | sha256sum -c -; \
-    unzip -q sam.zip -d sam-installer; \
-    ./sam-installer/install; \
-    rm -rf sam.zip sam-installer; \
-    sam --version
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl unzip git \
+      python3 python3-pip python3-venv; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
 
-ARG SNOWFLAKE_CLI_VERSION=3.34.0
+COPY --from=terraform /bin/terraform /usr/local/bin/terraform
+RUN terraform version
+
+# SAM CLI and Snowflake CLI each get their own venv: they pin conflicting `rich` versions, so
+# one shared venv cannot hold both. The lockfiles pin every transitive dependency by hash, so pip
+# installs them as listed (--no-deps) and `pip check` confirms the set is complete.
+COPY docker/tools/sam/requirements.txt /opt/image-tools/sam/requirements.txt
+RUN python3 -m venv /opt/aws-sam-cli \
+ && /opt/aws-sam-cli/bin/pip install --no-cache-dir --no-compile --only-binary=:all: \
+      --no-deps --require-hashes -r /opt/image-tools/sam/requirements.txt \
+ && /opt/aws-sam-cli/bin/pip check \
+ && find /opt/aws-sam-cli/lib \
+      \( -type d \( -name __pycache__ -o -name tests -o -name test \) -o -type f \( -name '*.pyc' -o -name '*.pyo' \) \) \
+      -prune -exec rm -rf '{}' + \
+ && ln -s /opt/aws-sam-cli/bin/sam /usr/local/bin/sam \
+ && sam --version
+
+COPY docker/tools/snowflake/requirements.txt /opt/image-tools/snowflake/requirements.txt
 RUN python3 -m venv /opt/snowflake-cli \
- && /opt/snowflake-cli/bin/pip install --no-cache-dir --no-compile "snowflake-cli==${SNOWFLAKE_CLI_VERSION}" \
+ && /opt/snowflake-cli/bin/pip install --no-cache-dir --no-compile --only-binary=:all: \
+      --no-deps --require-hashes -r /opt/image-tools/snowflake/requirements.txt \
+ && /opt/snowflake-cli/bin/pip check \
  && find /opt/snowflake-cli/lib \
       \( -type d \( -name __pycache__ -o -name tests -o -name test \) -o -type f \( -name '*.pyc' -o -name '*.pyo' \) \) \
       -prune -exec rm -rf '{}' + \
@@ -66,20 +66,19 @@ RUN python3 -m venv /opt/snowflake-cli \
 
 # lstk wraps terraform, cdk, and sam for the deployer tool. aws-cdk >= 2.1138 honors the
 # CDK_S3_FORCE_PATH_STYLE that lstk sets, so S3 assets reach host.docker.internal path-style.
-RUN npm install -g aws-cdk@2.1145.0 @localstack/lstk@1.4.2 \
- && npm cache clean --force \
- && lstk --version \
- && cdk --version
-
-WORKDIR /app
-RUN mkdir -p /tmp/dockerode-deps \
- && npm install --prefix /tmp/dockerode-deps --omit=dev --ignore-scripts --no-audit --no-fund dockerode@5.0.1 \
- && mkdir -p /app/node_modules \
- && cp -R /tmp/dockerode-deps/node_modules/. /app/node_modules/ \
- && rm -rf /tmp/dockerode-deps \
+COPY docker/tools/npm/package.json docker/tools/npm/package-lock.json /opt/image-tools/npm/
+RUN npm ci --prefix /opt/image-tools/npm --omit=dev --ignore-scripts --no-audit --no-fund \
  && npm cache clean --force
+ENV PATH="/opt/image-tools/npm/node_modules/.bin:${PATH}"
+RUN lstk --version && cdk --version
+
+# The server's runtime dependencies (dockerode and its native-optional ssh2) come from the
+# same yarn.lock CI tests with, installed for the target platform.
+WORKDIR /app
+COPY package.json yarn.lock ./
+RUN yarn install --frozen-lockfile --production --ignore-scripts --non-interactive \
+ && yarn cache clean
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/package.json ./package.json
 
 # Each tool layer checks its own version above, so this step only checks the per-commit files
 # and stays cheap when the tool layers come from cache.

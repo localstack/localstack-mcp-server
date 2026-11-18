@@ -6,6 +6,8 @@ on:
     paths:
       - "Dockerfile"
       - ".dockerignore"
+      - "docker/**"
+      - "data/**"
       - "src/**"
       - "package.json"
       - "yarn.lock"
@@ -66,6 +68,38 @@ jobs:
               -e LOCALSTACK_AUTH_TOKEN \
               -e LOCALSTACK_HOSTNAME=host.docker.internal \
               -v "$PWD/data:/work/data" \
+              ${{ env.IMAGE_NAME }}:ci
+
+  # PRs otherwise build amd64 only; this catches arm64-only breakage, such as a pinned Python
+  # package without an arm64 wheel, before the multi-arch push on main.
+  smoke-arm64:
+    name: smoke (linux/arm64)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (arm64, load locally)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:ci
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: Smoke test MCP startup
+        env:
+          HARNESS_SKIP: prompt,docs,status,start,aws,logs,state,cloudpods,appinspector,chaos,iam,replicator,ephemeral,deploy,deploy-cdk,extensions,restart,stop,snowflake
+        run: |
+          node tests/docker/validate-image.mjs -- \
+            docker run -i --rm \
               ${{ env.IMAGE_NAME }}:ci
 
   push:

@@ -17,3 +17,62 @@ updates:
       - dependency-name: zod
         update-types:
           - version-update:semver-minor
+
+  # CLIs inside the Docker image (aws-cdk, lstk) and the CDK sample app that CI deploys with them.
+  - package-ecosystem: npm
+    directories:
+      - /docker/tools/npm
+      - /data/sample-cdk
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      image-npm-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Python CLIs inside the Docker image. Each requirements.txt is a hashed pip-compile lock of
+  # its requirements.in; its header ("with Python 3.11") makes Dependabot compile for the
+  # image's Python. To edit by hand, run docker/tools/compile-requirements.sh.
+  - package-ecosystem: pip
+    directories:
+      - /docker/tools/sam
+      - /docker/tools/snowflake
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      image-pip-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # FROM lines in the Dockerfile: node and hashicorp/terraform.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      docker-minor-patch:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Node's major follows `node-version` in the workflows and esbuild's --target in
+      # package.json; move all of them together by hand (src/core/dependency-pins.test.ts).
+      - dependency-name: node
+        update-types:
+          - version-update:semver-major
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      actions-minor-patch:
+        update-types:
+          - minor
+          - patch
