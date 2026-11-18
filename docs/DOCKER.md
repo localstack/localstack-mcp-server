@@ -163,6 +163,12 @@ Use `HARNESS_SKIP` to skip scenarios, for example:
 HARNESS_SKIP=docs,cloudpods,ephemeral,replicator
 ```
 
+`tests/docker/validate-lstk.mjs` checks [lstk](../README.md#using-lstk) interop: lstk
+starts the AWS emulator with a pinned tag on port 4577, the server restarts it, and lstk
+still finds it. It needs `lstk` on `PATH` and free host ports 443 and 4510-4560, and the
+server must get `LOCALSTACK_PORT=4577`. See the "Integration test lstk interop" step in
+`.github/workflows/docker.yml` for the full command.
+
 ## Tool versions in the image
 
 Each tool's version is pinned in one file, and Dependabot opens the update PRs once a

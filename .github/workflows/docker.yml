@@ -84,6 +84,27 @@ jobs:
               -v "$PWD/data:/work/data" \
               ${{ env.IMAGE_NAME }}:ci
 
+      # Restart a container lstk started with a pinned tag. The tag exists only locally,
+      # so lstk's pull fails and it falls back to the local image (no second download).
+      - name: Integration test lstk interop
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+          HARNESS_LSTK_TAG: mcp-ci
+          HARNESS_LSTK_PORT: "4577"
+        run: |
+          npm install -g @localstack/lstk@1.4.5
+          docker pull localstack/localstack-pro:latest
+          docker tag localstack/localstack-pro:latest localstack/localstack-pro:mcp-ci
+          node tests/docker/validate-lstk.mjs -- \
+            docker run -i --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              --add-host host.docker.internal:host-gateway \
+              -e LOCALSTACK_AUTH_TOKEN \
+              -e LOCALSTACK_HOSTNAME=host.docker.internal \
+              -e LOCALSTACK_PORT=4577 \
+              ${{ env.IMAGE_NAME }}:ci
+
   push:
     name: Build & Push (multi-arch)
     needs: smoke
