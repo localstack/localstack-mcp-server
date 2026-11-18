@@ -1,9 +1,13 @@
 version: 2
+# Every entry waits 7 days after a release before proposing it (cooldown), so a broken or
+# compromised release has time to be yanked. Security updates are not delayed.
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       npm-minor-patch:
@@ -17,3 +21,70 @@ updates:
       - dependency-name: zod
         update-types:
           - version-update:semver-minor
+
+  # CLIs inside the Docker image (aws-cdk, lstk) and the CDK sample app that CI deploys with them.
+  - package-ecosystem: npm
+    directories:
+      - /docker/tools/npm
+      - /data/sample-cdk
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      image-npm-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Python CLIs inside the Docker image: one uv project per CLI (their `rich` pins conflict).
+  # Each pyproject.toml sets `exclude-newer = "1 week"`, which the 7-day cooldown matches
+  # (https://docs.astral.sh/uv/guides/integration/dependabot/).
+  - package-ecosystem: uv
+    directories:
+      - /docker/tools/sam
+      - /docker/tools/snowflake
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      image-uv-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # FROM lines in the Dockerfile: node and hashicorp/terraform.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      docker-minor-patch:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Node's major follows `node-version` in the workflows and esbuild's --target in
+      # package.json; move all of them together by hand (src/core/dependency-pins.test.ts).
+      - dependency-name: node
+        update-types:
+          - version-update:semver-major
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      actions-minor-patch:
+        update-types:
+          - minor
+          - patch

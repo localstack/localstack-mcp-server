@@ -1,0 +1,14 @@
+# Snowflake CLI for the Docker image. Not a Python package: the Dockerfile installs this project's
+# locked dependencies (uv.lock) into a venv of their own. Dependabot updates both files.
+[project]
+name = "image-tool-snowflake-cli"
+version = "0"
+# The image's python3 (Debian bookworm). `sam build` for Python functions also runs on it.
+requires-python = "==3.11.*"
+dependencies = ["snowflake-cli==3.33.0"]
+
+[tool.uv]
+package = false
+# Only resolve releases at least a week old. The cooldown in .github/dependabot.yml matches,
+# so Dependabot never proposes a version uv refuses to lock.
+exclude-newer = "1 week"
