@@ -279,7 +279,15 @@ export class DockerApiClient {
     }
 
     if (!explicitName) {
-      const byKnownName = this.findByKnownLocalStackName(running || []);
+      const explicitPort = Boolean(process.env.LOCALSTACK_PORT?.trim());
+      const knownNames = this.findByKnownLocalStackName(running || []);
+      // With LOCALSTACK_PORT set, a known container must publish that port. Otherwise
+      // stop and restart could act on another project's container, such as an lstk
+      // container on 4566, and restart would move it to LOCALSTACK_PORT.
+      const byKnownName =
+        knownNames && (!explicitPort || this.publishesConfiguredGatewayPort(knownNames))
+          ? knownNames
+          : undefined;
       const localstackImages = (running || []).filter((c) => this.hasLocalStackImage(c));
       const byGatewayPort = localstackImages.find((c) => this.publishesConfiguredGatewayPort(c));
       // A known container off the gateway port loses to a LocalStack image on it: the
@@ -290,8 +298,7 @@ export class DockerApiClient {
       if (byKnownName) return byKnownName.Id as string;
       if (byGatewayPort) return byGatewayPort.Id as string;
 
-      const explicitPort = Boolean(process.env.LOCALSTACK_PORT?.trim());
-      if (explicitPort && localstackImages.length > 0) {
+      if (explicitPort && (knownNames || localstackImages.length > 0)) {
         throw new LocalStackContainerNotFoundError(
           `Found running LocalStack containers, but none publishes the configured gateway port ${process.env.LOCALSTACK_PORT}. ` +
             `Set MAIN_CONTAINER_NAME to the container name to use.`
