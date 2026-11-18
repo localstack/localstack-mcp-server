@@ -11,64 +11,77 @@ export interface DependencyCheckResult {
 
 export type ProjectType = "cdk" | "terraform" | "sam" | "cloudformation" | "ambiguous" | "unknown";
 
+const LSTK_INSTALL_MESSAGE = `❌ lstk is not installed or not available in PATH.
+
+The deployer runs Terraform, CDK, and SAM through the lstk CLI. Please install it by following the official documentation:
+https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/
+
+Installation:
+npm install -g @localstack/lstk
+# or: brew install localstack/tap/lstk
+
+After installation, make sure the 'lstk' command is available in your PATH.`;
+
+const IAC_TOOLS: Record<
+  "cdk" | "terraform" | "sam",
+  { binary: string; versionArgs: string[]; errorMessage: string }
+> = {
+  terraform: {
+    binary: "terraform",
+    versionArgs: ["version"],
+    errorMessage: `❌ terraform is not installed or not available in PATH.
+
+lstk runs your own Terraform CLI. Please install it by following the official documentation:
+https://developer.hashicorp.com/terraform/install
+
+After installation, make sure the 'terraform' command is available in your PATH.`,
+  },
+  cdk: {
+    binary: "cdk",
+    versionArgs: ["--version"],
+    errorMessage: `❌ cdk is not installed or not available in PATH.
+
+lstk runs your own AWS CDK CLI (2.177.0 or newer). Please install it:
+npm install -g aws-cdk
+
+After installation, make sure the 'cdk' command is available in your PATH.`,
+  },
+  sam: {
+    binary: "sam",
+    versionArgs: ["--version"],
+    errorMessage: `❌ sam is not installed or not available in PATH.
+
+lstk runs your own AWS SAM CLI (1.95.0 or newer). Please install it by following the official documentation:
+https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html
+
+After installation, make sure the 'sam' command is available in your PATH.`,
+  },
+};
+
 /**
- * Check if the required deployment tool (cdklocal or tflocal) is available in the system PATH
- * @param projectType The type of project requiring either 'cdk' or 'terraform' tooling
+ * Check that lstk and the IaC CLI it wraps (terraform, cdk, or sam) are available in the system PATH
+ * @param projectType The type of project requiring 'cdk', 'terraform', or 'sam' tooling
  * @returns Promise with availability status and tool information
  */
 export async function checkDependencies(
   projectType: "cdk" | "terraform" | "sam"
 ): Promise<DependencyCheckResult> {
-  const tool =
-    projectType === "cdk" ? "cdklocal" : projectType === "terraform" ? "tflocal" : "samlocal";
-
-  try {
-    const { stdout, error } = await runCommand(tool, ["--version"], { timeout: 10000 });
-    if (error) throw error;
-
-    return {
-      isAvailable: true,
-      tool,
-      version: stdout.trim(),
-    };
-  } catch (error) {
-    const errorMessage =
-      projectType === "cdk"
-        ? `❌ cdklocal is not installed or not available in PATH.
-
-Please install aws-cdk-local by following the official documentation:
-https://github.com/localstack/aws-cdk-local
-
-Installation:
-npm install -g aws-cdk-local aws-cdk
-
-After installation, make sure the 'cdklocal' command is available in your PATH.`
-        : projectType === "terraform"
-          ? `❌ tflocal is not installed or not available in PATH.
-
-Please install terraform-local by following the official documentation:
-https://github.com/localstack/terraform-local
-
-Installation:
-pip install terraform-local
-
-After installation, make sure the 'tflocal' command is available in your PATH.`
-          : `❌ samlocal is not installed or not available in PATH.
-
-Please install aws-sam-cli-local by following the official documentation:
-https://github.com/localstack/aws-sam-cli-local
-
-Installation:
-pip install aws-sam-cli-local
-
-After installation, make sure the 'samlocal' command is available in your PATH.`;
-
-    return {
-      isAvailable: false,
-      tool,
-      errorMessage,
-    };
+  const lstk = await runCommand("lstk", ["--version"], { timeout: 10000 });
+  if (lstk.error) {
+    return { isAvailable: false, tool: "lstk", errorMessage: LSTK_INSTALL_MESSAGE };
   }
+
+  const { binary, versionArgs, errorMessage } = IAC_TOOLS[projectType];
+  const wrapped = await runCommand(binary, versionArgs, { timeout: 10000 });
+  if (wrapped.error) {
+    return { isAvailable: false, tool: binary, errorMessage };
+  }
+
+  return {
+    isAvailable: true,
+    tool: `lstk ${projectType}`,
+    version: `${lstk.stdout.trim()}; ${wrapped.stdout.trim().split("\n")[0]}`,
+  };
 }
 
 /**
@@ -215,7 +228,7 @@ export function parseTerraformOutputs(outputJson: string): string {
 
 /**
  * Parse CDK outputs from deploy command stdout
- * @param stdout The stdout from cdklocal deploy command
+ * @param stdout The stdout from the lstk cdk deploy command
  * @returns Formatted markdown string of outputs
  */
 export function parseCdkOutputs(stdout: string): string {
