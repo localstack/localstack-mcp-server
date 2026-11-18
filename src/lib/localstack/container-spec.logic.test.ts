@@ -2,7 +2,9 @@ import {
   buildLocalStackContainerSpec,
   detectAiAgent,
   parseGatewayListen,
-  stackContainerNames,
+  isStackContainerName,
+  knownContainerNameRank,
+  lstkContainerStack,
   resolveContainerName,
   resolveImage,
   resolveVolume,
@@ -82,19 +84,89 @@ describe("resolveContainerName", () => {
   });
 });
 
-describe("stackContainerNames", () => {
-  test("lists localstack-main and the stack's lstk name when nothing is configured", () => {
-    // lstk's ContainerConfig.defaultName: "localstack-" + emulator type (internal/config/containers.go).
-    expect(stackContainerNames({}, "aws")).toEqual(["localstack-main", "localstack-aws"]);
-    expect(stackContainerNames({}, "snowflake")).toEqual([
-      "localstack-main",
-      "localstack-snowflake",
-    ]);
-    expect(stackContainerNames({}, "azure")).toEqual(["localstack-main", "localstack-azure"]);
+describe("lstk container names", () => {
+  // lstk's ContainerConfig.defaultName (internal/config/containers.go):
+  // "localstack-{type}", or "localstack-{type}-{tag}" when the tag is not "latest".
+  const lstk = { "cloud.localstack.lstk": "true" };
+
+  test("recognizes lstk's latest names without a label", () => {
+    expect(lstkContainerStack("localstack-aws")).toBe("aws");
+    expect(lstkContainerStack("localstack-snowflake")).toBe("snowflake");
+    expect(lstkContainerStack("localstack-azure")).toBe("azure");
   });
 
-  test("lists only the configured name when MAIN_CONTAINER_NAME is set", () => {
-    expect(stackContainerNames({ MAIN_CONTAINER_NAME: " my-ls " }, "azure")).toEqual(["my-ls"]);
+  test("recognizes a tagged name only with lstk's label", () => {
+    expect(lstkContainerStack("localstack-aws-2026.4", lstk)).toBe("aws");
+    expect(lstkContainerStack("localstack-snowflake-1.2.3", lstk)).toBe("snowflake");
+    expect(lstkContainerStack("localstack-azure-2026.4", lstk)).toBe("azure");
+    // LocalStack names Lambda containers after its own container, so the same shape
+    // without lstk's label is not an emulator.
+    expect(lstkContainerStack("localstack-aws-dev-lambda-fn-1234")).toBeUndefined();
+    expect(lstkContainerStack("localstack-aws-2026.4")).toBeUndefined();
+  });
+
+  test("ignores names lstk does not derive", () => {
+    for (const name of [
+      "localstack-main",
+      "localstack",
+      "localstack-awsx",
+      "localstack-aws-",
+      "my-localstack-aws",
+      "localstack-gcp",
+    ]) {
+      expect(lstkContainerStack(name, lstk)).toBeUndefined();
+    }
+  });
+
+  test("ranks localstack-main, lstk's names by stack (latest first), then custom lstk names", () => {
+    const containers: Array<[string, Record<string, string> | undefined]> = [
+      ["my-ls", lstk],
+      ["localstack-azure-2026.4", lstk],
+      ["localstack-aws-2026.4", lstk],
+      ["localstack-snowflake", undefined],
+      ["localstack-aws", undefined],
+      ["localstack-main", undefined],
+      ["localstack-azure", undefined],
+    ];
+    const ranked = [...containers]
+      .sort(([a, la], [b, lb]) => knownContainerNameRank(a, la)! - knownContainerNameRank(b, lb)!)
+      .map(([name]) => name);
+    expect(ranked).toEqual([
+      "localstack-main",
+      "localstack-aws",
+      "localstack-aws-2026.4",
+      "localstack-snowflake",
+      "localstack-azure",
+      "localstack-azure-2026.4",
+      "my-ls",
+    ]);
+    expect(knownContainerNameRank("my-ls")).toBeUndefined();
+    expect(knownContainerNameRank("localstack-main-lambda-fn-1234")).toBeUndefined();
+    expect(knownContainerNameRank("localstack-aws-dev-lambda-fn-1234")).toBeUndefined();
+  });
+});
+
+describe("isStackContainerName", () => {
+  test("accepts localstack-main and the stack's labeled lstk names when nothing is configured", () => {
+    const lstk = { "cloud.localstack.lstk": "true" };
+    expect(isStackContainerName({}, "aws", "localstack-main")).toBe(true);
+    expect(isStackContainerName({}, "aws", "localstack-aws", lstk)).toBe(true);
+    expect(isStackContainerName({}, "snowflake", "localstack-snowflake", lstk)).toBe(true);
+    // Without lstk's label, lstk did not create it (for example a compose service).
+    expect(isStackContainerName({}, "aws", "localstack-aws")).toBe(false);
+    expect(
+      isStackContainerName({}, "aws", "localstack-aws-2026.4", { "cloud.localstack.lstk": "true" })
+    ).toBe(true);
+    expect(isStackContainerName({}, "aws", "localstack-aws-dev-lambda-fn-1234")).toBe(false);
+    expect(isStackContainerName({}, "aws", "localstack-snowflake")).toBe(false);
+    expect(isStackContainerName({}, "azure", "localstack-aws")).toBe(false);
+  });
+
+  test("accepts only the configured name when MAIN_CONTAINER_NAME is set", () => {
+    const env = { MAIN_CONTAINER_NAME: " my-ls " };
+    expect(isStackContainerName(env, "azure", "my-ls")).toBe(true);
+    expect(isStackContainerName(env, "azure", "localstack-main")).toBe(false);
+    expect(isStackContainerName(env, "azure", "localstack-azure")).toBe(false);
   });
 });
 
@@ -228,6 +300,14 @@ describe("buildLocalStackContainerSpec", () => {
     const spec = buildLocalStackContainerSpec(baseInput({ isInDocker: true }));
     expect(spec.HostConfig.PortBindings["4566/tcp"][0].HostIp).toBe("0.0.0.0");
     expect(spec.HostConfig.PortBindings["443/tcp"][0].HostIp).toBe("0.0.0.0");
+  });
+
+  test("a recreate keeps the original container's labels", () => {
+    const spec = buildLocalStackContainerSpec(
+      baseInput({ labelsOverride: { "cloud.localstack.lstk": "true" } })
+    );
+    expect(spec.Labels).toEqual({ "cloud.localstack.lstk": "true" });
+    expect(buildLocalStackContainerSpec(baseInput()).Labels).toBeUndefined();
   });
 
   test("LOCALSTACK_PORT changes only the host side of the gateway mapping", () => {

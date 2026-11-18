@@ -93,24 +93,66 @@ export type LocalStackStack = "aws" | "snowflake" | "azure";
 /** The name the start action gives a new container when MAIN_CONTAINER_NAME is unset. */
 export const DEFAULT_CONTAINER_NAME = "localstack-main";
 
-/**
- * lstk's default container name per stack (`localstack-{type}`, from
- * `ContainerConfig.defaultName` in lstk's `internal/config/containers.go`). The server
- * does not create containers under these names, but finds and manages ones lstk started.
- */
-export const LSTK_CONTAINER_NAMES: Readonly<Record<LocalStackStack, string>> = {
-  aws: "localstack-aws",
-  snowflake: "localstack-snowflake",
-  azure: "localstack-azure",
-};
+/** Stacks in the order their lstk names are preferred during detection. */
+const LSTK_STACKS: readonly LocalStackStack[] = ["aws", "snowflake", "azure"];
 
-/** Names a LocalStack container may have when no MAIN_CONTAINER_NAME is configured. */
-export const KNOWN_CONTAINER_NAMES: readonly string[] = [
-  DEFAULT_CONTAINER_NAME,
-  LSTK_CONTAINER_NAMES.aws,
-  LSTK_CONTAINER_NAMES.snowflake,
-  LSTK_CONTAINER_NAMES.azure,
-];
+/**
+ * lstk's derived container name: `localstack-{type}` for the `latest` tag, else
+ * `localstack-{type}-{tag}` (`ContainerConfig.defaultName` in lstk's
+ * `internal/config/containers.go`). The server does not create containers under these
+ * names, but finds and manages ones lstk started.
+ */
+const LSTK_CONTAINER_NAME = /^localstack-(aws|snowflake|azure)(?:-([A-Za-z0-9_.-]+))?$/;
+
+/**
+ * The label lstk puts on every container it creates (`managedLabelKey` in lstk's
+ * `internal/runtime/docker.go`). A name alone cannot tell a tagged lstk container
+ * (`localstack-aws-dev`) from the Lambda containers LocalStack starts under its own
+ * name plus a suffix (`localstack-aws-dev-lambda-...`), so names other than the exact
+ * ones below count only with this label.
+ */
+export const LSTK_MANAGED_LABEL = "cloud.localstack.lstk";
+
+export type ContainerLabels = Record<string, string> | undefined;
+
+/** How the known names are described to users, for example in "not found" errors. */
+export const KNOWN_CONTAINER_NAMES_DESCRIPTION =
+  `"${DEFAULT_CONTAINER_NAME}", "localstack-aws", "localstack-snowflake" or ` +
+  `"localstack-azure", or a container lstk started under another name`;
+
+function isLstkManaged(labels: ContainerLabels): boolean {
+  return labels?.[LSTK_MANAGED_LABEL] === "true";
+}
+
+/**
+ * The stack an lstk container belongs to, judged by its name: `localstack-{type}`, or
+ * `localstack-{type}-{tag}` when lstk's label is present. Undefined otherwise.
+ */
+export function lstkContainerStack(
+  name: string,
+  labels?: ContainerLabels
+): LocalStackStack | undefined {
+  const match = LSTK_CONTAINER_NAME.exec(name);
+  if (!match || (match[2] && !isLstkManaged(labels))) return undefined;
+  return match[1] as LocalStackStack;
+}
+
+/**
+ * Detection order of a container when MAIN_CONTAINER_NAME is unset: lower wins.
+ * `localstack-main` first, then lstk's names by stack (the `latest` name before a
+ * tagged one), then any other container lstk started (a custom `container_name`).
+ * Undefined for a container the server does not recognize.
+ */
+export function knownContainerNameRank(name: string, labels?: ContainerLabels): number | undefined {
+  if (name === DEFAULT_CONTAINER_NAME) return 0;
+  const stack = lstkContainerStack(name, labels);
+  if (stack) {
+    const tagged = name !== `localstack-${stack}`;
+    return 1 + LSTK_STACKS.indexOf(stack) * 2 + (tagged ? 1 : 0);
+  }
+  if (isLstkManaged(labels)) return 1 + LSTK_STACKS.length * 2;
+  return undefined;
+}
 
 export type VolumeResolution = { type: "bind"; source: string } | { type: "volume"; name: string };
 
@@ -132,6 +174,8 @@ export interface ContainerSpecInput {
   /** Overrides for restart-in-place recreation: reuse the original container's identity. */
   imageOverride?: string;
   containerNameOverride?: string;
+  /** Labels of the original container to keep, such as lstk's. */
+  labelsOverride?: Record<string, string>;
 }
 
 export interface PortBindingEntry {
@@ -145,6 +189,7 @@ export interface LocalStackContainerSpec {
   Image: string;
   Env: string[];
   ExposedPorts: Record<string, Record<string, never>>;
+  Labels?: Record<string, string>;
   HostConfig: {
     AutoRemove: boolean;
     PortBindings: Record<string, Array<{ HostIp: string; HostPort: string }>>;
@@ -189,15 +234,22 @@ export function resolveContainerName(hostEnv: Record<string, string | undefined>
 }
 
 /**
- * Names a stopped container of this stack may hold: the configured name, else
- * `localstack-main` and the stack's lstk name.
+ * Whether a stopped container belongs to the stack, so `stop` may remove it: the
+ * configured name, else `localstack-main` and the stack's lstk containers. lstk's names
+ * need lstk's label here even without a tag: removing is riskier than detecting, and a
+ * `localstack-aws` without the label was not created by lstk (for example a compose
+ * service), so it is not ours to clean up.
  */
-export function stackContainerNames(
+export function isStackContainerName(
   hostEnv: Record<string, string | undefined>,
-  stack: LocalStackStack
-): string[] {
+  stack: LocalStackStack,
+  name: string,
+  labels?: ContainerLabels
+): boolean {
   const configured = configuredContainerName(hostEnv);
-  return configured ? [configured] : [DEFAULT_CONTAINER_NAME, LSTK_CONTAINER_NAMES[stack]];
+  if (configured) return name === configured;
+  if (name === DEFAULT_CONTAINER_NAME) return true;
+  return isLstkManaged(labels) && lstkContainerStack(name, labels) === stack;
 }
 
 function parsePort(text: string, context: string): number {
@@ -538,6 +590,9 @@ export function buildLocalStackContainerSpec(input: ContainerSpecInput): LocalSt
     Image: image,
     Env: buildEnv(input, ports, name),
     ExposedPorts: exposedPorts,
+    ...(input.labelsOverride && Object.keys(input.labelsOverride).length > 0
+      ? { Labels: input.labelsOverride }
+      : {}),
     HostConfig: {
       AutoRemove: true,
       PortBindings: portBindings,

@@ -12,7 +12,8 @@ import {
   type ContainerMetadata,
 } from "../lib/docker/docker.client";
 import {
-  stackContainerNames,
+  configuredContainerName,
+  isStackContainerName,
   stackFromImage,
   type VolumeResolution,
 } from "../lib/localstack/container-spec.logic";
@@ -117,6 +118,7 @@ interface StartOverrides {
   imageOverride?: string;
   containerNameOverride?: string;
   volumeOverride?: VolumeResolution;
+  labelsOverride?: Record<string, string>;
 }
 
 /** Best-effort look at the running LocalStack container (null when none/undetectable). */
@@ -214,10 +216,17 @@ async function handleStop({ service }: { service: Service }) {
 
     // No RUNNING container found — check for stale stopped ones holding this stack's name.
     try {
+      const configured = configuredContainerName(process.env);
+      const candidates = configured
+        ? [await dockerClient.findContainerByNameAnyState(configured)]
+        : await dockerClient.listKnownLocalStackContainers();
       const removed: string[] = [];
-      for (const name of stackContainerNames(process.env, service)) {
-        const stale = await dockerClient.findContainerByNameAnyState(name);
-        if (stale && !stale.running) {
+      for (const stale of candidates) {
+        if (
+          stale &&
+          !stale.running &&
+          isStackContainerName(process.env, service, stale.name, stale.labels)
+        ) {
           await dockerClient.removeContainer(stale.id);
           await dockerClient.waitForRemoval(stale.id);
           removed.push(`"${stale.name}"`);

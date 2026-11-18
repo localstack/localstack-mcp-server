@@ -15,7 +15,7 @@ import {
 } from "../docker/docker.client";
 import {
   buildLocalStackContainerSpec,
-  KNOWN_CONTAINER_NAMES,
+  LSTK_MANAGED_LABEL,
   resolveContainerName,
   type LocalStackContainerSpec,
   resolveVolume,
@@ -339,6 +339,7 @@ export interface LaunchRuntimeOptions {
   imageOverride?: string;
   containerNameOverride?: string;
   volumeOverride?: VolumeResolution;
+  labelsOverride?: Record<string, string>;
   /** Injectable for tests. */
   dockerClient?: DockerApiClient;
   pollIntervalMs?: number;
@@ -363,21 +364,54 @@ function specHostPorts(spec: LocalStackContainerSpec): Set<number> {
   );
 }
 
-function conflictResponse(processLabel: string, containerName: string, image?: string) {
+const EMULATOR_LABELS: Record<LocalStackStack, string> = {
+  aws: "the AWS emulator",
+  snowflake: "the Snowflake emulator",
+  azure: "the Azure emulator",
+};
+
+/**
+ * A running container blocks this start. `sharedPorts` lists the host ports it holds
+ * that this start would bind, when the conflict is about ports rather than the name.
+ */
+function conflictResponse(
+  processLabel: string,
+  startingStack: LocalStackStack,
+  containerName: string,
+  image?: string,
+  sharedPorts?: number[]
+) {
   const stack = stackFromImage(image);
-  const otherStack =
-    stack === "snowflake"
-      ? "the Snowflake emulator"
-      : stack === "azure"
-        ? "the Azure emulator"
-        : "another LocalStack stack (likely the AWS emulator)";
+  const owner =
+    stack === undefined
+      ? "it belongs to another LocalStack stack (likely the AWS emulator)"
+      : stack === startingStack
+        ? `it runs ${EMULATOR_LABELS[stack]} too`
+        : `it belongs to ${EMULATOR_LABELS[stack]}`;
+  const ports = sharedPorts?.length
+    ? ` and holds port${sharedPorts.length > 1 ? "s" : ""} ${formatPorts(sharedPorts)} that this start needs`
+    : "";
   return ResponseBuilder.error(
     "LocalStack container already running",
     `Starting ${processLabel} failed because a LocalStack container named "${containerName}"${
       image ? ` (image: ${image})` : ""
-    } is already running — it belongs to ${otherStack}. ` +
-      `Stop it first with the localstack-management tool (action: stop), then retry this start.`
+    } is already running — ${owner}${ports}. ` +
+      `Stop it first with the localstack-management tool (action: stop), or with \`lstk stop\` ` +
+      `if lstk started it, then retry this start.`
   );
+}
+
+/** Ports as a short list, folding consecutive runs: `443, 4510-4559`. */
+function formatPorts(ports: number[]): string {
+  const sorted = [...new Set(ports)].sort((a, b) => a - b);
+  const runs: string[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    let j = i;
+    while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) j++;
+    runs.push(i === j ? `${sorted[i]}` : `${sorted[i]}-${sorted[j]}`);
+    i = j;
+  }
+  return runs.join(", ");
 }
 
 /**
@@ -483,13 +517,14 @@ async function launchRuntimeInner(
     serverVersion: SERVER_VERSION,
     imageOverride: options.imageOverride,
     containerNameOverride: options.containerNameOverride,
+    labelsOverride: options.labelsOverride,
   });
 
   // Fail fast (or clean up) when the container name is taken. A running container is
   // an actionable conflict; a stopped one is a stale leftover we remove ourselves.
-  // lstk names its containers `localstack-{type}`, so a running container under
+  // lstk names its containers `localstack-{type}[-{tag}]`, so a running container under
   // another known name is a conflict too when it publishes a host port this start
-  // binds. One on other ports (a second emulator on its own GATEWAY_LISTEN) may keep
+  // binds. One on other ports (lstk in another project on its own `port`) may keep
   // running.
   // Short timeouts: this is pre-start housekeeping — a hung daemon should surface
   // as an error in seconds, not block the start for two minutes.
@@ -497,17 +532,19 @@ async function launchRuntimeInner(
     const existing = await docker.findContainerByNameAnyState(spec.name);
     if (existing) {
       if (existing.running) {
-        return conflictResponse(processLabel, spec.name, existing.image);
+        return conflictResponse(processLabel, stack, spec.name, existing.image);
       }
       await docker.removeContainer(existing.id, 10000);
       await docker.waitForRemoval(existing.id, 10000);
     }
     const boundHostPorts = specHostPorts(spec);
-    for (const name of KNOWN_CONTAINER_NAMES) {
-      if (name === spec.name) continue;
-      const other = await docker.findContainerByNameAnyState(name);
-      if (other?.running && other.publicPorts.some((port) => boundHostPorts.has(port))) {
-        return conflictResponse(processLabel, name, other.image);
+    for (const other of await docker.listKnownLocalStackContainers()) {
+      if (other.name === spec.name) continue;
+      const sharedPorts = other.running
+        ? other.publicPorts.filter((port) => boundHostPorts.has(port))
+        : [];
+      if (sharedPorts.length > 0) {
+        return conflictResponse(processLabel, stack, other.name, other.image, sharedPorts);
       }
     }
   } catch (error) {
@@ -538,7 +575,7 @@ async function launchRuntimeInner(
     containerId = await docker.createAndStartContainer(spec);
   } catch (error) {
     if (error instanceof LocalStackContainerConflictError) {
-      return conflictResponse(processLabel, spec.name);
+      return conflictResponse(processLabel, stack, spec.name);
     }
     return ResponseBuilder.error(
       `Failed to start ${processLabel}`,
@@ -656,14 +693,17 @@ export interface RecreateOverrides {
   imageOverride?: string;
   containerNameOverride?: string;
   volumeOverride?: VolumeResolution;
+  labelsOverride?: Record<string, string>;
 }
 
 /**
  * Derive start overrides from a container we are about to recreate, so an
- * externally-provisioned runtime (custom name/image/volume) is not silently replaced
+ * externally-provisioned runtime (custom name/image/volume, lstk's labels) is not
+ * silently replaced
  * by the defaults — that would strand its state. Reuse only applies when the previous
  * image matches the requested stack (restarting with a different `service` deliberately
- * switches stacks).
+ * switches stacks). The gateway is published on LOCALSTACK_PORT, not the original
+ * container's port: the server's HTTP tools only reach it there.
  */
 export function deriveRecreateOverrides(
   metadata: ContainerMetadata | undefined,
@@ -685,6 +725,13 @@ export function deriveRecreateOverrides(
   } else if (volumeMount?.type === "volume" && volumeMount.name) {
     overrides.volumeOverride = { type: "volume", name: volumeMount.name };
   }
+
+  // Keep lstk's labels, so the recreated container still counts as lstk's (its name
+  // may be tagged or custom, which detection accepts only with the label).
+  const lstkLabels = Object.fromEntries(
+    Object.entries(metadata.labels || {}).filter(([key]) => key.startsWith(LSTK_MANAGED_LABEL))
+  );
+  if (Object.keys(lstkLabels).length > 0) overrides.labelsOverride = lstkLabels;
 
   return overrides;
 }

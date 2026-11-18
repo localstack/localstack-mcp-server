@@ -3,7 +3,9 @@ import { createRequire } from "node:module";
 import { LOCALSTACK_PORT } from "../../core/config";
 import {
   configuredContainerName,
-  KNOWN_CONTAINER_NAMES,
+  KNOWN_CONTAINER_NAMES_DESCRIPTION,
+  knownContainerNameRank,
+  LSTK_MANAGED_LABEL,
   type LocalStackContainerSpec,
 } from "../localstack/container-spec.logic";
 
@@ -21,6 +23,17 @@ export interface ContainerStateInfo {
   running: boolean;
   /** Host ports the container publishes (only known for a running container). */
   publicPorts: number[];
+  labels?: Record<string, string>;
+}
+
+/** The fields of a Docker container list entry the client reads. */
+interface DockerContainerSummary {
+  Id: string;
+  Names?: string[];
+  State?: string;
+  Image?: string;
+  Labels?: Record<string, string>;
+  Ports?: Array<{ PublicPort?: number }>;
 }
 
 /**
@@ -112,6 +125,7 @@ export interface ContainerMetadata {
   image?: string;
   env?: string[];
   mounts?: ContainerMountInfo[];
+  labels?: Record<string, string>;
 }
 
 export class LocalStackContainerNotFoundError extends Error {
@@ -197,20 +211,46 @@ export class DockerApiClient {
     );
   }
 
+  /** The container's first name that the server recognizes, and its detection rank. */
+  private knownName(container: {
+    Names?: string[];
+    Labels?: Record<string, string>;
+  }): { name: string; rank: number } | undefined {
+    return (container.Names || [])
+      .map((n) => this.normalizeContainerName(n))
+      .map((name) => ({ name, rank: knownContainerNameRank(name, container.Labels) }))
+      .filter((entry): entry is { name: string; rank: number } => entry.rank !== undefined)
+      .sort((a, b) => a.rank - b.rank)[0];
+  }
+
+  /** Containers under a known name, in detection order (see `knownContainerNameRank`). */
+  private sortByKnownName<T extends { Names?: string[]; Labels?: Record<string, string> }>(
+    containers: T[]
+  ): Array<{ container: T; name: string }> {
+    return containers
+      .map((container) => ({ container, known: this.knownName(container) }))
+      .filter(
+        (entry): entry is { container: T; known: { name: string; rank: number } } =>
+          entry.known !== undefined
+      )
+      .sort((a, b) => a.known.rank - b.known.rank)
+      .map(({ container, known }) => ({ container, name: known.name }));
+  }
+
   /**
-   * The running container under a known LocalStack name. lstk can run several stacks
-   * side by side, each under its own name and port, so when more than one known name is
-   * running, the one publishing the configured gateway port wins; otherwise name order.
+   * The running container under a known LocalStack name. Several can run at once, for
+   * example lstk in two projects whose `.lstk/config.toml` set different ports, or a
+   * `localstack-main` beside them. When more than one runs, the one publishing the
+   * configured gateway port wins; otherwise detection order.
    */
   private findByKnownLocalStackName<
     T extends {
       Names?: string[];
+      Labels?: Record<string, string>;
       Ports?: Array<{ PrivatePort?: number; PublicPort?: number; Type?: string }>;
     },
   >(containers: T[]): T | undefined {
-    const known = KNOWN_CONTAINER_NAMES.map((name) =>
-      containers.find((c) => this.matchesConfiguredContainerName(c, name))
-    ).filter((c): c is T => Boolean(c));
+    const known = this.sortByKnownName(containers).map(({ container }) => container);
     if (known.length > 1) {
       const byGatewayPort = known.find((c) => this.publishesConfiguredGatewayPort(c));
       if (byGatewayPort) return byGatewayPort;
@@ -225,6 +265,7 @@ export class DockerApiClient {
       Id: string;
       Names?: string[];
       Image?: string;
+      Labels?: Record<string, string>;
       Ports?: Array<{ PrivatePort?: number; PublicPort?: number; Type?: string }>;
     }>;
 
@@ -239,10 +280,14 @@ export class DockerApiClient {
 
     if (!explicitName) {
       const byKnownName = this.findByKnownLocalStackName(running || []);
-      if (byKnownName) return byKnownName.Id as string;
-
       const localstackImages = (running || []).filter((c) => this.hasLocalStackImage(c));
       const byGatewayPort = localstackImages.find((c) => this.publishesConfiguredGatewayPort(c));
+      // A known container off the gateway port loses to a LocalStack image on it: the
+      // HTTP tools talk to the gateway port, so Docker actions must target that container.
+      if (byKnownName && !this.publishesConfiguredGatewayPort(byKnownName) && byGatewayPort) {
+        return byGatewayPort.Id as string;
+      }
+      if (byKnownName) return byKnownName.Id as string;
       if (byGatewayPort) return byGatewayPort.Id as string;
 
       const explicitPort = Boolean(process.env.LOCALSTACK_PORT?.trim());
@@ -262,11 +307,10 @@ export class DockerApiClient {
       }
     }
 
-    const lookedFor = explicitName ? [explicitName] : KNOWN_CONTAINER_NAMES;
+    const lookedFor = explicitName ? `"${explicitName}"` : KNOWN_CONTAINER_NAMES_DESCRIPTION;
     throw new LocalStackContainerNotFoundError(
-      `Could not find a running LocalStack container named ${lookedFor
-        .map((name) => `"${name}"`)
-        .join(" or ")}. ` + `Set MAIN_CONTAINER_NAME to your container name if it is custom.`
+      `Could not find a running LocalStack container named ${lookedFor}. ` +
+        `Set MAIN_CONTAINER_NAME to your container name if it is custom.`
     );
   }
 
@@ -278,6 +322,7 @@ export class DockerApiClient {
       name: this.normalizeContainerName(inspect?.Name),
       image: inspect?.Config?.Image,
       env: inspect?.Config?.Env,
+      labels: inspect?.Config?.Labels || undefined,
       mounts: (inspect?.Mounts || []).map(
         (mount: { Type?: string; Name?: string; Source?: string; Destination?: string }) => ({
           type: mount.Type,
@@ -594,28 +639,56 @@ export class DockerApiClient {
       (this.docker.listContainers as any)({ all: true, filters: { name: [name] } }),
       10000,
       "Docker container list"
-    )) as Array<{
-      Id: string;
-      Names?: string[];
-      State?: string;
-      Image?: string;
-      Ports?: Array<{ PublicPort?: number }>;
-    }>;
+    )) as Array<DockerContainerSummary>;
 
     const match = (containers || []).find((container) =>
       this.matchesConfiguredContainerName(container, name)
     );
     if (!match) return null;
+    return this.toStateInfo(match, name);
+  }
+
+  private toStateInfo(container: DockerContainerSummary, name: string): ContainerStateInfo {
     return {
-      id: match.Id,
+      id: container.Id,
       name,
-      state: match.State || "unknown",
-      image: match.Image,
-      running: match.State === "running",
-      publicPorts: (match.Ports || [])
+      state: container.State || "unknown",
+      image: container.Image,
+      running: container.State === "running",
+      labels: container.Labels,
+      publicPorts: (container.Ports || [])
         .map((port) => port.PublicPort)
         .filter((port): port is number => typeof port === "number"),
     };
+  }
+
+  /**
+   * Containers in any state that the server recognizes (`localstack-main` and lstk's
+   * containers, see `knownContainerNameRank`), in detection order. Ignores
+   * MAIN_CONTAINER_NAME; callers that honor it look the configured name up directly.
+   * Two filtered lists, merged: names containing `localstack-`, and lstk's label (an
+   * lstk container with a custom name has no common prefix).
+   */
+  async listKnownLocalStackContainers(): Promise<ContainerStateInfo[]> {
+    const list = (filters: Record<string, string[]>) =>
+      this.withDockerRequestTimeout(
+        (this.docker.listContainers as any)({ all: true, filters }) as Promise<
+          DockerContainerSummary[]
+        >,
+        10000,
+        "Docker container list"
+      );
+    const [byName, byLabel] = await Promise.all([
+      list({ name: ["localstack-"] }),
+      list({ label: [`${LSTK_MANAGED_LABEL}=true`] }),
+    ]);
+    const unique = new Map<string, DockerContainerSummary>();
+    for (const container of [...(byName || []), ...(byLabel || [])]) {
+      unique.set(container.Id, container);
+    }
+    return this.sortByKnownName([...unique.values()]).map(({ container, name }) =>
+      this.toStateInfo(container, name)
+    );
   }
 
   /** Remove a container, tolerating it already being gone. */
