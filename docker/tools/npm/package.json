@@ -3,7 +3,7 @@
   "private": true,
   "description": "CLIs the Docker image puts on PATH for the deployer tool. Dependabot keeps them current.",
   "dependencies": {
-    "@localstack/lstk": "1.4.2",
-    "aws-cdk": "2.1145.0"
+    "@localstack/lstk": "1.4.4",
+    "aws-cdk": "2.1148.1"
   }
 }
