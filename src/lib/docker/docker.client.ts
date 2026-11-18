@@ -135,10 +135,31 @@ export class LocalStackContainerNotFoundError extends Error {
   }
 }
 
+/**
+ * LocalStack containers run, but none publishes the configured LOCALSTACK_PORT. A
+ * not-found error for callers that only check that, but `stop` and `restart` report it
+ * instead of "not running", since a container does run.
+ */
+export class GatewayPortMismatchError extends LocalStackContainerNotFoundError {
+  constructor(message: string) {
+    super(message);
+    this.name = "GatewayPortMismatchError";
+  }
+}
+
 export function isLocalStackContainerNotFoundError(error: unknown): boolean {
   return (
     error instanceof LocalStackContainerNotFoundError ||
-    (error instanceof Error && error.name === "LocalStackContainerNotFoundError")
+    (error instanceof Error &&
+      (error.name === "LocalStackContainerNotFoundError" ||
+        error.name === "GatewayPortMismatchError"))
+  );
+}
+
+export function isGatewayPortMismatchError(error: unknown): boolean {
+  return (
+    error instanceof GatewayPortMismatchError ||
+    (error instanceof Error && error.name === "GatewayPortMismatchError")
   );
 }
 
@@ -168,10 +189,33 @@ export class DockerApiClient {
     Ports?: Array<{ PrivatePort?: number; PublicPort?: number; Type?: string }>;
   }): boolean {
     const configuredPort = Number(process.env.LOCALSTACK_PORT || LOCALSTACK_PORT);
+    // Only the host port counts: with GATEWAY_LISTEN=:4567 the gateway listens on
+    // container port 4567, published as 4567->4567.
     return (container.Ports || []).some(
-      (port) =>
-        port.Type === "tcp" && port.PrivatePort === 4566 && port.PublicPort === configuredPort
+      (port) => port.Type === "tcp" && port.PublicPort === configuredPort
     );
+  }
+
+  /**
+   * Whether the tools may reach this container's gateway on LOCALSTACK_PORT. A container
+   * that publishes no ports, such as one on the host network, cannot be ruled out.
+   */
+  private mayServeConfiguredGatewayPort(container: {
+    Ports?: Array<{ PrivatePort?: number; PublicPort?: number; Type?: string }>;
+  }): boolean {
+    const published = (container.Ports || []).some((port) => port.PublicPort !== undefined);
+    return !published || this.publishesConfiguredGatewayPort(container);
+  }
+
+  private describeGatewayPorts(container: {
+    Names?: string[];
+    Ports?: Array<{ PrivatePort?: number; PublicPort?: number; Type?: string }>;
+  }): string {
+    const name = this.normalizeContainerName(container.Names?.[0]) || "unnamed";
+    const gateway = (container.Ports || []).find(
+      (port) => port.Type === "tcp" && port.PrivatePort === 4566 && port.PublicPort !== undefined
+    );
+    return gateway ? `"${name}" (gateway on ${gateway.PublicPort})` : `"${name}"`;
   }
 
   private hasLocalStackImage(container: { Image?: string }): boolean {
@@ -285,7 +329,7 @@ export class DockerApiClient {
       // stop and restart could act on another project's container, such as an lstk
       // container on 4566, and restart would move it to LOCALSTACK_PORT.
       const byKnownName =
-        knownNames && (!explicitPort || this.publishesConfiguredGatewayPort(knownNames))
+        knownNames && (!explicitPort || this.mayServeConfiguredGatewayPort(knownNames))
           ? knownNames
           : undefined;
       const localstackImages = (running || []).filter((c) => this.hasLocalStackImage(c));
@@ -299,9 +343,12 @@ export class DockerApiClient {
       if (byGatewayPort) return byGatewayPort.Id as string;
 
       if (explicitPort && (knownNames || localstackImages.length > 0)) {
-        throw new LocalStackContainerNotFoundError(
-          `Found running LocalStack containers, but none publishes the configured gateway port ${process.env.LOCALSTACK_PORT}. ` +
-            `Set MAIN_CONTAINER_NAME to the container name to use.`
+        const found = [...new Set([knownNames, ...localstackImages].filter(Boolean))]
+          .map((c) => this.describeGatewayPorts(c!))
+          .join(", ");
+        throw new GatewayPortMismatchError(
+          `Found running LocalStack containers (${found}), but none publishes the configured gateway port ${process.env.LOCALSTACK_PORT}. ` +
+            `Set LOCALSTACK_PORT to the gateway port of the container to use, or MAIN_CONTAINER_NAME to its name.`
         );
       }
 

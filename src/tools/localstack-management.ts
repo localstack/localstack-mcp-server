@@ -8,6 +8,7 @@ import {
 } from "../lib/localstack/localstack.utils";
 import {
   DockerApiClient,
+  isGatewayPortMismatchError,
   isLocalStackContainerNotFoundError,
   type ContainerMetadata,
 } from "../lib/docker/docker.client";
@@ -213,6 +214,9 @@ async function handleStop({ service }: { service: Service }) {
         `Could not inspect Docker containers: ${error instanceof Error ? error.message : String(error)}`
       );
     }
+    if (isGatewayPortMismatchError(error)) {
+      return ResponseBuilder.error("LocalStack container not on LOCALSTACK_PORT", (error as Error).message);
+    }
 
     // No RUNNING container found — check for stale stopped ones holding this stack's name.
     try {
@@ -288,6 +292,9 @@ async function handleRestart({
           error instanceof Error ? error.message : String(error)
         }`
       );
+    }
+    if (isGatewayPortMismatchError(error)) {
+      return ResponseBuilder.error("LocalStack container not on LOCALSTACK_PORT", (error as Error).message);
     }
     const status = await getLocalStackStatus();
     if (status.isRunning) {

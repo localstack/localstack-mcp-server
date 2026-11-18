@@ -183,6 +183,32 @@ describe("localstack-management", () => {
     expect(text(result)).toMatch(/not running — no container to stop/);
   });
 
+  test.each(["stop", "restart"])(
+    "%s reports a container off LOCALSTACK_PORT instead of 'not running'",
+    async (action) => {
+      const { GatewayPortMismatchError } = jest.requireActual("../lib/docker/docker.client");
+      const removeContainer = jest.fn();
+      mockDocker({
+        findLocalStackContainer: jest
+          .fn()
+          .mockRejectedValue(
+            new GatewayPortMismatchError(
+              'Found running LocalStack containers ("localstack-main" (gateway on 4566)), but none publishes the configured gateway port 4567.'
+            )
+          ),
+        listKnownLocalStackContainers: jest.fn().mockResolvedValue([]),
+        removeContainer,
+      });
+      mockedGetStatus.mockResolvedValue({ isRunning: false, isReady: false });
+
+      const result = await localstackManagement({ action, service: "aws" } as any);
+      expect(result.isError).toBe(true);
+      expect(text(result)).toMatch(/gateway on 4566.*configured gateway port 4567/);
+      expect(removeContainer).not.toHaveBeenCalled();
+      expect(launchRuntime).not.toHaveBeenCalled();
+    }
+  );
+
   test("requires the auth token", async () => {
     delete process.env.LOCALSTACK_AUTH_TOKEN;
     const result = await localstackManagement({ action: "status", service: "aws" } as any);

@@ -1,4 +1,8 @@
-import { DockerApiClient } from "./docker.client";
+import {
+  DockerApiClient,
+  isGatewayPortMismatchError,
+  isLocalStackContainerNotFoundError,
+} from "./docker.client";
 import { PassThrough } from "stream";
 
 jest.mock("dockerode", () => {
@@ -523,6 +527,57 @@ describe("DockerApiClient", () => {
     await expect(client.findLocalStackContainer()).rejects.toThrow(
       /none publishes the configured gateway port 4567/i
     );
+  });
+
+  test("findLocalStackContainer finds localstack-main started with GATEWAY_LISTEN on an explicit LOCALSTACK_PORT", async () => {
+    // GATEWAY_LISTEN=:4567 publishes the gateway as 4567->4567.
+    process.env.LOCALSTACK_PORT = "4567";
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      {
+        Id: "mcp",
+        Names: ["/localstack-main"],
+        Image: "localstack/localstack-pro:latest",
+        Ports: [{ PrivatePort: 4567, PublicPort: 4567, Type: "tcp" }],
+      },
+    ]);
+
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).resolves.toBe("mcp");
+  });
+
+  test("findLocalStackContainer finds localstack-main on the host network with an explicit LOCALSTACK_PORT", async () => {
+    process.env.LOCALSTACK_PORT = "4566";
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      { Id: "mcp", Names: ["/localstack-main"], Image: "localstack/localstack-pro:latest", Ports: [] },
+    ]);
+
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).resolves.toBe("mcp");
+  });
+
+  test("findLocalStackContainer names the containers and their gateway ports when none is on LOCALSTACK_PORT", async () => {
+    process.env.LOCALSTACK_PORT = "4567";
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      {
+        Id: "mcp",
+        Names: ["/localstack-main"],
+        Image: "localstack/localstack-pro:latest",
+        Ports: [
+          { PrivatePort: 4566, PublicPort: 4566, Type: "tcp" },
+          { PrivatePort: 4566, PublicPort: 4566, Type: "tcp" },
+        ],
+      },
+    ]);
+
+    const client = new DockerApiClient();
+    const error = await client.findLocalStackContainer().catch((e: Error) => e);
+    expect(isGatewayPortMismatchError(error)).toBe(true);
+    expect(isLocalStackContainerNotFoundError(error)).toBe(true);
+    expect((error as Error).message).toContain('"localstack-main" (gateway on 4566)');
+    expect((error as Error).message).toContain("Set LOCALSTACK_PORT");
   });
 
   test("findLocalStackContainer keeps a known container on an explicit LOCALSTACK_PORT", async () => {
