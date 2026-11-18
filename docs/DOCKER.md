@@ -165,9 +165,21 @@ HARNESS_SKIP=docs,cloudpods,ephemeral,replicator
 
 `tests/docker/validate-lstk.mjs` checks [lstk](../README.md#using-lstk) interop: lstk
 starts the AWS emulator with a pinned tag on port 4577, the server restarts it, and lstk
-still finds it. It needs `lstk` on `PATH` and free host ports 443 and 4510-4560, and the
-server must get `LOCALSTACK_PORT=4577`. See the "Integration test lstk interop" step in
-`.github/workflows/docker.yml` for the full command.
+still finds it. It needs `lstk` on `PATH` and free host ports 443 and 4510-4560. A tag
+that exists only locally avoids a second image download:
+
+```bash
+docker tag localstack/localstack-pro:latest localstack/localstack-pro:mcp-ci
+LOCALSTACK_AUTH_TOKEN="<YOUR_TOKEN>" \
+node tests/docker/validate-lstk.mjs -- \
+  docker run -i --rm \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    --add-host host.docker.internal:host-gateway \
+    -e LOCALSTACK_AUTH_TOKEN \
+    -e LOCALSTACK_HOSTNAME=host.docker.internal \
+    -e LOCALSTACK_PORT=4577 \
+    localstack/localstack-mcp-server:latest
+```
 
 ## Tool versions in the image
 
