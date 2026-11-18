@@ -78,7 +78,11 @@ describe("dependency pins", () => {
     // Runners are either a literal label or `${{ matrix.runner }}`, whose values are checked
     // as literals; any other expression could hide an unpinned label.
     const docker = read(".github/workflows/docker.yml");
-    const workflow = [docker, read(".github/workflows/ci.yml")].join("\n");
+    const workflow = [
+      docker,
+      read(".github/workflows/ci.yml"),
+      read(".github/workflows/mcp-evals.yml"),
+    ].join("\n");
     for (const [, value] of workflow.matchAll(/^[ \t]*runs-on:[ \t]*(.*)$/gm)) {
       if (value.startsWith("${{")) expect(value).toBe("${{ matrix.runner }}");
     }
@@ -91,6 +95,31 @@ describe("dependency pins", () => {
     }
     expect(new Set(labels.map((label) => label.replace(/-arm$/, ""))).size).toBe(1);
     expect(docker).toMatch(/^[ \t]*(?:-[ \t]*)?runner:[ \t]*ubuntu-[\d.]+-arm[ \t]*$/m);
+  });
+
+  it("takes Terraform and uv versions in workflows from the Dockerfile's FROM lines", () => {
+    // Dependabot bumps the FROM lines but not action inputs, so a literal version would drift.
+    const dockerfile = read("Dockerfile");
+    expect(dockerfile).toMatch(/^FROM hashicorp\/terraform:\S+/m);
+    expect(dockerfile).toMatch(/^FROM ghcr\.io\/astral-sh\/uv:\S+/m);
+
+    // Without its version input, each action installs the latest release. Steps are split at
+    // their leading "- ", so a step's inputs may come in any order.
+    const inputs = {
+      "hashicorp/setup-terraform": "terraform_version",
+      "astral-sh/setup-uv": "version",
+    };
+    for (const file of fs.readdirSync(path.join(ROOT, ".github/workflows"))) {
+      for (const step of read(`.github/workflows/${file}`).split(/^[ \t]*- /m)) {
+        for (const [action, input] of Object.entries(inputs)) {
+          if (!new RegExp(`uses:[ \\t]*${action}@`).test(step)) continue;
+          const version = step.match(new RegExp(`^[ \\t]*${input}:[ \\t]*(.*)$`, "m"))?.[1];
+          expect(`${file} ${action}: ${version}`).toMatch(
+            /: \$\{\{ steps\.\w+\.outputs\.\w+ \}\}$/
+          );
+        }
+      }
+    }
   });
 
   it("installs CI dependencies from the same frozen lockfile as the image", () => {

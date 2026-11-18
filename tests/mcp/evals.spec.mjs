@@ -26,18 +26,31 @@ test.describe("OpenRouter comprehensive eval", () => {
     }
     const result = await runEvalDataset({ dataset }, { mcp, testInfo });
     const caseResults = result.caseResults || [];
-    const passed = caseResults.filter((entry) => entry?.pass === true).length;
-    const failed = caseResults.filter((entry) => entry?.pass !== true);
+    // The tester leaves iterations with infrastructure errors (rate limits, 5xx, network) out of
+    // the pass rate, so 1 good iteration out of 5 can pass a case. Count them as failures instead.
+    const thresholds = new Map(
+      dataset.cases.map((c) => [c.id, Math.ceil((c.accuracyThreshold ?? 1) * (c.iterations ?? 1))])
+    );
+    const passesCase = (entry) =>
+      entry?.pass === true &&
+      (entry.iterationResults ?? [entry]).filter((r) => r.pass === true).length >=
+        thresholds.get(entry.id);
+    const passed = caseResults.filter(passesCase).length;
+    const failed = caseResults.filter((entry) => !passesCase(entry));
 
     if (failed.length > 0) {
       for (const entry of failed) {
-        console.error(`Eval case failed: ${entry.id}`);
+        console.error(
+          `Eval case failed: ${entry.id} (infrastructure errors: ${entry.infrastructureErrorCount ?? 0})`
+        );
         console.error(JSON.stringify(entry, null, 2));
       }
     }
     console.log(`Eval pass rate: ${passed}/${caseResults.length}`);
 
-    const passRate = caseResults.length > 0 ? passed / caseResults.length : 1;
-    expect(passRate).toBeGreaterThanOrEqual(0.75);
+    // Every case must pass. A case's own accuracyThreshold already absorbs flaky iterations, so a
+    // case that fails here failed most of them, e.g. because its tool is broken.
+    expect(caseResults).toHaveLength(dataset.cases.length);
+    expect(failed.map((entry) => entry.id)).toEqual([]);
   });
 });

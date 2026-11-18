@@ -31,7 +31,6 @@
     "@types/dockerode": "^4.0.2",
     "@types/jest": "^30.0.0",
     "@xmcp-dev/compiler": "^1.9.0",
-    "ai": "^6.0.0",
     "audit-ci": "^7.1.0",
     "esbuild": "^0.28.2",
     "eslint-config-prettier": "^10.1.8",

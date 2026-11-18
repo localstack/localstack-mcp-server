@@ -14,35 +14,74 @@ on:
 permissions:
   contents: read
 
+# Runs share the Cloud Pod name mcptester-e2e-pod in one LocalStack account, so they must not overlap.
+concurrency:
+  group: mcp-evals
+  cancel-in-progress: false
+
 jobs:
   mcp-evals:
-    runs-on: ubuntu-latest
-    # The spec itself times out after 90 minutes.
-    timeout-minutes: 100
+    runs-on: ubuntu-26.04
+    # The spec itself times out after 90 minutes; the rest covers setup and the results upload.
+    timeout-minutes: 120
     env:
       LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       EVAL_MODEL: ${{ inputs.model }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Use Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22.x
 
       - name: Install dependencies
-        run: yarn
+        run: yarn install --frozen-lockfile
 
-      # The deployer case runs tflocal; the wrapper would garble its output.
+      # Terraform and uv run at the versions in the Dockerfile's FROM lines, which Dependabot
+      # keeps current, so the evals use the same tools as the image.
+      - name: Read tool versions from the Dockerfile
+        id: versions
+        run: |
+          terraform=$(sed -nE 's#^FROM hashicorp/terraform:([^ ]+).*#\1#p' Dockerfile)
+          uv=$(sed -nE 's#^FROM ghcr\.io/astral-sh/uv:([^ ]+).*#\1#p' Dockerfile)
+          # Separate commands: bash -e ignores a failure on the left of &&.
+          test -n "$terraform"
+          test -n "$uv"
+          echo "terraform=$terraform" >> "$GITHUB_OUTPUT"
+          echo "uv=$uv" >> "$GITHUB_OUTPUT"
+
+      # The deployer case runs `lstk terraform`; the wrapper would garble its output.
       - name: Install Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
         with:
+          terraform_version: ${{ steps.versions.outputs.terraform }}
           terraform_wrapper: false
 
-      - name: Install tflocal and the Snowflake CLI
-        run: pipx install terraform-local && pipx install snowflake-cli
+      # The tester caps each tool call at the MCP SDK's 60s request timeout, and the deployer
+      # runs init, apply and output in one call. Download the AWS provider before the evals.
+      - name: Download the sample project's Terraform providers
+        run: terraform -chdir=data/sample-terraform init -input=false
+
+      # lstk and the Snowflake CLI come from the same lockfiles as the Docker image.
+      - name: Install lstk
+        run: |
+          npm ci --prefix docker/tools/npm --omit=dev --ignore-scripts --no-audit --no-fund
+          echo "$GITHUB_WORKSPACE/docker/tools/npm/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: ${{ steps.versions.outputs.uv }}
+
+      - name: Install the Snowflake CLI
+        env:
+          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/snowflake-cli
+        run: |
+          uv sync --project docker/tools/snowflake --locked --no-install-project --no-build
+          echo "$UV_PROJECT_ENVIRONMENT/bin" >> "$GITHUB_PATH"
 
       # Pulled up front so a start inside a case doesn't time out on the download.
       - name: Pull the LocalStack images
@@ -55,8 +94,10 @@ jobs:
 
       - name: Keep the eval results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mcp-evals-results
           path: .mcp-test-results
+          # The directory starts with a dot, which upload-artifact skips by default.
+          include-hidden-files: true
           if-no-files-found: ignore
