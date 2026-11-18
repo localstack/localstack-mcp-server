@@ -165,16 +165,19 @@ HARNESS_SKIP=docs,cloudpods,ephemeral,replicator
 
 ## Tool versions in the image
 
-Each tool's version is pinned in one file, and Dependabot opens the update PRs:
+Each tool's version is pinned in one file, and Dependabot opens the update PRs once a
+release is at least 7 days old (its `cooldown`):
 
 | Tool | Pinned in | Dependabot ecosystem |
 | --- | --- | --- |
 | Node.js base image | `FROM node:…` in `Dockerfile` | `docker` (major updates by hand: the workflows use `node-version: 22.x`, the latest 22 at run time, and a test keeps the majors equal) |
 | Terraform | `FROM hashicorp/terraform:…` in `Dockerfile` | `docker` |
+| uv (build time only) | `FROM ghcr.io/astral-sh/uv:…` in `Dockerfile` | `docker` |
 | `aws-cdk`, `lstk` | `docker/tools/npm/package-lock.json` | `npm` |
-| AWS SAM CLI | `docker/tools/sam/requirements.txt` | `pip` |
-| Snowflake CLI | `docker/tools/snowflake/requirements.txt` | `pip` |
+| AWS SAM CLI | `docker/tools/sam/pyproject.toml` and `uv.lock` | `uv` |
+| Snowflake CLI | `docker/tools/snowflake/pyproject.toml` and `uv.lock` | `uv` |
 | `dockerode` and other server dependencies | `yarn.lock` | `npm` |
 
-The two `requirements.txt` files are hashed pip-compile lockfiles. To change one by hand,
-edit the `requirements.in` next to it and run `docker/tools/compile-requirements.sh`.
+Each Python CLI is a uv project of its own, because their dependencies conflict. Both set
+`exclude-newer = "1 week"`, so `uv lock` only picks releases older than the cooldown. To change
+a version by hand, edit the `pyproject.toml` and run `uv lock` in its directory.

@@ -59,11 +59,12 @@ describe("dependency pins", () => {
       .filter((line) => /^RUN\b/.test(line))
       .flatMap((line) => line.split(/&&|;/));
 
-    for (const command of commands.filter((c) => /\bpip install\b/.test(c))) {
-      expect(command).toContain("--require-hashes");
-      expect(command).toMatch(/-r\s+\S+requirements\.txt/);
+    for (const command of commands.filter((c) => /\buv sync\b/.test(c))) {
+      expect(command).toContain("--locked");
     }
-    for (const command of commands.filter((c) => /\b(npm (install|i|add)|yarn add|npx)\b/.test(c))) {
+    for (const command of commands.filter((c) =>
+      /\b(pip install|uv (pip|tool) install|uvx|npm (install|i|add)|yarn add|npx)\b/.test(c)
+    )) {
       throw new Error(`install from a lockfile ("npm ci") instead of: ${command.trim()}`);
     }
     for (const command of commands.filter((c) => /\byarn install\b/.test(c))) {

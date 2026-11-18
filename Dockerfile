@@ -3,8 +3,9 @@
 # Every tool version in this image comes from a file Dependabot updates (.github/dependabot.yml):
 #   node, terraform        FROM lines below                    (docker)
 #   aws-cdk, lstk          docker/tools/npm/package-lock.json  (npm)
-#   aws-sam-cli            docker/tools/sam/requirements.txt   (pip, hashed pip-compile lock)
-#   snowflake-cli          docker/tools/snowflake/requirements.txt
+#   uv                     FROM line below                     (docker)
+#   aws-sam-cli            docker/tools/sam/uv.lock            (uv)
+#   snowflake-cli          docker/tools/snowflake/uv.lock      (uv)
 #   dockerode & co.        yarn.lock                           (npm, same lock as CI)
 # Debian packages (python3, git, curl) come with the node image's bookworm base.
 # Both node FROM lines must stay identical, and their major must match `node-version` in the
@@ -23,9 +24,14 @@ RUN yarn build
 # Terraform's official image ships a static binary, so it runs on Debian as well.
 FROM hashicorp/terraform:1.17.2 AS terraform
 
+# uv installs the Python CLIs below; it is mounted at build time and not part of the image.
+FROM ghcr.io/astral-sh/uv:0.13.9 AS uv
+
 FROM node:22.23.5-bookworm-slim AS runtime
 ENV DEBIAN_FRONTEND=noninteractive \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_PYTHON_DOWNLOADS=0 \
+    UV_LINK_MODE=copy
 
 # python3 and python3-pip also serve `sam build` for Python functions (Debian's Python 3.11;
 # other Python runtimes need `sam build --use-container`).
@@ -39,28 +45,26 @@ RUN set -eux; \
 COPY --from=terraform /bin/terraform /usr/local/bin/terraform
 RUN terraform version
 
-# SAM CLI and Snowflake CLI each get their own venv: they pin conflicting `rich` versions, so
-# one shared venv cannot hold both. The lockfiles pin every transitive dependency by hash, so pip
-# installs them as listed (--no-deps) and `pip check` confirms the set is complete.
-COPY docker/tools/sam/requirements.txt /opt/image-tools/sam/requirements.txt
-RUN python3 -m venv /opt/aws-sam-cli \
- && /opt/aws-sam-cli/bin/pip install --no-cache-dir --no-compile --only-binary=:all: \
-      --no-deps --require-hashes -r /opt/image-tools/sam/requirements.txt \
- && /opt/aws-sam-cli/bin/pip check \
- && find /opt/aws-sam-cli/lib \
-      \( -type d \( -name __pycache__ -o -name tests -o -name test \) -o -type f \( -name '*.pyc' -o -name '*.pyo' \) \) \
-      -prune -exec rm -rf '{}' + \
+# SAM CLI and Snowflake CLI each get their own venv from their own uv project: they pin
+# conflicting `rich` versions, so one environment cannot hold both. uv verifies every package
+# against the hashes in uv.lock, and --no-build refuses anything that would need a compiler.
+RUN --mount=from=uv,source=/uv,target=/bin/uv \
+    --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=docker/tools/sam,target=/tmp/tools/sam \
+    UV_PROJECT_ENVIRONMENT=/opt/aws-sam-cli \
+      uv sync --project /tmp/tools/sam --locked --no-install-project --no-build \
+        --python /usr/bin/python3 \
+ && find /opt/aws-sam-cli/lib -type d \( -name tests -o -name test \) -prune -exec rm -rf '{}' + \
  && ln -s /opt/aws-sam-cli/bin/sam /usr/local/bin/sam \
  && sam --version
 
-COPY docker/tools/snowflake/requirements.txt /opt/image-tools/snowflake/requirements.txt
-RUN python3 -m venv /opt/snowflake-cli \
- && /opt/snowflake-cli/bin/pip install --no-cache-dir --no-compile --only-binary=:all: \
-      --no-deps --require-hashes -r /opt/image-tools/snowflake/requirements.txt \
- && /opt/snowflake-cli/bin/pip check \
- && find /opt/snowflake-cli/lib \
-      \( -type d \( -name __pycache__ -o -name tests -o -name test \) -o -type f \( -name '*.pyc' -o -name '*.pyo' \) \) \
-      -prune -exec rm -rf '{}' + \
+RUN --mount=from=uv,source=/uv,target=/bin/uv \
+    --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=docker/tools/snowflake,target=/tmp/tools/snowflake \
+    UV_PROJECT_ENVIRONMENT=/opt/snowflake-cli \
+      uv sync --project /tmp/tools/snowflake --locked --no-install-project --no-build \
+        --python /usr/bin/python3 \
+ && find /opt/snowflake-cli/lib -type d \( -name tests -o -name test \) -prune -exec rm -rf '{}' + \
  && ln -s /opt/snowflake-cli/bin/snow /usr/local/bin/snow \
  && snow --version
 
