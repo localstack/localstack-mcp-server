@@ -21,6 +21,7 @@ test("shell syntax is refused before anything runs", async ({ mcp }) => {
   const result = await mcp.callTool("localstack-azure-client", {
     command: "group list; echo pwned",
   });
+  expect(result).toBeToolError();
   expect(text(result)).toMatch(/^❌ /);
   expect(text(result)).toMatch(/forbidden shell syntax/);
 });
@@ -36,7 +37,9 @@ test("no emulator on the configured port: the answer names the gateway and the s
 }) => {
   // A missing az is reported first; CI runners have it.
   test.skip(!azRuns, "needs the Azure CLI on PATH");
-  const answer = text(await mcp.callTool("localstack-azure-client", { command: "group list" }));
+  const result = await mcp.callTool("localstack-azure-client", { command: "group list" });
+  expect(result).toBeToolError();
+  const answer = text(result);
   expect(answer).toMatch(/^❌ \*\*LocalStack Azure Emulator Not Ready\*\*/);
   expect(answer).toMatch(/not running at http:\/\/[^\s:]+:\d+/);
   expect(answer).toContain("service: azure");

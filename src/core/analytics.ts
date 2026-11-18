@@ -276,6 +276,9 @@ export async function withToolAnalytics<T>(
     const isErrorResponse = isErrorLikeToolResponse(result);
     success = !isErrorResponse;
     if (isErrorResponse) {
+      // Some tools build ❌ answers by hand instead of with ResponseBuilder.error; every tool
+      // passes through here, so flag those too.
+      (result as { isError?: boolean }).isError = true;
       errorName = "ToolResponseError";
       errorMessage = extractErrorMessageFromResult(result) || "Tool returned an error response";
     }
