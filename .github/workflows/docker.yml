@@ -36,8 +36,6 @@ jobs:
           context: .
           load: true
           tags: ${{ env.IMAGE_NAME }}:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Use Node.js 22
         uses: actions/setup-node@v4
@@ -115,8 +113,6 @@ jobs:
           provenance: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Sync README to Docker Hub overview
         if: github.ref == 'refs/heads/main'
