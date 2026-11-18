@@ -74,6 +74,25 @@ describe("dependency pins", () => {
     expect(instructions.filter((line) => /^ARG\s+\w*VERSION\b/i.test(line))).toEqual([]);
   });
 
+  it("runs CI and the image builds on one pinned Ubuntu release for every architecture", () => {
+    // Runners are either a literal label or `${{ matrix.runner }}`, whose values are checked
+    // as literals; any other expression could hide an unpinned label.
+    const docker = read(".github/workflows/docker.yml");
+    const workflow = [docker, read(".github/workflows/ci.yml")].join("\n");
+    for (const [, value] of workflow.matchAll(/^[ \t]*runs-on:[ \t]*(.*)$/gm)) {
+      if (value.startsWith("${{")) expect(value).toBe("${{ matrix.runner }}");
+    }
+    const labels = [...workflow.matchAll(/^[ \t]*(?:-[ \t]*)?(?:runs-on|runner):[ \t]*(.*)$/gm)]
+      .map((match) => match[1].trim())
+      .filter((label) => label !== "${{ matrix.runner }}");
+
+    for (const label of labels) {
+      expect(label).toMatch(/^ubuntu-\d+\.\d+(-arm)?$/);
+    }
+    expect(new Set(labels.map((label) => label.replace(/-arm$/, ""))).size).toBe(1);
+    expect(docker).toMatch(/^[ \t]*(?:-[ \t]*)?runner:[ \t]*ubuntu-[\d.]+-arm[ \t]*$/m);
+  });
+
   it("installs CI dependencies from the same frozen lockfile as the image", () => {
     for (const file of fs.readdirSync(path.join(ROOT, ".github/workflows"))) {
       for (const match of read(`.github/workflows/${file}`).matchAll(/run:\s*(yarn\b.*)/g)) {

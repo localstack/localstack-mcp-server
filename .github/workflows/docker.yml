@@ -22,17 +22,27 @@ env:
   IMAGE_NAME: localstack/localstack-mcp-server
 
 jobs:
+  # Each architecture builds and smoke-tests natively. arm64 catches arm64-only breakage, such as
+  # a locked Python package without an arm64 wheel, before the multi-arch push builds it under
+  # QEMU. Both runners and the push job use the same Ubuntu release (src/core/dependency-pins.test.ts).
   smoke:
-    runs-on: ubuntu-latest
-    env:
-      CI_LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+    name: smoke (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-26.04
+          - arch: arm64
+            runner: ubuntu-26.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build image (single-arch, load locally)
+      - name: Build image (${{ matrix.arch }}, load locally)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -53,7 +63,11 @@ jobs:
               ${{ env.IMAGE_NAME }}:ci
 
       - name: Integration test Docker runtime
-        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        # amd64 only: the deploys take minutes and do not depend on the image's architecture.
+        # Fork PRs get no secrets, so they skip it.
+        if: >-
+          matrix.arch == 'amd64' &&
+          (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
         env:
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
           HARNESS_TOKEN_REAL: ${{ secrets.LOCALSTACK_AUTH_TOKEN != '' && '1' || '0' }}
@@ -70,43 +84,11 @@ jobs:
               -v "$PWD/data:/work/data" \
               ${{ env.IMAGE_NAME }}:ci
 
-  # PRs otherwise build amd64 only; this catches arm64-only breakage, such as a pinned Python
-  # package without an arm64 wheel, before the multi-arch push on main.
-  smoke-arm64:
-    name: smoke (linux/arm64)
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04-arm
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build image (arm64, load locally)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          load: true
-          tags: ${{ env.IMAGE_NAME }}:ci
-
-      - name: Use Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.x
-
-      - name: Smoke test MCP startup
-        env:
-          HARNESS_SKIP: prompt,docs,status,start,aws,logs,state,cloudpods,appinspector,chaos,iam,replicator,ephemeral,deploy,deploy-cdk,extensions,restart,stop,snowflake
-        run: |
-          node tests/docker/validate-image.mjs -- \
-            docker run -i --rm \
-              ${{ env.IMAGE_NAME }}:ci
-
   push:
     name: Build & Push (multi-arch)
     needs: smoke
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref_type == 'tag')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment:
       name: docker-push
       deployment: false

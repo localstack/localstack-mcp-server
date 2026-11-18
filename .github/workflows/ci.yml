@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     steps:
       - name: Checkout code
@@ -36,7 +36,7 @@ jobs:
         run: yarn build
 
   mcp-direct-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     env:
       LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
 
