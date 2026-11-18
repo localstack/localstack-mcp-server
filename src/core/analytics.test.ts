@@ -1,6 +1,24 @@
 import fs from "fs";
 import path from "path";
-import { TOOL_ARG_ALLOWLIST } from "./analytics";
+import { TOOL_ARG_ALLOWLIST, withToolAnalytics } from "./analytics";
+import { ResponseBuilder } from "./response-builder";
+
+describe("tool error flag", () => {
+  const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
+  beforeAll(() => {
+    process.env.MCP_ANALYTICS_DISABLED = "1";
+  });
+
+  it.each([
+    ["ResponseBuilder.error", () => ResponseBuilder.error("Boom", "details"), true],
+    ["a hand-built ❌ answer", () => text("❌ **Error:** boom"), true],
+    ["a success answer", () => ResponseBuilder.success("done"), undefined],
+    ["markdown that mentions ❌ later", () => text("# Report\n\n❌ 1 failed call"), undefined],
+  ])("%s → isError %s", async (_label, build, expected) => {
+    const result = await withToolAnalytics("localstack-docs", {}, async () => build());
+    expect((result as { isError?: boolean }).isError).toBe(expected);
+  });
+});
 
 describe("analytics allowlist coverage", () => {
   it("has allowlist entries for all tool metadata names", () => {

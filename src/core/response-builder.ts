@@ -1,5 +1,7 @@
 interface ToolResponse {
   content: Array<{ type: "text"; text: string }>;
+  /** MCP's flag for a failed tool call; clients and test harnesses read it, not the ❌ prefix. */
+  isError?: boolean;
 }
 
 export class ResponseBuilder {
@@ -16,6 +18,7 @@ export class ResponseBuilder {
     }
     return {
       content: [{ type: "text", text }],
+      isError: true,
     };
   }
 
