@@ -133,7 +133,7 @@ jobs:
       - name: Sync README to Docker Hub overview
         if: github.ref == 'refs/heads/main'
         continue-on-error: true
-        uses: peter-evans/dockerhub-description@v4
+        uses: peter-evans/dockerhub-description@v5
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKER_PUSH_TOKEN }}
