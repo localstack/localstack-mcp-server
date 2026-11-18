@@ -43,7 +43,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build image (${{ matrix.arch }}, load locally)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           load: true
@@ -121,7 +121,7 @@ jobs:
             latest=false
 
       - name: Build and push (linux/amd64, linux/arm64)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
