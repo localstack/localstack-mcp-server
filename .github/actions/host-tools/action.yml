@@ -1,0 +1,33 @@
+name: Host tools
+description: >-
+  Puts the Docker image's tools on the PATH for jobs that run the MCP server on the host:
+  Terraform and uv from the Dockerfile's host-tools stage, lstk from docker/tools/npm, and
+  optionally the Snowflake CLI from docker/tools/snowflake. Versions change only in those files.
+inputs:
+  snowflake:
+    description: Also install the Snowflake CLI.
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - name: Copy Terraform and uv out of the Dockerfile
+      shell: bash
+      run: |
+        docker build --target host-tools --output "type=local,dest=$RUNNER_TEMP/host-tools" .
+        echo "$RUNNER_TEMP/host-tools" >> "$GITHUB_PATH"
+
+    - name: Install lstk
+      shell: bash
+      run: |
+        npm ci --prefix docker/tools/npm --omit=dev --ignore-scripts --no-audit --no-fund
+        echo "$GITHUB_WORKSPACE/docker/tools/npm/node_modules/.bin" >> "$GITHUB_PATH"
+
+    - name: Install the Snowflake CLI
+      if: inputs.snowflake == 'true'
+      shell: bash
+      env:
+        UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/snowflake-cli
+      run: |
+        "$RUNNER_TEMP/host-tools/uv" sync --project docker/tools/snowflake --locked --no-install-project --no-build
+        echo "$UV_PROJECT_ENVIRONMENT/bin" >> "$GITHUB_PATH"

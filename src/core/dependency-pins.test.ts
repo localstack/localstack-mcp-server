@@ -97,28 +97,22 @@ describe("dependency pins", () => {
     expect(docker).toMatch(/^[ \t]*(?:-[ \t]*)?runner:[ \t]*ubuntu-[\d.]+-arm[ \t]*$/m);
   });
 
-  it("takes Terraform and uv versions in workflows from the Dockerfile's FROM lines", () => {
-    // Dependabot bumps the FROM lines but not action inputs, so a literal version would drift.
-    const dockerfile = read("Dockerfile");
-    expect(dockerfile).toMatch(/^FROM hashicorp\/terraform:\S+/m);
-    expect(dockerfile).toMatch(/^FROM ghcr\.io\/astral-sh\/uv:\S+/m);
+  it("gives CI jobs the image's Terraform and uv, from the Dockerfile's host-tools stage", () => {
+    // Dependabot bumps the FROM lines, not action inputs or install scripts, so any other way
+    // of installing these tools in CI would drift from the image.
+    const stage = dockerfileInstructions().join("\n");
+    expect(stage).toMatch(/^FROM scratch AS host-tools$/m);
+    expect(stage).toMatch(/^COPY --from=terraform \S+ \/$/m);
+    expect(stage).toMatch(/^COPY --from=uv \S+ \S+ \/$/m);
 
-    // Without its version input, each action installs the latest release. Steps are split at
-    // their leading "- ", so a step's inputs may come in any order.
-    const inputs = {
-      "hashicorp/setup-terraform": "terraform_version",
-      "astral-sh/setup-uv": "version",
-    };
-    for (const file of fs.readdirSync(path.join(ROOT, ".github/workflows"))) {
-      for (const step of read(`.github/workflows/${file}`).split(/^[ \t]*- /m)) {
-        for (const [action, input] of Object.entries(inputs)) {
-          if (!new RegExp(`uses:[ \\t]*${action}@`).test(step)) continue;
-          const version = step.match(new RegExp(`^[ \\t]*${input}:[ \\t]*(.*)$`, "m"))?.[1];
-          expect(`${file} ${action}: ${version}`).toMatch(
-            /: \$\{\{ steps\.\w+\.outputs\.\w+ \}\}$/
-          );
-        }
-      }
+    const files = [
+      ...fs.readdirSync(path.join(ROOT, ".github/workflows")).map((f) => `.github/workflows/${f}`),
+      ".github/actions/host-tools/action.yml",
+    ];
+    for (const file of files) {
+      expect(
+        `${file}: ${read(file).match(/setup-terraform|setup-uv|terraform_version|releases\.hashicorp\.com|astral\.sh\/uv/g) ?? []}`
+      ).toBe(`${file}: `);
     }
   });
 
