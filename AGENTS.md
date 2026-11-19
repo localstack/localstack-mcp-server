@@ -26,7 +26,7 @@ yarn format             # Prettier
 |------|----------|
 | `src/tools/` | One file per MCP tool. xmcp discovers them: each exports `schema` (zod), `metadata`, and a default handler. |
 | `src/prompts/` | MCP prompts (workflow templates such as `infrastructure-tester`). |
-| `src/core/` | Shared plumbing: `preflight.ts`, `response-builder.ts`, `analytics.ts`, `command-runner.ts`, `localstack-env.ts`, `config.ts`, `http-client.ts`. |
+| `src/core/` | Shared plumbing: preflights, the response builder, analytics, the command runner, configuration. |
 | `src/lib/<area>/` | Tool logic. Pure, testable logic lives in `*.logic.ts` with a matching `*.logic.test.ts`. |
 | `src/lib/docker/` | Docker Engine API client (find, start, stop, exec, logs). |
 | `src/lib/localstack/` | LocalStack HTTP clients and the container spec. |
@@ -34,7 +34,7 @@ yarn format             # Prettier
 | `src/tools-tests/` | Handler tests, one file per tool. They live outside `src/tools/` because xmcp registers every file there as a tool. |
 | `tests/mcp/` | Playwright tests against the built server. |
 | `tests/docker/` | Validation of the Docker image. |
-| `docs/` | Topic docs (`AZURE.md`, `DOCKER.md`). |
+| `docs/` | Topic docs. |
 
 ## Writing a tool
 
@@ -92,8 +92,8 @@ Rules for tool tests:
   `ci.yml` does for fork PRs, so a fork PR never looks tested. Only an opt-in scenario (one that needs its own
   credentials, such as the replicator's source AWS keys, or a flag such as `HARNESS_RUN_REMOTE`) or an outside
   service being down (the docs search) may skip a case, and the output says why.
-- **Evals are not PR gates.** `test:mcp:evals` depends on a model. `mcp-evals.yml` runs it after merges to `main`,
-  weekly and on demand. Run them yourself when a tool's description, schema or
+- **Evals are not PR gates.** `test:mcp:evals` depends on a model. `mcp-evals.yml` runs it after merges to `main`
+  that touch its path filter, weekly and on demand. Run them yourself when a tool's description, schema or
   response wording changes, and report the result in the PR.
 
 ## Dependencies
@@ -171,16 +171,12 @@ without lstk. That container must be interchangeable with one lstk starts:
 - **Either tool can take over.** `lstk stop` / `status` / `logs` / `restart` work on an emulator the MCP server
   started, and the MCP server's `stop` / `status` work on one lstk started. Today this holds only through fallbacks:
   the server detects `localstack-aws` by name, and lstk, finding no container under its own name, matches a running
-  LocalStack image that serves the gateway on container port 4566. That interoperability is a known gap. Do not
-  widen the difference: keep both names detected, keep LocalStack's own images, and keep the gateway on container
-  port 4566.
-- **Same endpoint, for the commands that take one.** `lstk aws`, `az`, `terraform`, `cdk`, `sam`, `status`,
-  `inspect`, `reset` and `snapshot` (save, load, remove, and list of an `s3://` remote) accept an endpoint. Pass
-  the server's target (`LOCALSTACK_HOSTNAME` / `LOCALSTACK_PORT`) to them so both talk to the same emulator. The current proposal is
-  `LSTK_ENDPOINT_URL`, which lstk prefers over `AWS_ENDPOINT_URL`, so a value already in the user's environment
-  would not win. lstk refuses an endpoint for the local lifecycle commands (`start`,
-  `stop`, `restart`, `logs`, `volume`), so setting one there makes the command fail. Which commands
-  get the endpoint is not decided yet: ask the user before wiring lstk calls (see [Open questions](#open-questions)).
+  LocalStack image that serves the gateway on lstk's default container port. That interoperability is a known gap.
+  Do not widen the difference: keep both names detected, keep LocalStack's own images, and keep the gateway on that
+  port.
+- **Same emulator.** An lstk command the server runs must reach the emulator the server's other tools use
+  (`LOCALSTACK_HOSTNAME` / `LOCALSTACK_PORT`). How the server passes that target is an open question: ask the user
+  before wiring a new lstk call (see [Open questions](#open-questions)).
 
 ### 2. Use lstk's cloud and IaC commands
 
@@ -274,21 +270,20 @@ The IAM actions have three jobs. Each reads a LocalStack API; without the featur
 what is missing instead of returning an empty answer.
 
 1. **Why was a request denied, and what fixes it.** `list-iam-denials`, `explain-iam`, `get-iam-policy`. Source:
-   App Inspector IAM events (`/_localstack/appinspector/v1/traces/{t}/spans/{s}/events/iam`, `iam.policy.denied` for
-   denials, also when they were not enforced, with `enforcement: allow_with_warning`). The event's `payload`
-   attribute is a JSON string holding the decisions (`explicit_allows`, `explicit_denies`, `implicit_denies`, each with `caused_by`
-   policy keys and statement positions), the `policies` map, and for a denial LocalStack's `suggestion` (version 1:
-   `outcome`, `entries`, `hints`, `near_misses`). `explain-iam` is to render them in the section order of the App
-   Inspector UI's "Copy agent prompt", then the payload as sent. Do not recompute, merge or reorder the changes.
-   A policy stored truncated (`statement_count` without `document`) is fetched on demand with `get-iam-policy`
-   (`/v1/events/{event_id}/policies/{policy_key}`), never automatically.
+   App Inspector IAM events (`/_localstack/appinspector/v1/traces/{t}/spans/{s}/events/iam`), which include denials
+   that were recorded but not enforced. An event's payload holds LocalStack's decisions (which policies allowed or
+   denied the request, and at which statements), the policies involved, and for a denial a versioned suggestion of
+   what to change and whether that fixes the request. `explain-iam` is to render them in the section order of the
+   App Inspector UI's "Copy agent prompt", then the payload as sent. Do not recompute, merge or reorder the changes.
+   A policy the event stored truncated is fetched on demand with `get-iam-policy` (the event policy route), never
+   automatically.
    - Without the `localstack.appinspector/view_iam_policy_errors` entitlement, LocalStack hides IAM events and
      returns an empty list. Spans say so (`iam_errors_suppressed`) and the policy route answers 403
      `not_entitled`, but the event lists don't, so an empty IAM result reads one span of the scope and reports
      suppression, or else the IAM mode. `/_localstack/licenseinfo` cannot tell: it lists plugins, not
      entitlements.
-   - A denial without `suggestion` comes from an older LocalStack: say so and suggest upgrading. A suggestion
-     `version` other than 1 is shown as JSON only.
+   - A denial without a suggestion comes from an older LocalStack: say so and suggest upgrading. A suggestion
+     version the server does not know is shown as JSON only.
 2. **Which policies does the workload need.** `get-iam-policy-summary`, `reset-iam-policy-summary`. Source: the IAM
    policy summary (`GET`/`DELETE /_aws/iam/policies/summary`; a 404 means the feature is not licensed or not
    enabled). It is global to the emulator: there is no per-trace summary
@@ -323,7 +318,7 @@ row once it ships.
 
 | Need | Status | Used by |
 |------|--------|---------|
-| Document the extensions API (`GET /_localstack/extensions/list`, `POST …/install`, `POST …/uninstall`) in the OpenAPI spec and the docs | The LocalStack web app's Extension Manager depends on it; neither the spec nor the docs name it. lstk has no extensions commands. | `localstack-extensions` (allowed under the rule 4 exception) |
+| Document the extensions API (`GET /_localstack/extensions/list`, `POST …/install`, `POST …/uninstall`) in the OpenAPI spec and the docs | The LocalStack web app's Extension Manager depends on it; neither the spec nor the docs name it. lstk has no commands for LocalStack extensions. | `localstack-extensions` (allowed under the rule 4 exception) |
 | Document the IAM evaluation event payload (the `payload` attribute of App Inspector's IAM events: the decisions, the `policies` map and the `suggestion`) in the App Inspector spec | The spec types the attribute as a string; its fields are not documented anywhere public. The App Inspector UI depends on them. Until they are documented, describe them in this repository's code as types and tests written from observed responses, not from LocalStack's code; this file names them only as far as the design needs. | `explain-iam`, planned (allowed under the rule 4 exception) |
 | Document the IAM policy summary and stream (`GET`/`DELETE /_aws/iam/policies/summary`, `GET /_aws/iam/policies/stream`) | App Inspector's Policies view and the web app's IAM Policy Stream depend on them; the spec documents only `/_aws/iam/config` and `/_aws/iam/check-actions-allowed`. | `localstack-app-inspector` IAM job 2, planned (allowed under the rule 4 exception) |
 | Filter the IAM policy summary by trace (or time range), so a run's policies don't mix with earlier requests | Not implemented: the summary is global and only resettable. | `get-iam-policy-summary` (planned) |
@@ -336,25 +331,25 @@ row once it ships.
 
 ## Known deviations
 
-Existing code that does not follow the rules yet. This list is for code that is already on `main`; it is not a way
-to let new code through.
+Code on `main` that does not follow the rules: deviations that predate them, and exceptions the user approved. A
+row is never a way to let unapproved code through.
 
-- **New code follows the rules.** A change that needs to break one raises it with the user before it is written,
-  and its PR records the decision. Only then does it get a row here.
+- **New code follows the rules.** A change that needs to break one raises it with the user before it is written.
+  If the user approves, the PR records the approval and adds a row naming who approved it and when.
 - **A change that touches a listed deviation raises it.** Say in the PR whether the change fixes the deviation,
   leaves it as it is, or why it cannot fix it yet. Do not copy the pattern and do not extend it to another tool.
 - **Remove a row when the code is fixed.**
 
-Approved exceptions to rule 5 are listed here too, with who approved them (by role or GitHub handle) and when; they
-stay until the LocalStack API that replaces them ships.
+An approved exception stays until what replaces it ships. One approved for code not on `main` yet is recorded
+with its follow-up until it lands.
 
 | Where | Deviation | Target |
 |-------|-----------|--------|
-| `src/lib/localstack/container-spec.logic.ts`, `src/lib/docker/docker.client.ts` | The header comment describes the container as replicating the legacy `localstack start` (rule 1). The container spec differs from lstk's in several ways, among them the name (`localstack-main` for every emulator), labels, volume directory, ports and environment, so emulator state does not carry over and only AWS containers are found in both directions. Compare with lstk's `internal/config/containers.go` and `internal/container/start.go` for the current differences. Interoperability rests on the server detecting lstk's AWS container name and on lstk's fallback, which matches a known LocalStack image serving the gateway on container port 4566; it breaks for other images, a gateway moved off 4566 inside the container, and the other emulators. | Converge on lstk's container spec; decide later whether to adopt its names. Until then, keep lstk's AWS name detected (rule 1). |
+| `src/lib/localstack/container-spec.logic.ts`, `src/lib/docker/docker.client.ts` | The header comment describes the container as replicating the legacy `localstack start` (rule 1). The container spec differs from lstk's in several ways, among them the name (`localstack-main` for every emulator), labels, volume directory, ports and environment, so emulator state does not carry over and only AWS containers are found in both directions. Compare with lstk's `internal/config/containers.go` and `internal/container/start.go` for the current differences. Interoperability rests on the server detecting lstk's AWS container name and on lstk's fallback, which matches a known LocalStack image serving the gateway on lstk's default container port; it breaks for other images, a gateway moved off that port inside the container, and the other emulators. | Converge on lstk's container spec; decide later whether to adopt its names. Until then, keep lstk's AWS name detected (rule 1). |
 | `src/tools/localstack-aws-client.ts` | Runs `awslocal` inside the container via `docker exec`. | `lstk aws`, no fallback (rule 2). |
 | `src/tools/localstack-deployer.ts`, `src/prompts/infrastructure-tester.ts` | The deployer runs `awslocal cloudformation` through `docker exec` for CloudFormation deploys and deletes, and the prompt tells the agent to use `awslocal`. | `lstk aws cloudformation` (rule 2); the prompt names lstk. |
 | `src/tools/localstack-chaos-injector.ts`, `src/tools/localstack-ephemeral-instances.ts`, `src/tools/localstack-aws-replicator.ts` | Tools that skip parts of "Writing a tool": hand-built `❌` responses instead of `ResponseBuilder` (`withToolAnalytics` flags them as errors only by their prefix), a handler without `runPreflights`, and ARN parsing in the tool file (rule 5). | Follow "Writing a tool". |
-| `src/core/localstack-env.ts` | Passes the server's target to `lstk terraform` / `cdk` / `sam` as `AWS_ENDPOINT_URL`, but keeps an `AWS_ENDPOINT_URL` already in the user's environment, and a `LSTK_ENDPOINT_URL` there overrides both: either sends the command to a different emulator. | Depends on the endpoint-scoping [open question](#open-questions). |
+| `src/core/localstack-env.ts` | Passes the server's target to `lstk terraform` / `cdk` / `sam` as `AWS_ENDPOINT_URL`, but keeps an `AWS_ENDPOINT_URL` already in the user's environment, and a `LSTK_ENDPOINT_URL` there overrides both: either sends the command to a different emulator. | Depends on the [open question](#open-questions) on passing the target to lstk. |
 | `src/tools/localstack-azure-client.ts` | Configures the host `az` itself. | `lstk az`, keeping the existing guards (rule 2). |
 | `Dockerfile` | Bundles lstk, Terraform, CDK and SAM, but not the AWS CLI. | Bundle the AWS CLI for `lstk aws` (rule 2). This is a larger image change: ask the user first ("Docker image size"). |
 | `src/core/analytics.ts` | Sends data that can hold secrets (REVIEW §0): free-form arguments such as the cloud CLIs' `command` (for example `--secret-string …`), and error text. `looksSensitiveValue` only catches a value that is a whole key or token. The allowlist also sends arguments that hold user data: names, paths, queries and filters. | Only fields that can never hold secrets or user data ("Writing a tool"): for example the command's service and operation instead of the command, an error code instead of the message. |
@@ -378,13 +373,13 @@ stay until the LocalStack API that replaces them ships.
 
 Decisions not settled yet. Ask the user before acting on one, and move the answer into the rules once it is made.
 
-- **Endpoint scoping for lstk calls (rule 1).** Rule 1 passes the server's endpoint as `LSTK_ENDPOINT_URL` only to
-  the lstk commands that accept one (`aws`, `az`, `terraform`, `cdk`, `sam`, `status`, `inspect`, `reset`,
-  `snapshot`), and never sets one for `start`, `stop`, `restart`, `logs` or `volume`, because lstk refuses those when `--endpoint-url`, `LSTK_ENDPOINT_URL` or `AWS_ENDPOINT_URL`
-  is set. Open:
-  - Is this scoping the intended contract?
-  - If the server delegates a lifecycle command to lstk, must it remove all three variables from the child's
-    environment, so an endpoint inherited from the user's shell does not make lstk refuse the command?
+- **How the server passes its target to lstk (rule 1).** The proposal: pass it as `LSTK_ENDPOINT_URL`, which lstk
+  prefers over `AWS_ENDPOINT_URL` (so a value in the user's environment does not win), to the commands that accept
+  an endpoint, and to none of the commands lstk's `rejectEndpointURL` (`cmd/endpoint.go`) refuses one for. Today
+  the deployer passes `AWS_ENDPOINT_URL` (`src/core/localstack-env.ts`). Open:
+  - Is this the intended contract?
+  - If the server runs a command lstk refuses an endpoint for, must it also remove the endpoint variables it
+    inherited from the user's shell?
 
 ## Follow-ups
 

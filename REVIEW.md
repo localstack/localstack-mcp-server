@@ -43,8 +43,9 @@ Each of these is a BLOCKER:
   wrapped CLI or the LocalStack container inherits the whole environment when it needs one variable, or can read a
   file that holds a secret. Or a step installs or runs third-party code (dependency install scripts, a sample
   project's packages, a third-party action) while a secret is in its environment or in `.git/config`
-  (`actions/checkout` keeps the GitHub token there unless `persist-credentials: false`). A secret set at job level
-  where only first-party code runs is a SHOULD-FIX.
+  (`actions/checkout` keeps the GitHub token there unless `persist-credentials: false`). Where AGENTS.md already
+  lists a workflow under Known deviations for this, a change that only bumps a dependency or action is not a new
+  finding; one that adds a step, job or dependency source there is.
 - **Write access by default.** A new workflow, or a new job or trigger in an existing one, runs without a
   `permissions:` block, or a job that runs PR code gets more than it needs (`contents: write`, `packages: write`,
   `id-token: write`). A version bump of an action in a listed workflow is not such a change.
@@ -75,8 +76,8 @@ artifact, a pushed commit), say so in the review so a maintainer rotates it; del
   questions for the user, not as rule violations, unless the failure is confirmed:
   - an lstk call can reach a different emulator than the server's other tools, for example because a
     `LSTK_ENDPOINT_URL` or `AWS_ENDPOINT_URL` in the user's environment wins (SHOULD-FIX if confirmed)
-  - an endpoint reaches `lstk start`, `stop`, `restart`, `logs` or `volume`, through the server or the inherited
-    environment; lstk refuses these commands when one is set (BLOCKER if confirmed: the command fails)
+  - an endpoint reaches an lstk command that refuses one (`rejectEndpointURL` in lstk's `cmd/endpoint.go`),
+    through the server or the inherited environment (BLOCKER if confirmed: the command fails)
 
 ## 2. Cloud and IaC commands
 
