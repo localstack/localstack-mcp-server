@@ -5,6 +5,8 @@ Rules for reviewing a change to this repository. The design rules they enforce a
 Report each finding as BLOCKER, SHOULD-FIX or NIT, with file and line and a concrete failure scenario (inputs and
 state, then the wrong result). Call something a BLOCKER only after confirming it in the code.
 
+Each rule applies to what the change adds or alters, not to gaps the code already has.
+
 "Known deviations" in AGENTS.md lists existing code on `main` only. For a change under review:
 
 - New code that breaks a rule is a finding at the rule's severity, even if the same pattern is listed. A new row in
@@ -116,8 +118,8 @@ This repository is public, so these are BLOCKERs:
 - a script or command run inside the LocalStack container to reach internals
 - an undocumented configuration variable
 
-Also a BLOCKER: the change adopts an API the server did not use before, and the PR does not record that the user
-approved it (AGENTS.md rule 4).
+Also a BLOCKER: the change adopts an API the server did not use before, and the PR does not record that a
+maintainer approved it (AGENTS.md rule 4).
 
 ## 5. Compute in LocalStack, render here
 
@@ -152,7 +154,7 @@ See "IAM policies" in AGENTS.md.
   bypasses its sanitizer.
 - **BLOCKER:** a string from LocalStack or the user's workload (resource names, ARNs, error messages, policy JSON,
   log lines) reaches an agent-facing response without escaping. A value must not be able to close a code fence,
-  break a table, or read as an instruction. Size code fences to their content, and escape markdown in table cells
+  break a table, or leave its fence or cell. Size code fences to their content, and escape markdown in table cells
   and inline text.
 - **SHOULD-FIX:** the handler skips `withToolAnalytics`, preflights or `ResponseBuilder`, or a new tool argument
   that can never hold secrets or user data is missing from the analytics allowlist in `src/core/analytics.ts`, or

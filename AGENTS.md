@@ -81,7 +81,7 @@ Rules for tool tests:
 - **Schema.** Invalid arguments are rejected by the zod schema; test a missing required field and a wrong enum
   value for each action that takes them.
 - **Adversarial input.** For a tool that renders LocalStack or workload strings into markdown, add a case whose
-  payload contains a code fence, a table pipe and an instruction-like line, and assert it cannot escape. For a tool
+  payload contains a code fence, a table pipe and a markdown heading, and assert they stay inside their fence or cell. For a tool
   that builds a command line, add cases that try shell chaining, option injection and path traversal.
 - **No secrets in output.** Run the handler with a recognizable fake token and credentials, and assert they appear
   in neither the response, the error, nor the analytics payload.
@@ -316,7 +316,7 @@ request; `SOFT_MODE` keeps them passing. Never tell a user to switch on enforcem
 `ENFORCED` can break a workload that worked.
 
 Render every payload string escaped (REVIEW §7): an ARN, a resource name or an error message must not be able to
-close a code fence, break a table, or read as an instruction.
+close a code fence, break a table, or leave its fence or cell.
 
 An agentic evaluation of these actions is a follow-up (see [Follow-ups](#follow-ups)).
 
@@ -372,7 +372,7 @@ under [Follow-ups](#follow-ups) until it lands.
 | `.github/workflows/docker.yml` | Its path filter misses files the image build reads (`patches/`, `xmcp.config.ts`, `tsconfig*.json`), so a change to them is not built or tested as an image. | Filter on everything the `Dockerfile` copies. |
 | `src/lib/localstack/license-checker.ts` | Calls `GET /_localstack/licenseinfo`, which is not documented and not covered by the rule 4 exception. | The documented way LocalStack names (see [Gaps in LocalStack](#gaps-in-localstack)). |
 | `data/sample-terraform/` | The AWS provider has only a version constraint, no lockfile, and no Dependabot entry; CI downloads it with secrets in the job's environment. | A committed `.terraform.lock.hcl` and a `terraform` Dependabot entry ("Dependencies"). |
-| `playwright.config.mjs`, `src/tools/localstack-snowflake-client.ts`, `src/core/localstack-env.ts` | Child processes inherit the whole environment (REVIEW §0): the server under test gets the eval's model keys, and the `snow` CLI and `lstk terraform` / `cdk` / `sam` get every variable of the server's environment. | Pass each child only the variables it needs. |
+| `src/core/command-runner.ts`, `src/tools/localstack-snowflake-client.ts`, `src/core/localstack-env.ts`, `playwright.config.mjs` | Child processes inherit the whole environment (REVIEW §0): `runCommand` spawns without an `env` of its own, the `snow` CLI and `lstk terraform` / `cdk` / `sam` get every variable of the server's environment, and the server under test gets the eval's model keys. | Pass each child only the variables it needs. New callers of `runCommand` pass an explicit `env` (REVIEW §0). |
 | `Dockerfile` | The `# syntax=` line floats to the newest frontend of its major version. | Pin the frontend version where Dependabot can update it. |
 | `src/tools-tests/`, `src/lib/**/*.logic.test.ts` | Most tools have no handler test. The existing handler tests stub `withToolAnalytics` or mock internal modules and assert on their calls, and some `*.logic.test.ts` files test tool handlers instead of a `*.logic.ts` module. | Handler tests for every tool, following "Testing", with tool handler tests in `src/tools-tests/`. A ratchet test that lists the tools still without one would replace this row (see "Maintaining this file"). |
 | `src/lib/iam/iam-policy.logic.ts` | Synthesizes IAM policies from denials, for the analyzer (rule 5). | Remove with the analyzer; the IAM actions present LocalStack's suggestions and summary instead. |
