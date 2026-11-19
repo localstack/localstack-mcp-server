@@ -32,9 +32,9 @@ Each of these is a BLOCKER:
 - **Secrets for Dependabot.** Dependabot PRs get no Actions secrets either, so token-gated jobs fail on them. Do not
   add `LOCALSTACK_AUTH_TOKEN` or another secret as a Dependabot secret: it would reach the install scripts of the
   packages the PR just bumped. Review the bump, then run it with secrets the same way as an external PR.
-- **An external PR pushed unreviewed.** For a fork or Dependabot PR to be tested, a maintainer pushes its branch to this
-  repository and opens a PR from it, so its workflows run with secrets. Review the whole diff under this section before pushing it,
-  and push the reviewed commit, not a branch the contributor can still change.
+- **An external PR pushed unreviewed.** For a fork or Dependabot PR to be tested, a maintainer pushes the reviewed commit to a
+  new branch the maintainer owns and opens a PR from it, so its workflows run with secrets. Review the whole diff
+  under this section first, and never push a branch the contributor or Dependabot can still change.
 - **Secrets printed or stored.** A step or script echoes a secret, runs `set -x`, `env` or `printenv`, logs request
   headers, or writes a secret to a file. GitHub masks secrets in logs only: an uploaded artifact (test results,
   Playwright traces, eval transcripts, the server's stderr), a cache entry, or a built image layer is not masked.
