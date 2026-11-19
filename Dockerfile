@@ -7,6 +7,7 @@
 #   aws-sam-cli            docker/tools/sam/uv.lock            (uv)
 #   snowflake-cli          docker/tools/snowflake/uv.lock      (uv)
 #   dockerode & co.        yarn.lock                           (npm, same lock as CI)
+# The host-tools stage hands the same terraform and uv binaries to CI jobs that run on the host.
 # Debian packages (python3, git, curl) come with the node image's bookworm base.
 # Both node FROM lines must stay identical, and their major must match `node-version` in the
 # workflows; src/core/dependency-pins.test.ts checks this.
@@ -26,6 +27,12 @@ FROM hashicorp/terraform:1.17.2 AS terraform
 
 # uv installs the Python CLIs below; it is mounted at build time and not part of the image.
 FROM ghcr.io/astral-sh/uv:0.13.9 AS uv
+
+# Terraform and uv for CI jobs that run on the host, at the image's versions
+# (.github/actions/host-tools): docker build --target host-tools --output type=local,dest=DIR .
+FROM scratch AS host-tools
+COPY --from=terraform /bin/terraform /
+COPY --from=uv /uv /uvx /
 
 FROM node:22.23.5-bookworm-slim AS runtime
 ENV DEBIAN_FRONTEND=noninteractive \

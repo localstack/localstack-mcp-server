@@ -41,6 +41,14 @@ jobs:
       LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
 
     steps:
+      # GitHub gives pull requests from forks no secrets. Fail loud rather than skip, so a
+      # fork PR never looks tested.
+      - name: Require the LocalStack auth token
+        if: env.LOCALSTACK_AUTH_TOKEN == ''
+        run: |
+          echo "::error::LOCALSTACK_AUTH_TOKEN is empty. GitHub gives pull requests from forks no secrets: before merging, a maintainer pushes this branch to the repository and opens a pull request from it."
+          exit 1
+
       - name: Checkout code
         uses: actions/checkout@v7
 
@@ -54,5 +62,40 @@ jobs:
 
       - name: Run MCP Server Tester
         run: yarn test:mcp:direct
-        env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+
+  # Each tool against a real LocalStack, without a model (tests/mcp/tools.spec.mjs). The first
+  # test starts LocalStack through the management tool.
+  mcp-tool-tests:
+    runs-on: ubuntu-26.04
+    env:
+      LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+
+    steps:
+      # GitHub gives pull requests from forks no secrets. Fail loud rather than skip, so a
+      # fork PR never looks tested.
+      - name: Require the LocalStack auth token
+        if: env.LOCALSTACK_AUTH_TOKEN == ''
+        run: |
+          echo "::error::LOCALSTACK_AUTH_TOKEN is empty. GitHub gives pull requests from forks no secrets: before merging, a maintainer pushes this branch to the repository and opens a pull request from it."
+          exit 1
+
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22.x
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Install the image's tools
+        uses: ./.github/actions/host-tools
+
+      # Pulled up front so the start stays within the management tool's 120s.
+      - name: Pull the LocalStack image
+        run: docker pull localstack/localstack-pro:latest
+
+      - name: Run the tool tests
+        run: yarn test:mcp:tools

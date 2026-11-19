@@ -78,7 +78,11 @@ describe("dependency pins", () => {
     // Runners are either a literal label or `${{ matrix.runner }}`, whose values are checked
     // as literals; any other expression could hide an unpinned label.
     const docker = read(".github/workflows/docker.yml");
-    const workflow = [docker, read(".github/workflows/ci.yml")].join("\n");
+    const workflow = [
+      docker,
+      read(".github/workflows/ci.yml"),
+      read(".github/workflows/mcp-evals.yml"),
+    ].join("\n");
     for (const [, value] of workflow.matchAll(/^[ \t]*runs-on:[ \t]*(.*)$/gm)) {
       if (value.startsWith("${{")) expect(value).toBe("${{ matrix.runner }}");
     }
@@ -91,6 +95,37 @@ describe("dependency pins", () => {
     }
     expect(new Set(labels.map((label) => label.replace(/-arm$/, ""))).size).toBe(1);
     expect(docker).toMatch(/^[ \t]*(?:-[ \t]*)?runner:[ \t]*ubuntu-[\d.]+-arm[ \t]*$/m);
+  });
+
+  it("gives CI jobs the image's Terraform and uv, from the Dockerfile's host-tools stage", () => {
+    // Dependabot bumps the FROM lines, not action inputs or install scripts, so any other way
+    // of installing these tools in CI would drift from the image.
+    const stage = dockerfileInstructions().join("\n");
+    expect(stage).toMatch(/^FROM scratch AS host-tools$/m);
+    expect(stage).toMatch(/^COPY --from=terraform \S+ \/$/m);
+    expect(stage).toMatch(/^COPY --from=uv \S+ \S+ \/$/m);
+
+    const files = [
+      ...fs.readdirSync(path.join(ROOT, ".github/workflows")).map((f) => `.github/workflows/${f}`),
+      ".github/actions/host-tools/action.yml",
+    ];
+    const otherInstall =
+      /setup-terraform|setup-uv|terraform_version|\b(?:curl|wget)\b.*\b(?:hashicorp\.com|astral\.sh|astral-sh)\b|\b(?:pipx?|brew|apt(?:-get)?|mise|asdf) install\b.*\b(?:terraform|uv)\b/g;
+    for (const file of files) {
+      expect(`${file}: ${read(file).match(otherInstall) ?? []}`).toBe(`${file}: `);
+    }
+
+    // Jobs that run the tool tests or the evals need the tools; without the action they would
+    // use whatever the runner image ships. Jobs are split at their two-space-indented keys.
+    for (const file of fs.readdirSync(path.join(ROOT, ".github/workflows"))) {
+      const jobs = read(`.github/workflows/${file}`).split(/^jobs:\s*$/m)[1] ?? "";
+      for (const job of jobs.split(/^(?=  [\w-]+:\s*$)/m)) {
+        if (!/\b(?:yarn|npm|pnpm)(?: run)? test:mcp(?::tools|:evals)?\b(?!:)/.test(job)) continue;
+        expect(
+          `${file} ${job.trim().split(":")[0]}: ${/uses: \.\/\.github\/actions\/host-tools\b/.test(job)}`
+        ).toBe(`${file} ${job.trim().split(":")[0]}: true`);
+      }
+    }
   });
 
   it("installs CI dependencies from the same frozen lockfile as the image", () => {

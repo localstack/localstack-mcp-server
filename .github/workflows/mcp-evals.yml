@@ -1,0 +1,92 @@
+name: MCP evals
+
+# The LLM-driven eval dataset through OpenRouter: after every merge into main that can change
+# the result, weekly (to catch changes outside this repo, such as a new LocalStack image or model
+# version) and on demand.
+on:
+  push:
+    branches: [main]
+    # What the MCP server, its tools and the evals are built from; README edits or Dependabot
+    # action bumps don't run the evals.
+    paths:
+      - "src/**"
+      - "data/**"
+      - "tests/mcp/**"
+      - "patches/**"
+      - "package.json"
+      - "yarn.lock"
+      - "playwright.config.mjs"
+      - "Dockerfile"
+      - "docker/**"
+      - "xmcp.config.*"
+      - "tsconfig*.json"
+      - ".github/workflows/mcp-evals.yml"
+      - ".github/actions/host-tools/**"
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "OpenRouter model ID for every case (empty keeps the dataset's model)"
+        required: false
+        default: ""
+  schedule:
+    - cron: "0 7 * * 1"
+
+permissions:
+  contents: read
+
+# Runs share the Cloud Pod name mcptester-e2e-pod in one LocalStack account, so they must not overlap.
+# Merges that land while a run is going wait; GitHub keeps only the newest waiting run.
+concurrency:
+  group: mcp-evals
+  cancel-in-progress: false
+
+jobs:
+  mcp-evals:
+    runs-on: ubuntu-26.04
+    # The spec itself times out after 90 minutes; the rest covers setup and the results upload.
+    timeout-minutes: 120
+    env:
+      LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      EVAL_MODEL: ${{ inputs.model }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22.x
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      # Terraform, lstk and the Snowflake CLI at the Docker image's versions.
+      - name: Install the image's tools
+        uses: ./.github/actions/host-tools
+        with:
+          snowflake: true
+
+      # The eval host caps each tool call at the MCP SDK's 60s request timeout, and the
+      # deployer runs init, apply and output in one call. Download the AWS provider first.
+      - name: Download the sample project's Terraform providers
+        run: terraform -chdir=data/sample-terraform init -input=false
+
+      # Pulled up front so a start inside a case doesn't time out on the download.
+      - name: Pull the LocalStack images
+        run: |
+          docker pull localstack/localstack-pro:latest
+          docker pull localstack/snowflake:latest
+
+      - name: Run the eval dataset
+        run: yarn test:mcp:evals
+
+      - name: Keep the eval results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mcp-evals-results
+          path: .mcp-test-results
+          # The directory starts with a dot, which upload-artifact skips by default.
+          include-hidden-files: true
+          if-no-files-found: ignore

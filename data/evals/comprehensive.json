@@ -1,0 +1,266 @@
+{
+  "name": "localstack-mcp-comprehensive",
+  "description": "Whether a model picks and combines the LocalStack MCP tools; tests/mcp/tools.spec.mjs checks each tool without a model. Prompts describe the goal, not the tool. One iteration per case. Each matchesPattern starts with a prefix that keeps it inside one tool call output: the tester matches against the whole simulation result as JSON, which also holds the scenario and the model answer.",
+  "cases": [
+    {
+      "id": "scenario-management-status",
+      "description": "localstack-management: status, and a start when LocalStack isn't running. Runs first, so later cases have a running LocalStack.",
+      "mode": "mcp_host",
+      "scenario": "Is my local AWS emulator running? If it isn't, bring it up. Tell me once it is ready to accept requests.",
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
+      "expect": {
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-management",
+              "required": true
+            }
+          ],
+          "order": "any"
+        },
+        "matchesPattern": ["\"output\":\"(?:[^\"\\\\]|\\\\.)*Services initialized: [1-9]\\d*/\\d+"]
+      }
+    },
+    {
+      "id": "scenario-cloud-pods-roundtrip",
+      "description": "localstack-cloud-pods: save, load and delete a named pod. Runs second, right after LocalStack starts: the eval host times out each tool call at ~60s (MCP SDK default; the tester's requestTimeoutMs is not applied), and a save takes longer the more state later cases add.",
+      "mode": "mcp_host",
+      "scenario": "Save the current state of my local AWS emulator as a remote snapshot named mcptester-e2e-pod that a teammate could restore. If a snapshot with that name already exists, delete it and save again. Then restore mcptester-e2e-pod into my emulator to check that it works, and finally delete the snapshot so nothing is left behind. If a save, restore or delete times out, retry it once before giving up.",
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0,
+        "maxToolCalls": 15
+      },
+      "expect": {
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-cloud-pods",
+              "arguments": { "action": "save", "pod_name": "mcptester-e2e-pod" },
+              "required": true
+            },
+            {
+              "name": "localstack-cloud-pods",
+              "arguments": { "action": "load", "pod_name": "mcptester-e2e-pod" },
+              "required": true
+            },
+            {
+              "name": "localstack-cloud-pods",
+              "arguments": { "action": "delete", "pod_name": "mcptester-e2e-pod" },
+              "required": true
+            }
+          ],
+          "order": "strict"
+        },
+        "matchesPattern": [
+          "\"output\":\"(?:[^\"\\\\]|\\\\.)*was saved successfully",
+          "\"output\":\"(?:[^\"\\\\]|\\\\.)*was loaded\\. Your LocalStack instance has been restored",
+          "\"output\":\"(?:[^\"\\\\]|\\\\.)*has been permanently deleted"
+        ]
+      }
+    },
+    {
+      "id": "scenario-deploy-terraform-project",
+      "description": "localstack-deployer: deploy the sample Terraform project, which creates the bucket the next case lists.",
+      "mode": "mcp_host",
+      "scenario": "Deploy the Terraform project in this repository's data/sample-terraform directory to my local AWS emulator, then tell me its outputs.",
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
+      "expect": {
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-deployer",
+              "arguments": { "action": "deploy" },
+              "required": true
+            }
+          ],
+          "order": "any"
+        },
+        "matchesPattern": ["\"output\":\"(?:[^\"\\\\]|\\\\.)*Apply complete!"]
+      }
+    },
+    {
+      "id": "scenario-aws-client-list-buckets",
+      "description": "localstack-aws-client: list S3 buckets, which include the one the deploy case created.",
+      "mode": "mcp_host",
+      "scenario": "Which S3 buckets exist in my local AWS emulator right now?",
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
+      "expect": {
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-aws-client",
+              "required": true
+            }
+          ],
+          "order": "any"
+        },
+        "matchesPattern": ["\"output\":\"(?:[^\"\\\\]|\\\\.)*mcpjam-eval-bucket"]
+      }
+    },
+    {
+      "id": "scenario-iam-soft-mode",
+      "description": "localstack-iam-policy-analyzer: switch IAM enforcement to soft mode from a symptom, not the mode's name.",
+      "mode": "mcp_host",
+      "scenario": "My Lambda function keeps failing with AccessDenied errors in my local AWS emulator. Instead of blocking those calls, let them through and only log which permissions are missing. Then check which mode is active.",
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
+      "expect": {
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-iam-policy-analyzer",
+              "arguments": { "action": "set-mode", "mode": "SOFT_MODE" },
+              "required": true
+            }
+          ],
+          "order": "any"
+        },
+        "matchesPattern": [
+          "\"output\":\"(?:[^\"\\\\]|\\\\.)*IAM enforcement mode has been set to `SOFT_MODE`",
+          "\"output\":\"(?:[^\"\\\\]|\\\\.)*\\*\\*Current Mode:\\*\\* `SOFT_MODE`"
+        ]
+      }
+    },
+    {
+      "id": "scenario-chaos-latency-cycle",
+      "description": "localstack-chaos-injector: inject, read back and clear network latency.",
+      "mode": "mcp_host",
+      "scenario": "Simulate a slow network: make every request to my local AWS emulator 100 milliseconds slower, check that the delay is in effect, then remove it again and check that it is gone.",
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
+      "expect": {
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-chaos-injector",
+              "arguments": { "action": "inject-latency", "latency_ms": 100 },
+              "required": true
+            },
+            {
+              "name": "localstack-chaos-injector",
+              "arguments": { "action": "get-latency" },
+              "required": true
+            },
+            {
+              "name": "localstack-chaos-injector",
+              "arguments": { "action": "clear-latency" },
+              "required": true
+            }
+          ],
+          "order": "strict"
+        },
+        "matchesPattern": [
+          "\"output\":\"(?:[^\"\\\\]|\\\\.)*Latency of 100ms has been injected",
+          "\"output\":\"(?:[^\"\\\\]|\\\\.)*The current network latency is 100ms",
+          "\"output\":\"(?:[^\"\\\\]|\\\\.)*Network latency has been cleared",
+          "\"output\":\"(?:[^\"\\\\]|\\\\.)*The current network latency is 0ms"
+        ]
+      }
+    },
+    {
+      "id": "scenario-app-inspector-traces",
+      "description": "localstack-app-inspector: list traces, enabling App Inspector first if needed.",
+      "mode": "mcp_host",
+      "scenario": "Show me the most recent traces of the AWS API calls made against my local emulator. If tracing is turned off, turn it on first.",
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
+      "expect": {
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-app-inspector",
+              "arguments": { "action": "list-traces" },
+              "required": true
+            }
+          ],
+          "order": "any"
+        },
+        "matchesPattern": ["\"output\":\"(?:[^\"\\\\]|\\\\.)*## Traces"]
+      }
+    },
+    {
+      "id": "scenario-docs-search",
+      "description": "localstack-docs: a how-it-works question the docs answer, next to IAM tools that act on the running instance.",
+      "mode": "mcp_host",
+      "scenario": "How does IAM enforcement work in LocalStack, and how do its enforcement modes differ? Look it up in the documentation instead of answering from memory.",
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
+      "expect": {
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-docs",
+              "required": true
+            }
+          ],
+          "order": "any"
+        },
+        "matchesPattern": ["\"output\":\"(?:[^\"\\\\]|\\\\.)*\\*\\*[1-9]\\d* results? found\\*\\*"]
+      }
+    },
+    {
+      "id": "scenario-snowflake-full-flow",
+      "description": "localstack-snowflake-client: start emulator, check connection, run SQL. Runs LAST: the Snowflake stack and the AWS stack cannot run at the same time (both own the localstack-main container), so the AWS emulator must be stopped first and this case leaves the Snowflake emulator running.",
+      "mode": "mcp_host",
+      "scenario": "Work with the LocalStack Snowflake emulator: 1) Using the LocalStack management tool with service set to snowflake, start the Snowflake emulator. If it reports that it is already running, continue to step 2. If starting fails because a LocalStack container is already running, that container is the AWS emulator: stop it with the management tool, then start the Snowflake emulator with service snowflake again. If a start attempt times out, keep checking the Snowflake status with the management tool (service snowflake) until it reports ready — do not give up on a timeout. 2) Use the LocalStack Snowflake client to check the connection to the emulator. 3) Use the LocalStack Snowflake client to execute the SQL file data/sample-sql/snowflake_test.sql. 4) Run the query SHOW TABLES IN demo_db.public and tell me whether the customers table exists.",
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0,
+        "maxToolCalls": 15
+      },
+      "expect": {
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-management",
+              "arguments": { "service": "snowflake" },
+              "required": true
+            },
+            {
+              "name": "localstack-snowflake-client",
+              "arguments": { "action": "check-connection" },
+              "required": true
+            },
+            {
+              "name": "localstack-snowflake-client",
+              "arguments": { "action": "execute" },
+              "required": true
+            }
+          ],
+          "order": "strict"
+        },
+        "matchesPattern": [
+          "\"output\":\"(?:[^\"\\\\]|\\\\.)*(?:\\| Status\\s+\\| OK\\s+\\|)",
+          "\"output\":\"(?:[^\"\\\\]|\\\\.)*(?:\\| CUSTOMERS\\s+\\|)"
+        ]
+      }
+    }
+  ]
+}

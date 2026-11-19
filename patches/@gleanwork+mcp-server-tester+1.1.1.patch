@@ -1,0 +1,36 @@
+diff --git a/node_modules/@gleanwork/mcp-server-tester/dist/index.cjs b/node_modules/@gleanwork/mcp-server-tester/dist/index.cjs
+index 1361291..4c0d0e2 100644
+--- a/node_modules/@gleanwork/mcp-server-tester/dist/index.cjs
++++ b/node_modules/@gleanwork/mcp-server-tester/dist/index.cjs
+@@ -6965,9 +6965,10 @@ function createVercelOrchestrator() {
+         const totalDurationMs = Date.now() - llmStart;
+         const llmDurationMs = totalDurationMs - mcpDurationMs;
+         const hostUsage = result.usage ? {
+-          inputTokens: result.usage.promptTokens ?? 0,
+-          outputTokens: result.usage.completionTokens ?? 0,
+-          totalCostUsd: 0,
++          // AI SDK 5+ names: totalUsage covers every step; OpenRouter reports each step's cost.
++          inputTokens: (result.totalUsage ?? result.usage).inputTokens ?? 0,
++          outputTokens: (result.totalUsage ?? result.usage).outputTokens ?? 0,
++          totalCostUsd: (result.steps ?? []).reduce((sum, step) => sum + (step.providerMetadata?.openrouter?.usage?.cost ?? 0), 0),
+           durationMs: llmDurationMs
+         } : void 0;
+         const conversationHistory = (result.steps ?? []).flatMap((step) => {
+diff --git a/node_modules/@gleanwork/mcp-server-tester/dist/index.js b/node_modules/@gleanwork/mcp-server-tester/dist/index.js
+index 71c1ef0..8c444e9 100644
+--- a/node_modules/@gleanwork/mcp-server-tester/dist/index.js
++++ b/node_modules/@gleanwork/mcp-server-tester/dist/index.js
+@@ -6938,9 +6938,10 @@ function createVercelOrchestrator() {
+         const totalDurationMs = Date.now() - llmStart;
+         const llmDurationMs = totalDurationMs - mcpDurationMs;
+         const hostUsage = result.usage ? {
+-          inputTokens: result.usage.promptTokens ?? 0,
+-          outputTokens: result.usage.completionTokens ?? 0,
+-          totalCostUsd: 0,
++          // AI SDK 5+ names: totalUsage covers every step; OpenRouter reports each step's cost.
++          inputTokens: (result.totalUsage ?? result.usage).inputTokens ?? 0,
++          outputTokens: (result.totalUsage ?? result.usage).outputTokens ?? 0,
++          totalCostUsd: (result.steps ?? []).reduce((sum, step) => sum + (step.providerMetadata?.openrouter?.usage?.cost ?? 0), 0),
+           durationMs: llmDurationMs
+         } : void 0;
+         const conversationHistory = (result.steps ?? []).flatMap((step) => {
