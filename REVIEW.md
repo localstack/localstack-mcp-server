@@ -45,7 +45,8 @@ Each of these is a BLOCKER:
   project's packages, a third-party action) while a secret is in its environment or in `.git/config`
   (`actions/checkout` keeps the GitHub token there unless `persist-credentials: false`). Where AGENTS.md already
   lists a workflow under Known deviations for this, a change that only bumps a dependency or action is not a new
-  finding; one that adds a step, job or dependency source there is.
+  finding; one that adds a step, a job, or a new manifest, lockfile or registry there is. A new package in an
+  existing manifest is checked under "New third-party action or package from an unknown publisher" instead.
 - **Write access by default.** A new workflow, or a new job or trigger in an existing one, runs without a
   `permissions:` block, or a job that runs PR code gets more than it needs (`contents: write`, `packages: write`,
   `id-token: write`). A version bump of an action in a listed workflow is not such a change.
