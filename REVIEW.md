@@ -174,7 +174,8 @@ mounted socket.
 - **BLOCKER:** the image grows by more than about 50 MB per platform, or gains a new runtime, toolchain or base
   image, and the PR does not record that the user approved it (AGENTS.md "Docker image size").
 - **SHOULD-FIX:** a change to `Dockerfile`, `docker/` or `.dockerignore`, or a new runtime dependency, without the
-  image size before and after for amd64 and arm64.
+  image size before and after for amd64 and arm64 (for an external or Dependabot PR, the maintainer reports it when
+  re-pushing).
 - **SHOULD-FIX:** the runtime stage keeps build tools, dev dependencies, package caches or package lists, or cleans
   them in a later layer than the one that created them.
 
@@ -192,8 +193,9 @@ See "Testing" in AGENTS.md.
   the error and analytics.
 - **SHOULD-FIX:** tests assert on internal calls instead of the response, the spawned argument array or the HTTP
   request sent to LocalStack.
-- **SHOULD-FIX:** a new tool missing from `EXPECTED_TOOLS` in `tests/mcp/direct.spec.mjs` or `tests/docker/validate-image.mjs`, or a new action without
-  a case in `tests/mcp/tools.spec.mjs` that checks its effect through another call.
+- **SHOULD-FIX:** a new tool missing from `EXPECTED_TOOLS` in `tests/mcp/direct.spec.mjs` or
+  `tests/docker/validate-image.mjs`; a new action without a case in `tests/mcp/tools.spec.mjs`; or a state-changing
+  one whose case does not check its effect through another call.
 - **SHOULD-FIX:** a test reaches real AWS or Azure resources; creates a LocalStack platform resource without
   cleanup, or with a fixed name outside a `concurrency` group; or skips or passes silently when a required secret
   is absent (AGENTS.md "Testing" names the only skips allowed).
@@ -210,7 +212,7 @@ See "Testing" in AGENTS.md.
 See "Dependencies" in AGENTS.md.
 
 - **BLOCKER:** the Dockerfile, a workflow or a script installs a dependency or tool without a pinned version in a
-  file Dependabot updates: `npm install -g`,
+  file Dependabot updates or as a hand-managed pin listed in AGENTS.md "Dependencies": `npm install -g`,
   `pip install`, `curl … | sh`, a `latest` tag (other than the LocalStack emulator images), or `npx` of a package
   not in `package.json`. Debian packages from the base image's release are allowed (AGENTS.md, "Dependencies").
 - **BLOCKER:** a known high or critical advisory is silenced (an `audit-ci` allowlist entry, a removed audit step)
