@@ -78,6 +78,11 @@ export const DENIED: Array<{ match: string[]; reason: string }> = [
     ["cloudformation", "package"]
   ),
   ...deny("the AWS client keeps no history of its own", ["history"]),
+  ...deny("this streams until it is stopped; read the events with filter-log-events instead", [
+    "logs",
+    "start-live-tail",
+  ]),
+  ...deny("this needs a person to answer its prompts", ["wizard"]),
   ...deny("this manages agent skills on this machine", ["agent-toolkit"]),
 ];
 
@@ -106,6 +111,11 @@ export function sanitizeAwsCliCommand(rawCommand: string): string {
   const denied = DENIED.find(({ match }) => match.every((word, i) => words[i] === word));
   if (denied) {
     throw new Error(`'${denied.match.join(" ")}' is not allowed: ${denied.reason}.`);
+  }
+  if (words[0] === "logs" && words[1] === "tail" && words.some((w) => /^--follow(?:=|$)/.test(w))) {
+    throw new Error(
+      "'logs tail --follow' is not allowed: it streams until it is stopped. Use 'logs tail' with --since instead."
+    );
   }
   if (args[0]?.toLowerCase() === "configure" && args[1]?.toLowerCase() !== "list") {
     throw new Error("Only 'configure list' is allowed: the AWS CLI config is not changed.");
