@@ -189,6 +189,8 @@ See "Testing" in AGENTS.md.
   is absent (AGENTS.md "Testing" names the only skips allowed).
 - **SHOULD-FIX:** a tool's description, schema or response wording changed and the PR does not report an eval run.
 - **SHOULD-FIX:** `README.md` tool or prerequisite tables are out of date.
+- **NIT:** a change adds a count, version, line number or growing list to AGENTS.md instead of a rule and a
+  pointer, or a list a test could hold (AGENTS.md, "Maintaining this file").
 - **NIT:** a fixed known deviation still listed in AGENTS.md. (New code that breaks a rule is a finding at that
   rule's severity; see the top of this file.)
 
