@@ -16,7 +16,8 @@
     "test": "jest",
     "test:mcp:direct": "yarn build && playwright test -c playwright.config.mjs tests/mcp/direct.spec.mjs tests/mcp/azure-offline.spec.mjs",
     "test:mcp:evals": "yarn build && playwright test -c playwright.config.mjs tests/mcp/evals.spec.mjs",
-    "test:mcp": "yarn test:mcp:direct && yarn test:mcp:evals"
+    "test:mcp:tools": "yarn build && playwright test -c playwright.config.mjs tests/mcp/tools.spec.mjs",
+    "test:mcp": "yarn test:mcp:direct && yarn test:mcp:tools && yarn test:mcp:evals"
   },
   "dependencies": {
     "ajv": "^8.18.0",
