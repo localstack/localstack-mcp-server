@@ -9,6 +9,8 @@ state, then the wrong result). Call something a BLOCKER only after confirming it
 
 - New code that breaks a rule is a finding at the rule's severity, even if the same pattern is listed. A new row in
   "Known deviations" excuses it only if the PR records that the user approved the deviation.
+- Calling a shared helper whose behaviour is a listed deviation (for example `requireProFeature` or
+  `withToolAnalytics`) is not new code; copying the pattern or changing the helper is.
 - A change may touch listed code without fixing it, but the PR must say so: fixed, left as is, or why it cannot be
   fixed yet (SHOULD-FIX if it does not). It must not extend a deviation to another tool.
 
@@ -106,8 +108,8 @@ This repository is public, so these are BLOCKERs:
 - a reference to private LocalStack code: Python module paths (`localstack.pro.*`), private file paths or class names,
   in code, comments, tests or docs
 - an endpoint that is in neither the public docs nor one of the emulator's OpenAPI specs (`/_localstack/swagger`;
-  `/_localstack/appinspector/v1/openapi.yaml` for App Inspector), unless it is listed under "Gaps in LocalStack" in
-  AGENTS.md
+  `/_localstack/appinspector/v1/openapi.yaml` for App Inspector), unless "Gaps in LocalStack" in AGENTS.md lists it as
+  allowed under the rule 4 exception
 - a script or command run inside the LocalStack container to reach internals
 - an undocumented configuration variable
 
@@ -204,7 +206,7 @@ See "Dependencies" in AGENTS.md.
 
 - **BLOCKER:** a dependency or tool installed without a pinned version in a file Dependabot updates: `npm install -g`,
   `pip install`, `curl … | sh`, a `latest` tag (other than the LocalStack emulator images), or `npx` of a package
-  not in `package.json`.
+  not in `package.json`. Debian packages from the base image's release are allowed (AGENTS.md, "Dependencies").
 - **BLOCKER:** a known high or critical advisory is silenced (an `audit-ci` allowlist entry, a removed audit step)
   without the advisory ID, why it does not apply, and a date to revisit.
 - **SHOULD-FIX:** a new manifest, lockfile, ecosystem or Dockerfile stage without a matching entry in

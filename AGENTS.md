@@ -113,7 +113,8 @@ arrive as PRs instead of waiting for someone to notice:
 - **No version outside these files.** No `npm install -g <pkg>`, `pip install <pkg>`, `curl … | sh`, `latest` tags
   (except the LocalStack emulator images, which track the newest release on purpose), or `npx <pkg>` for a package
   that is not in `package.json`, in the Dockerfile, workflows or scripts. A new tool gets a lockfile in one of the
-  places above.
+  places above. Debian packages are the exception: they come unversioned from the base image's release, which its
+  pinned `FROM` line fixes.
 - **New ecosystem or directory, new Dependabot entry.** Copy the cooldown and grouping of the existing entries.
 - **CI uses the image's versions.** Jobs that run tools on the host install them through
   `.github/actions/host-tools`, from the same files the image uses. `src/core/dependency-pins.test.ts` checks that
@@ -192,7 +193,7 @@ lstk wraps the cloud CLIs and IaC tools
 - **Say what ran.** The tool response names the command that ran (`lstk aws …`), so a user can reproduce it.
 - **Keep the guards.** Moving a tool to lstk does not remove its safety checks: the AWS CLI sanitizer, and the Azure
   tool's profile isolation, egress guard and command policy (`src/lib/azure/`).
-- **Docker image.** The image bundles lstk and everything its commands call (the AWS CLI, Terraform, CDK, SAM, and
+- **Docker image.** The image must bundle lstk and everything its commands call (the AWS CLI, Terraform, CDK, SAM, and
   the Azure CLI once the Azure tool moves).
 - **Snowflake is exempt.** The Snowflake tool uses the `snow` CLI until lstk wraps it.
 
@@ -303,7 +304,7 @@ what is missing instead of returning an empty answer.
 
 The enforcement mode is to get separate actions (`get-iam-mode`, `set-iam-mode`, through `/_aws/iam/config`). Enforcement
 is not needed to record denials. With App Inspector enabled and enforcement off, `/_aws/iam/config` reports
-`ENGINE_ONLY` (a documented state), App Inspector records denials with `enforcement: allow_with_warning`, and the
+`ENGINE_ONLY` (a documented state), App Inspector records denials without blocking them, and the
 policy summary grows, but nothing is blocked. `ENFORCED` only makes denials fail the
 request; `SOFT_MODE` keeps them passing. Never tell a user to switch on enforcement just to see denials, since
 `ENFORCED` can break a workload that worked.
@@ -333,8 +334,8 @@ row once it ships.
 
 ## Known deviations
 
-Code on `main` that does not follow the rules: deviations that predate them, and exceptions the user approved. A
-row is never a way to let unapproved code through.
+Code on `main` (of the repository that holds it) that does not follow the rules: deviations that predate them, and
+exceptions the user approved. A row is never a way to let unapproved code through.
 
 - **New code follows the rules.** A change that needs to break one raises it with the user before it is written.
   If the user approves, the PR records the approval and adds a row naming who approved it and when.
@@ -350,7 +351,7 @@ under [Follow-ups](#follow-ups) until it lands.
 | `src/lib/localstack/container-spec.logic.ts`, `src/lib/docker/docker.client.ts` | The header comment describes the container as replicating the legacy `localstack start` (rule 1). The container spec differs from lstk's in several ways, among them the name (`localstack-main` for every emulator), labels, volume directory, ports and environment, so emulator state does not carry over and only AWS containers are found in both directions. Compare with lstk's `internal/config/containers.go` and `internal/container/start.go` for the current differences. Interoperability rests on the server detecting lstk's AWS container name and on lstk's fallback, which matches a known LocalStack image serving the gateway on lstk's default container port; it breaks for other images, a gateway moved off that port inside the container, and the other emulators. | Converge on lstk's container spec; decide later whether to adopt its names. Until then, keep lstk's AWS name detected (rule 1). |
 | `src/tools/localstack-aws-client.ts` | Runs `awslocal` inside the container via `docker exec`. | `lstk aws`, no fallback (rule 2). |
 | `src/tools/localstack-deployer.ts`, `src/prompts/infrastructure-tester.ts` | The deployer runs `awslocal cloudformation` through `docker exec` for CloudFormation deploys and deletes, and the prompt tells the agent to use `awslocal`. | `lstk aws cloudformation` (rule 2); the prompt names lstk. |
-| `src/tools/localstack-chaos-injector.ts`, `src/tools/localstack-ephemeral-instances.ts`, `src/tools/localstack-aws-replicator.ts` | Tools that skip parts of "Writing a tool": hand-built `❌` responses instead of `ResponseBuilder` (`withToolAnalytics` flags them as errors only by their prefix), a handler without `runPreflights`, and ARN parsing in the tool file (rule 5). | Follow "Writing a tool". |
+| `src/tools/` | Many tools skip parts of "Writing a tool": hand-built `❌` responses instead of `ResponseBuilder` (`withToolAnalytics` flags them as errors only by their prefix), handlers without `runPreflights`, and parsing (such as ARN splitting) in the tool file instead of a `*.logic.ts` module (rule 5). | Follow "Writing a tool". |
 | `src/core/localstack-env.ts` | Passes the server's target to `lstk terraform` / `cdk` / `sam` as `AWS_ENDPOINT_URL`, but keeps an `AWS_ENDPOINT_URL` already in the user's environment, and a `LSTK_ENDPOINT_URL` there overrides both: either sends the command to a different emulator. | Depends on the [open question](#open-questions) on passing the target to lstk. |
 | `src/tools/localstack-azure-client.ts` | Configures the host `az` itself. | `lstk az`, keeping the existing guards (rule 2). |
 | `Dockerfile` | Bundles lstk, Terraform, CDK and SAM, but not the AWS CLI. | Bundle the AWS CLI for `lstk aws` (rule 2). This is a larger image change: ask the user first ("Docker image size"). |
@@ -360,7 +361,7 @@ under [Follow-ups](#follow-ups) until it lands.
 | `src/tools/localstack-iam-policy-analyzer.ts` | Finds IAM denials by parsing container logs (rule 3). | The IAM actions of `localstack-app-inspector` ("IAM policies"); then deprecate the analyzer and remove it after a notice period. |
 | `.github/workflows/azure-smoke.yml`, `ci.yml` (`mcp-direct-tests`), `tests/mcp/azure-offline.spec.mjs` | `azure-smoke.yml` runs on `ubuntu-latest`; it and `mcp-direct-tests` use the runner image's Azure CLI, whose version no file here pins. `azure-offline` skips its cases when `az` is missing, a skip "Testing" does not allow. | The pinned Ubuntu of the other workflows, and the Azure CLI from a pinned file, as `host-tools` does for Terraform, uv and lstk. |
 | `.github/workflows/` | Secrets reach third-party code in CI (REVIEW §0): jobs set `LOCALSTACK_AUTH_TOKEN` (and, in `mcp-evals.yml`, the OpenRouter key) at job level, so `yarn install` runs dependency install scripts and third-party actions run with them; `docker.yml` runs `npm ci` for `data/sample-cdk`, with install scripts, in a step that holds the token; and `actions/checkout` leaves the GitHub token in `.git/config` for later steps. | Install dependencies with no secret in the environment (or with `--ignore-scripts`), set secrets only on the steps that need them, and check out with `persist-credentials: false`. |
-| `src/tools/localstack-app-inspector.ts`, `src/lib/deployment/` | Render LocalStack and workload strings (span and event names, stack outputs and descriptions) into markdown tables and text unescaped (REVIEW §7). `list-iam-events` answers "No events found." when the license hides IAM events, instead of explaining it ("IAM policies"). | Escape them, and size code fences to their content (REVIEW §7); explain hidden IAM events. |
+| `src/tools/`, `src/lib/` | Most tools render LocalStack and workload strings (names, outputs, log lines, error text) into markdown tables, text and fixed code fences unescaped (REVIEW §7). `list-iam-events` answers "No events found." when the license hides IAM events, instead of explaining it ("IAM policies"). | Escape them, and size code fences to their content (REVIEW §7); explain hidden IAM events. |
 | `.github/workflows/docker.yml` | Its path filter misses files the image build reads (`patches/`, `xmcp.config.ts`, `tsconfig*.json`), so a change to them is not built or tested as an image. | Filter on everything the `Dockerfile` copies. |
 | `src/lib/localstack/license-checker.ts` | Calls `GET /_localstack/licenseinfo`, which is not documented and not covered by the rule 4 exception. | The documented way LocalStack names (see [Gaps in LocalStack](#gaps-in-localstack)). |
 | `data/sample-terraform/` | The AWS provider has only a version constraint, no lockfile, and no Dependabot entry; CI downloads it with secrets in the job's environment. | A committed `.terraform.lock.hcl` and a `terraform` Dependabot entry ("Dependencies"). |
