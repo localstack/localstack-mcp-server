@@ -7,6 +7,7 @@
 #   aws-sam-cli            docker/tools/sam/uv.lock            (uv)
 #   snowflake-cli          docker/tools/snowflake/uv.lock      (uv)
 #   dockerode & co.        yarn.lock                           (npm, same lock as CI)
+# The host-tools stage hands the same terraform and uv binaries to CI jobs that run on the host.
 # Debian packages (python3, git, curl) come with the node image's bookworm base.
 # Both node FROM lines must stay identical, and their major must match `node-version` in the
 # workflows; src/core/dependency-pins.test.ts checks this.

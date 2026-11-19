@@ -109,10 +109,22 @@ describe("dependency pins", () => {
       ...fs.readdirSync(path.join(ROOT, ".github/workflows")).map((f) => `.github/workflows/${f}`),
       ".github/actions/host-tools/action.yml",
     ];
+    const otherInstall =
+      /setup-terraform|setup-uv|terraform_version|releases\.hashicorp\.com|astral\.sh\/uv|\b(?:pipx?|brew|apt(?:-get)?|mise|asdf) install\b.*\b(?:terraform|uv)\b/g;
     for (const file of files) {
-      expect(
-        `${file}: ${read(file).match(/setup-terraform|setup-uv|terraform_version|releases\.hashicorp\.com|astral\.sh\/uv/g) ?? []}`
-      ).toBe(`${file}: `);
+      expect(`${file}: ${read(file).match(otherInstall) ?? []}`).toBe(`${file}: `);
+    }
+
+    // Jobs that run the tool tests or the evals need the tools; without the action they would
+    // use whatever the runner image ships. Jobs are split at their two-space-indented keys.
+    for (const file of fs.readdirSync(path.join(ROOT, ".github/workflows"))) {
+      const jobs = read(`.github/workflows/${file}`).split(/^jobs:\s*$/m)[1] ?? "";
+      for (const job of jobs.split(/^(?=  [\w-]+:\s*$)/m)) {
+        if (!/yarn test:mcp(?::tools|:evals)?\s*$/m.test(job)) continue;
+        expect(
+          `${file} ${job.trim().split(":")[0]}: ${/uses: \.\/\.github\/actions\/host-tools\b/.test(job)}`
+        ).toBe(`${file} ${job.trim().split(":")[0]}: true`);
+      }
     }
   });
 

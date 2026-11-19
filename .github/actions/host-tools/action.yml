@@ -1,7 +1,7 @@
 name: Host tools
 description: >-
   Puts the Docker image's tools on the PATH for jobs that run the MCP server on the host:
-  Terraform and uv from the Dockerfile's host-tools stage, lstk from docker/tools/npm, and
+  always Terraform and uv (from the Dockerfile's host-tools stage) and lstk (docker/tools/npm), and
   optionally the Snowflake CLI from docker/tools/snowflake. Versions change only in those files.
 inputs:
   snowflake:
