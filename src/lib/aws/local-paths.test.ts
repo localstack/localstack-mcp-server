@@ -1,7 +1,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { assertLocalPathsAllowed, awsWorkdir } from "./local-paths";
+import { assertLocalPathsAllowed, awsWorkdir, withoutFollowingSymlinks } from "./local-paths";
 
 describe("awsWorkdir", () => {
   test("is LOCALSTACK_AWS_WORKDIR when it is a directory, else an error", () => {
@@ -41,7 +41,11 @@ describe("assertLocalPathsAllowed", () => {
   });
 
   const allowed = (cmd: string, dir: string | null = workdir) =>
-    assertLocalPathsAllowed(cmd.split(" "), dir, { home });
+    assertLocalPathsAllowed(cmd.split(" "), dir, {
+      home,
+      cwd: path.join(outside, "tmp"),
+      privateHome: path.join(outside, "home"),
+    });
 
   test.each([
     "s3 cp in.txt s3://b/in.txt",
@@ -87,6 +91,11 @@ describe("assertLocalPathsAllowed", () => {
     "lambda create-function --function-name f --code ZipFile@=fileb://OUT/x.zip",
     "sqs send-message --queue-url q --message-attributes a={DataType=Binary,BinaryValue@=fileb://OUT/key.pem}",
     "s3api head-object --bucket b --key OUT/key.pem",
+    "s3 cp ../x s3://b/k",
+    "s3 cp s3://b/k sub/../../x",
+    "s3 cp escape/secret s3://b/k",
+    "s3 cp s3://b/k --quiet ../outside-new",
+    "s3 cp --region us-east-1 escape s3://b/k",
   ])("refuses: %s", (cmd) => {
     expect(() => allowed(cmd.replace(/OUT/g, outside))).toThrow(
       /outside the AWS client's working directory/
@@ -96,5 +105,34 @@ describe("assertLocalPathsAllowed", () => {
   test("without a workdir, every absolute path is refused and relative ones stay private", () => {
     expect(() => allowed("s3 cp in.txt s3://b/k", null)).not.toThrow();
     expect(() => allowed("s3 cp /tmp/x s3://b/k", null)).toThrow(/no working directory/);
+    // The private home sits next to the private temp dir.
+    expect(() => allowed("s3 cp s3://b/alias ../home/.aws/cli/alias", null)).toThrow(
+      /no working directory/
+    );
+  });
+
+  test("the private home stays off limits inside a broad workdir", () => {
+    expect(() =>
+      assertLocalPathsAllowed(["s3", "cp", "s3://b/k", "home/x"], outside, {
+        home,
+        privateHome: path.join(outside, "home"),
+      })
+    ).toThrow(/outside the AWS client's working directory/);
+  });
+
+  test("local transfers get --no-follow-symlinks, and --follow-symlinks is refused", () => {
+    expect(withoutFollowingSymlinks(["s3", "--region", "x", "sync", ".", "s3://b"])).toEqual([
+      "s3",
+      "--region",
+      "x",
+      "sync",
+      ".",
+      "s3://b",
+      "--no-follow-symlinks",
+    ]);
+    expect(withoutFollowingSymlinks(["s3", "ls"])).toEqual(["s3", "ls"]);
+    expect(() =>
+      withoutFollowingSymlinks(["s3", "cp", ".", "s3://b", "--follow-symlinks"])
+    ).toThrow("not allowed");
   });
 });

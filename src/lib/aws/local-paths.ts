@@ -53,27 +53,32 @@ const NAME_OPTION =
   /^--(?:[a-z0-9-]+-)?(?:name|names|path|paths|prefix|key|pattern|arn|id|ids|parameter|parameters|resource|resources|route|uri|url|expression|filter|query|location)$/;
 
 /**
- * Throws when an argument names a local path outside the working directory. Every absolute or
- * `~` argument counts, whatever comes before it: a boolean flag such as --recursive takes no
- * value, so what follows it may well be a path. Only NAME_OPTION values are exempt.
+ * Throws when an argument names a local path outside the directory the CLI runs in. Every value
+ * counts, relative ones included, whatever comes before it: a boolean flag such as --recursive
+ * takes no value, so what follows it may well be a path. A relative value resolves against that
+ * directory (the workdir, or the private temp dir `deps.cwd` when there is none), and symlinks
+ * are followed, so neither `../x` nor a link inside it leads out. Only NAME_OPTION values are
+ * exempt, unless they name an existing file. `deps.privateHome` is never allowed: an alias file
+ * written there would run shell commands.
  */
 export function assertLocalPathsAllowed(
   args: string[],
   workdir: string | null,
-  deps: { home?: string; cwd?: string } = {}
+  deps: { home?: string; cwd?: string; privateHome?: string } = {}
 ): void {
-  // Relative paths resolve in the child's working directory: the workdir, or a private temp dir
-  // where nothing of the user's lives.
-  const check = (value: string, relativeToo: boolean) => {
+  const base = workdir ?? deps.cwd;
+  const check = (value: string) => {
     // `~user/x` is another user's home to the CLI: always outside.
     const isAbsolute = path.isAbsolute(value) || value.startsWith("~");
-    if (!isAbsolute && (!relativeToo || workdir === null)) return;
     if (isAbsolute && (workdir === null || /^~[^\\/]/.test(value))) throw outside(value, workdir);
+    if (!isAbsolute && base === undefined) return;
+    const root = isAbsolute ? (workdir as string) : (base as string);
     const target = isAbsolute
       ? path.resolve(expandHome(value, deps.home))
-      : path.resolve(workdir as string, value);
+      : path.resolve(root, value);
     const real = realpathOfLongestExisting(target);
-    if (real !== workdir && !real.startsWith((workdir as string) + path.sep)) {
+    if (!isInside(real, realpath(root))) throw outside(value, workdir);
+    if (deps.privateHome && isInside(real, realpath(deps.privateHome))) {
       throw outside(value, workdir);
     }
   };
@@ -97,16 +102,37 @@ export function assertLocalPathsAllowed(
     // loads files with `key@=file://path`, and a list may hold several.
     const whole = value.match(/^fileb?:\/\/([\s\S]*)$/i);
     if (whole) {
-      check(whole[1], true);
+      check(whole[1]);
       continue;
     }
-    for (const m of value.matchAll(/fileb?:\/\/([^,\]}"'\s]*)/gi)) check(m[1], true);
+    for (const m of value.matchAll(/fileb?:\/\/([^,\]}"'\s]*)/gi)) check(m[1]);
 
-    if (option !== undefined && PATH_OPTION.test(option)) check(value, true);
-    else if (option === undefined || !NAME_OPTION.test(option)) check(value, false);
-    else if (value !== "/" && isFile(expandHome(value, deps.home))) check(value, false);
+    if (option !== undefined && !PATH_OPTION.test(option) && NAME_OPTION.test(option)) {
+      if (value !== "/" && isFile(expandHome(value, deps.home))) check(value);
+    } else if (value !== "" && !/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+      // Everything but a URL (s3://, https://, arn: has no //) may be read as a path.
+      check(value);
+    }
   }
 }
+
+/**
+ * s3 cp, mv and sync walk a local directory and follow its symlinks by default, so a link inside
+ * the workdir would upload, or delete, files outside it. They get --no-follow-symlinks.
+ */
+export function withoutFollowingSymlinks(args: string[]): string[] {
+  const words = args.map((arg) => arg.toLowerCase());
+  const transfer = words[0] === "s3" && ["cp", "mv", "sync"].some((op) => words.includes(op));
+  if (!transfer) return args;
+  if (words.some((w) => /^--follow-symlinks(?:=|$)/.test(w))) {
+    throw new Error(
+      "'--follow-symlinks' is not allowed: a link could lead outside the AWS client's working directory."
+    );
+  }
+  return words.includes("--no-follow-symlinks") ? args : [...args, "--no-follow-symlinks"];
+}
+
+const isInside = (p: string, dir: string) => p === dir || p.startsWith(dir + path.sep);
 
 function outside(value: string, workdir: string | null): Error {
   const where =

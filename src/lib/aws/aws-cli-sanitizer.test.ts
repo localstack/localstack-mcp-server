@@ -97,6 +97,10 @@ describe("sanitizeAwsCliCommand", () => {
     "wizard",
     "logs start-live-tail --log-group-identifiers g",
     "logs tail /aws/lambda/f --follow",
+    "cloudformation --no-cli-pager package --template-file t.yaml --s3-bucket b",
+    "ec2-instance-connect --no-paginate ssh --instance-id i-1",
+    "ssm --region us-east-1 start-session --target i-1",
+    "logs --color off tail x --follow",
   ])("refuses commands that act on this machine: %s", (command) => {
     expect(() => sanitizeAwsCliCommand(command)).toThrow(/not allowed|always target LocalStack/);
   });
@@ -108,6 +112,22 @@ describe("sanitizeAwsCliCommand", () => {
   ])("allows the API commands of those services: %s", (command) => {
     expect(sanitizeAwsCliCommand(command)).toBe(command);
   });
+
+  test.each([
+    "s3 cp '..'/outside/secret s3://b/k",
+    `s3 cp ."."/outside/secret s3://b/k`,
+    `s3 cp s3://b/k "../outside/x"`,
+    "s3 cp --body='..'/x s3://b/k",
+  ])("rejects path traversal hidden by quotes: %s", (command) => {
+    expect(() => sanitizeAwsCliCommand(command)).toThrow("forbidden path traversal");
+  });
+
+  test.each(["s3 ls --config '..'x", "s3 ls --config=x.toml", "s3 ls --CONFIG x"])(
+    "rejects lstk's own --config: %s",
+    (command) => {
+      expect(() => sanitizeAwsCliCommand(command)).toThrow(/--config|path traversal/);
+    }
+  );
 
   test("refuses a leading lstk", () => {
     expect(() => sanitizeAwsCliCommand("lstk aws s3 ls")).toThrow("must not include");

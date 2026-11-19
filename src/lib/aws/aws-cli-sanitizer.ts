@@ -19,6 +19,11 @@ export function assertTargetsLocalStack(args: string[]): void {
       );
     }
   }
+  // lstk strips its own --config <file> from anywhere in the command and reads that file.
+  const lstkFlag = args.find((arg) => /^--config(?:=|$)/i.test(arg));
+  if (lstkFlag) {
+    throw new Error(`Option '--config' is not allowed: lstk would read it as its own config file.`);
+  }
   // lstk answers any help token itself and then runs aws without its endpoint and credential
   // handling, so an API call with a `help` value would leave LocalStack. Only a pure help
   // request, command words followed by one trailing help token, may contain one.
@@ -107,12 +112,23 @@ export function sanitizeAwsCliCommand(rawCommand: string): string {
   const args = splitAwsCliArgs(command);
 
   assertTargetsLocalStack(args);
+  // On the parsed argv: a quote splits `..` in the raw string ('..'/x, ."."/x).
+  if (args.some((arg) => /(?:^|[\\/=]|:\/\/)\.\.(?:[\\/]|$)/.test(arg))) {
+    throw new Error("Command contains forbidden path traversal.");
+  }
+
+  // The service is always the first word. The CLI accepts global options (--region, --output,
+  // --no-cli-pager, ...) before the operation, so a denied operation may come at any later
+  // position: matching any later word refuses the rare value that happens to equal it.
   const words = args.map((arg) => arg.toLowerCase());
-  const denied = DENIED.find(({ match }) => match.every((word, i) => words[i] === word));
+  const has = (word: string) => words.slice(1).includes(word);
+  const denied = DENIED.find(
+    ({ match }) => words[0] === match[0] && (match.length === 1 || has(match[1]))
+  );
   if (denied) {
     throw new Error(`'${denied.match.join(" ")}' is not allowed: ${denied.reason}.`);
   }
-  if (words[0] === "logs" && words[1] === "tail" && words.some((w) => /^--follow(?:=|$)/.test(w))) {
+  if (words[0] === "logs" && has("tail") && words.some((w) => /^--follow(?:=|$)/.test(w))) {
     throw new Error(
       "'logs tail --follow' is not allowed: it streams until it is stopped. Use 'logs tail' with --since instead."
     );

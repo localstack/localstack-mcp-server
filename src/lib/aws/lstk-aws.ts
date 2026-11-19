@@ -4,7 +4,7 @@ import { startEgressGuard } from "../azure/egress-guard";
 import { LSTK_INSTALL_MESSAGE } from "../deployment/deployment-utils";
 import { assertTargetsLocalStack } from "./aws-cli-sanitizer";
 import { buildAwsChildEnv, privateDirs } from "./child-env";
-import { assertLocalPathsAllowed, awsWorkdir } from "./local-paths";
+import { assertLocalPathsAllowed, awsWorkdir, withoutFollowingSymlinks } from "./local-paths";
 
 const AWS_CLI_INSTALL_MESSAGE = `❌ The AWS CLI is not installed or not available in PATH.
 
@@ -57,7 +57,10 @@ export async function runLstkAws(
   const { workdir, error } = awsWorkdir();
   if (error) throw new Error(error);
   const dirs = privateDirs();
-  if (options.checkLocalPaths) assertLocalPathsAllowed(args, workdir);
+  if (options.checkLocalPaths) {
+    assertLocalPathsAllowed(args, workdir, { cwd: dirs.tmpDir, privateHome: dirs.homeDir });
+    args = withoutFollowingSymlinks(args);
+  }
 
   const endpointUrl = localstackEndpointUrl();
   const endpoint = new URL(endpointUrl);

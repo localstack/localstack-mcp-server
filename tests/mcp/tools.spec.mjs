@@ -1,3 +1,5 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { expect, test } from "@gleanwork/mcp-server-tester/fixtures/mcp";
 
 // One deterministic call sequence per tool against a running LocalStack: no model involved, so
@@ -70,6 +72,47 @@ test.describe("tools against a running LocalStack", () => {
     }
     const status = await call(mcp, "localstack-management", { action: "status" });
     expect(status).toMatch(/Services initialized: [1-9]\d*\/\d+/);
+  });
+
+  // The AWS client runs `lstk aws` with a private HOME, so lstk knows no containers of its own:
+  // it must reach the one this server starts (localstack-main, not lstk's localstack-aws)
+  // through the endpoint the server hands it. Stopping first makes this server start it, even
+  // when another tool started the running instance.
+  test("aws-client: reaches the LocalStack the server started, through lstk aws", async ({
+    mcp,
+  }) => {
+    await call(mcp, "localstack-management", { action: "stop" });
+    await call(mcp, "localstack-management", { action: "start" });
+    const container = process.env.MAIN_CONTAINER_NAME || "localstack-main";
+    const { stdout } = await promisify(execFile)("docker", [
+      "inspect",
+      "--format",
+      "{{.State.Running}}",
+      container,
+    ]);
+    expect(stdout.trim(), `container ${container}`).toBe("true");
+
+    const aws = (command) => call(mcp, "localstack-aws-client", { command });
+    await expect
+      .poll(
+        async () =>
+          (
+            await callRaw(mcp, "localstack-aws-client", {
+              command: "sts get-caller-identity --query Account --output text",
+            })
+          ).text,
+        {
+          timeout: 60_000,
+        }
+      )
+      .toContain("000000000000");
+    const bucket = `${PREFIX}-started-${RUN}`;
+    await aws(`s3 mb s3://${bucket}`);
+    try {
+      expect(await aws("s3 ls")).toContain(bucket);
+    } finally {
+      await aws(`s3 rb s3://${bucket}`);
+    }
   });
 
   // Disabling first means the enable has to change something, whatever an earlier run left.

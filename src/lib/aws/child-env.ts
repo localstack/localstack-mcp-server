@@ -9,7 +9,8 @@ import path from "path";
  * would send a command elsewhere or sign it with real credentials.
  *
  * HOME is private, so neither lstk nor the CLI reads the user's ~/.aws: no profile, no
- * credential_process, no plugins, no aliases (`!` aliases run shell commands), no history. Commands
+ * credential_process, no plugins, no aliases (`!` aliases run shell commands), no history. The
+ * AWS client's path check keeps every command out of it, so none can write an alias there. Commands
  * that write to `~` write there. The egress guard is the proxy for every request, and LocalStack
  * is deliberately not in NO_PROXY: botocore picks a client's proxy from its configured endpoint,
  * so a request its endpoint rules send elsewhere (a Multi-Region Access Point) would bypass it.
