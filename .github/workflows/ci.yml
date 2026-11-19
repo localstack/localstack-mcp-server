@@ -36,13 +36,19 @@ jobs:
         run: yarn build
 
   mcp-direct-tests:
-    # Fork PRs get no secrets, so they skip it; branches in this repo and Dependabot run it.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-26.04
     env:
       LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
 
     steps:
+      # GitHub gives pull requests from forks no secrets. Fail loud rather than skip, so a
+      # fork PR never looks tested.
+      - name: Require the LocalStack auth token
+        if: env.LOCALSTACK_AUTH_TOKEN == ''
+        run: |
+          echo "::error::LOCALSTACK_AUTH_TOKEN is empty. GitHub gives pull requests from forks no secrets: before merging, a maintainer pushes this branch to the repository and opens a pull request from it."
+          exit 1
+
       - name: Checkout code
         uses: actions/checkout@v7
 
@@ -56,19 +62,23 @@ jobs:
 
       - name: Run MCP Server Tester
         run: yarn test:mcp:direct
-        env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
 
   # Each tool against a real LocalStack, without a model (tests/mcp/tools.spec.mjs). The first
   # test starts LocalStack through the management tool.
   mcp-tool-tests:
-    # Fork PRs get no secrets, so they skip it; branches in this repo and Dependabot run it.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-26.04
     env:
       LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
 
     steps:
+      # GitHub gives pull requests from forks no secrets. Fail loud rather than skip, so a
+      # fork PR never looks tested.
+      - name: Require the LocalStack auth token
+        if: env.LOCALSTACK_AUTH_TOKEN == ''
+        run: |
+          echo "::error::LOCALSTACK_AUTH_TOKEN is empty. GitHub gives pull requests from forks no secrets: before merging, a maintainer pushes this branch to the repository and opens a pull request from it."
+          exit 1
+
       - name: Checkout code
         uses: actions/checkout@v7
 
