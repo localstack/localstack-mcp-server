@@ -136,7 +136,7 @@ not compute it as a fallback.
 See "IAM policies" in AGENTS.md.
 
 - **BLOCKER:** the tool changes LocalStack's suggestion for a denied request: drops, merges or reorders its changes,
-  or reports a different `outcome`. What the agent applies must be what LocalStack verified.
+  or reports a different verdict on whether the changes fix the request. What the agent applies must be what LocalStack verified.
 - **BLOCKER:** the tool computes a diff between suggested and deployed policies itself, instead of presenting one
   that LocalStack returned.
 - **SHOULD-FIX:** a summary policy is presented as verified or complete, instead of as a suggestion from the
@@ -182,7 +182,7 @@ mounted socket.
 
 See "Testing" in AGENTS.md.
 
-- **BLOCKER:** a bug fix without a test that fails before the fix.
+- **BLOCKER:** a bug fix in `src/` without a test that fails before the fix.
 - **SHOULD-FIX:** a new or changed action without a handler test in `src/tools-tests/<tool>.test.ts` covering its
   success path, each error path (`isError: true`) and each preflight it runs.
 - **SHOULD-FIX:** new `*.logic.ts` code without unit tests.
@@ -197,7 +197,8 @@ See "Testing" in AGENTS.md.
 - **SHOULD-FIX:** a test reaches real AWS or Azure resources; creates a LocalStack platform resource without
   cleanup, or with a fixed name outside a `concurrency` group; or skips or passes silently when a required secret
   is absent (AGENTS.md "Testing" names the only skips allowed).
-- **SHOULD-FIX:** a tool's description, schema or response wording changed and the PR does not report an eval run.
+- **SHOULD-FIX:** a tool's description, schema or response wording changed and the PR does not report an eval run
+  (for an external PR, the maintainer runs it when re-pushing).
 - **SHOULD-FIX:** `README.md` tool or prerequisite tables are out of date.
 - **NIT:** a change adds a count, version, line number or growing list to AGENTS.md instead of a rule and a
   pointer, or a list a test could hold (AGENTS.md, "Maintaining this file").
