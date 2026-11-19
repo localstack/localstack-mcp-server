@@ -54,13 +54,13 @@ Follow the shape of an existing tool, for example `src/tools/localstack-aws-clie
 ## Testing
 
 Test every tool at these levels; many do not have all of them yet (see [Known deviations](#known-deviations)). Write
-the failing test first when fixing a bug.
+the failing test first when fixing a bug in `src/`.
 
 | Level | Where | Runs in CI | What it proves |
 |-------|-------|------------|----------------|
 | Logic | `src/lib/<area>/*.logic.test.ts` | always | Parsing, validation, rendering and sanitizing, as pure functions. |
 | Handler | `src/tools-tests/<tool>.test.ts` | always | The tool's actions end to end inside the process, with Docker, LocalStack and spawned binaries mocked at the module boundary. |
-| Tools | `tests/mcp/tools.spec.mjs` | every PR, with the auth token | Each tool over MCP stdio against a real emulator, without a model. A case for an action that changes state reads that state back through another call. |
+| Tools | `tests/mcp/tools.spec.mjs` | every PR, with the auth token | Each tool over MCP stdio against a real emulator, without a model. |
 | Server | `tests/mcp/direct.spec.mjs` | every PR, with the auth token | The built server: tool list, prompts, setup wizard. |
 | Image | `tests/docker/validate-image.mjs` | `docker.yml`, with the auth token | Real calls through the Docker image. |
 
@@ -101,7 +101,7 @@ Rules for tool tests:
 ## Dependencies
 
 Every dependency version lives in exactly one file that Dependabot updates (`.github/dependabot.yml`), so CVE fixes
-arrive as PRs instead of waiting for someone to notice:
+arrive as PRs instead of waiting for someone to notice, or is a hand-managed pin (below):
 
 | What | Pinned in |
 |------|-----------|
@@ -121,9 +121,9 @@ arrive as PRs instead of waiting for someone to notice:
   `.github/actions/host-tools`, from the same files the image uses. `src/core/dependency-pins.test.ts` checks that
   the jobs running the tool tests or the evals use it, and that `ci.yml`, `docker.yml` and `mcp-evals.yml` run on
   the same pinned Ubuntu.
-- **Hand-managed pins** (Node's major line, `zod` up to xmcp's copy, `@gleanwork/mcp-server-tester` while
-  `patches/` patches it) are listed as `ignore` entries in `dependabot.yml` with the reason, and
-  `src/core/dependency-pins.test.ts` keeps the ones it can in sync.
+- **Hand-managed pins** (Node's major line, the runner's Ubuntu release, `zod` up to xmcp's copy,
+  `@gleanwork/mcp-server-tester` while `patches/` patches it) carry their reason next to them (an `ignore` entry in
+  `dependabot.yml`, or a comment), and `src/core/dependency-pins.test.ts` keeps the ones it can in sync.
 - **Fix advisories by upgrading.** `audit-ci --high --skip-dev` gates CI. If no fixed version exists, an allowlist
   entry names the advisory, why it does not apply, and when to revisit it.
 - **Actions pinned to a commit SHA**, with the version in a comment (`uses: actions/checkout@<sha> # v7`).
@@ -211,7 +211,8 @@ format changes without notice, lines rotate out of the window, and regexes miss 
   A tool may explain how to enable the feature that provides the data (for example App Inspector), but must not fall
   back to logs.
 - **Logs are for showing logs.** `localstack-logs-analysis` returns raw or filtered log lines (startup failures, stack
-  traces). It does not classify lines into services, operations, status codes or IAM denials.
+  traces) and must not classify them into services, operations, status codes or IAM denials (it still does; see
+  [Known deviations](#known-deviations)).
 
 ### 4. Use only public interfaces
 
@@ -266,7 +267,7 @@ If two clients could compute the same answer differently, the answer belongs in 
 Today `localstack-iam-policy-analyzer` handles IAM by parsing logs and synthesizing policies (known deviations),
 with its `set-mode` and `get-status` actions for the enforcement mode. IAM moves to `localstack-app-inspector`. None
 of the actions below exist yet; this is the design they are built to. `localstack-app-inspector` already lists a
-span's raw IAM events (`list-iam-events`, `get-event`); `list-iam-denials` and `explain-iam` replace those for IAM. Once its actions ship, the analyzer is
+span's raw IAM events (`list-iam-events`, `get-event`); `list-iam-denials` and `explain-iam` are to replace those for IAM. Once its actions ship, the analyzer is
 deprecated: its behaviour stays unchanged until it is removed, but its description and every response name the
 app-inspector action that replaces it.
 
