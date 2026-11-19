@@ -94,8 +94,11 @@ describe("sanitizeAwsCliCommand", () => {
     "cloudformation package --template-file t.yaml --s3-bucket b",
     "deploy install --config-file c",
     "agent-toolkit list-installed-skills",
+    "wizard",
+    "logs start-live-tail --log-group-identifiers g",
+    "logs tail /aws/lambda/f --follow",
   ])("refuses commands that act on this machine: %s", (command) => {
-    expect(() => sanitizeAwsCliCommand(command)).toThrow(/is not allowed|always target LocalStack/);
+    expect(() => sanitizeAwsCliCommand(command)).toThrow(/not allowed|always target LocalStack/);
   });
 
   test.each([

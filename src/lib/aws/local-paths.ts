@@ -34,11 +34,21 @@ export function awsWorkdir(
   return { workdir: cwd };
 }
 
-// Options whose value names a local file or directory, relative or absolute.
-const PATH_OPTION =
-  /^--(?:[a-z0-9-]+-)?(?:file|outfile|body|kubeconfig|root|dir|directory|ca-bundle|block-data)$|^--source$/;
+// Options whose value names a local file or directory, relative or absolute. Taken from the
+// AWS CLI v2 source: API parameters only take a local file through file://, fileb://, a
+// streaming blob (the second line, from the service models) or a streaming operation's
+// positional outfile, so the rest are customizations (the last line).
+const PATH_OPTION = new RegExp(
+  "^--(?:[a-z0-9-]+-)?(?:file|outfile)$|^--(?:" +
+    [
+      "body|block-data|annotation-payload|asset-content|documents|input-stream|invoke-args|payload",
+      "kubeconfig|ca-bundle|file-path|priv-launch-key|private-key|save-as|local-export-path|build-root|source|code|task-definition|codedeploy-appspec|dir|src|dest",
+    ].join("|") +
+    ")$"
+);
 // Options whose value is a name that may start with `/` (IAM paths, SSM parameter and log group
-// names, S3 keys and prefixes): never a local path, unless given as file://.
+// names, S3 keys and prefixes). Their values are not checked, unless one names an existing
+// file: an option missing from PATH_OPTION would read it.
 const NAME_OPTION =
   /^--(?:[a-z0-9-]+-)?(?:name|names|path|paths|prefix|key|pattern|arn|id|ids|parameter|parameters|resource|resources|route|uri|url|expression|filter|query|location)$/;
 
@@ -83,10 +93,18 @@ export function assertLocalPathsAllowed(
       value = arg.slice(eq + 1);
     }
 
-    const file = value.match(/^fileb?:\/\/([\s\S]*)$/i);
-    if (file) check(file[1], true);
-    else if (option !== undefined && PATH_OPTION.test(option)) check(value, true);
+    // A whole value that is file://… names one path (commas and all). Inside a value, shorthand
+    // loads files with `key@=file://path`, and a list may hold several.
+    const whole = value.match(/^fileb?:\/\/([\s\S]*)$/i);
+    if (whole) {
+      check(whole[1], true);
+      continue;
+    }
+    for (const m of value.matchAll(/fileb?:\/\/([^,\]}"'\s]*)/gi)) check(m[1], true);
+
+    if (option !== undefined && PATH_OPTION.test(option)) check(value, true);
     else if (option === undefined || !NAME_OPTION.test(option)) check(value, false);
+    else if (value !== "/" && isFile(expandHome(value, deps.home))) check(value, false);
   }
 }
 
@@ -102,6 +120,14 @@ function outside(value: string, workdir: string | null): Error {
 
 function expandHome(value: string, home = os.homedir()): string {
   return /^~(?:[\\/]|$)/.test(value) ? path.join(home, value.slice(1)) : value;
+}
+
+function isFile(p: string): boolean {
+  try {
+    return (path.isAbsolute(p) || p.startsWith("~")) && fs.statSync(p).isFile();
+  } catch {
+    return false;
+  }
 }
 
 function isDirectory(p: string): boolean {

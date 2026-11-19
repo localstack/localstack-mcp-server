@@ -32,6 +32,7 @@ describe("assertLocalPathsAllowed", () => {
     workdir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "aws-workdir-")));
     outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "aws-outside-")));
     fs.writeFileSync(path.join(workdir, "in.txt"), "x");
+    fs.writeFileSync(path.join(outside, "key.pem"), "secret");
     fs.symlinkSync(outside, path.join(workdir, "escape"));
   });
   afterAll(() => {
@@ -52,6 +53,9 @@ describe("assertLocalPathsAllowed", () => {
     "iam create-role --role-name r --path / --assume-role-policy-document file://in.txt",
     "s3api list-objects-v2 --bucket b --prefix /logs/",
     "s3api put-object --bucket b --key /a/b --body in.txt",
+    "lambda invoke --function-name f --payload {} out.json",
+    "lambda create-function --function-name f --code ZipFile@=fileb://in.txt",
+    "ecs run-task --task-definition web:3",
   ])("allows: %s", (cmd) => {
     expect(() => allowed(cmd.replace("IN", workdir))).not.toThrow();
   });
@@ -73,8 +77,20 @@ describe("assertLocalPathsAllowed", () => {
     "eks update-kubeconfig --name c --kubeconfig ../x",
     "gamelift upload-build --name b --build-root escape",
     "ssm get-parameters --names /a /b",
+    "servicecatalog generate provisioning-artifact --file-path OUT/key.pem --bucket-name b",
+    "ec2 get-password-data --instance-id i-1 --priv-launch-key OUT/key.pem",
+    "cloudfront sign --url u --key-pair-id k --private-key OUT/key.pem --date-less-than 1",
+    "gamelift get-game-session-log --game-session-id g --save-as OUT/log.zip",
+    "cloudtrail verify-query-results --local-export-path OUT/x",
+    "lambda-web deploy --code OUT",
+    "ecs deploy --service s --task-definition OUT/td.json --codedeploy-appspec OUT/a.json",
+    "lambda create-function --function-name f --code ZipFile@=fileb://OUT/x.zip",
+    "sqs send-message --queue-url q --message-attributes a={DataType=Binary,BinaryValue@=fileb://OUT/key.pem}",
+    "s3api head-object --bucket b --key OUT/key.pem",
   ])("refuses: %s", (cmd) => {
-    expect(() => allowed(cmd)).toThrow(/outside the AWS client's working directory/);
+    expect(() => allowed(cmd.replace(/OUT/g, outside))).toThrow(
+      /outside the AWS client's working directory/
+    );
   });
 
   test("without a workdir, every absolute path is refused and relative ones stay private", () => {
