@@ -10,6 +10,9 @@ on:
         default: ""
   schedule:
     - cron: "0 7 * * 1"
+  # TEMPORARY: run once on the PR branch, since workflow_dispatch needs the workflow on main.
+  push:
+    branches: [devx-1320-run-the-mcp-servers-llm-evals-in-ci-through]
 
 permissions:
   contents: read
