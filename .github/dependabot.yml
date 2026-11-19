@@ -21,6 +21,9 @@ updates:
       - dependency-name: zod
         update-types:
           - version-update:semver-minor
+      # patches/ holds a patch for this exact version, and patch-package fails the install in CI
+      # when it no longer applies. Bump it by hand and redo or drop the patch.
+      - dependency-name: "@gleanwork/mcp-server-tester"
 
   # CLIs inside the Docker image (aws-cdk, lstk) and the CDK sample app that CI deploys with them.
   - package-ecosystem: npm

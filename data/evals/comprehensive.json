@@ -115,7 +115,7 @@
       "id": "scenario-iam-soft-mode",
       "description": "localstack-iam-policy-analyzer: switch IAM enforcement to soft mode from a symptom, not the mode's name.",
       "mode": "mcp_host",
-      "scenario": "My Lambda function keeps failing with AccessDenied errors in my local AWS emulator. Instead of blocking those calls, let them through and only log which permissions are missing.",
+      "scenario": "My Lambda function keeps failing with AccessDenied errors in my local AWS emulator. Instead of blocking those calls, let them through and only log which permissions are missing. Then check which mode is active.",
       "mcpHostConfig": {
         "provider": "openrouter",
         "model": "google/gemini-2.5-flash",
@@ -133,7 +133,8 @@
           "order": "any"
         },
         "matchesPattern": [
-          "\"output\":\"(?:[^\"\\\\]|\\\\.)*IAM enforcement mode has been set to `SOFT_MODE`"
+          "\"output\":\"(?:[^\"\\\\]|\\\\.)*IAM enforcement mode has been set to `SOFT_MODE`",
+          "\"output\":\"(?:[^\"\\\\]|\\\\.)*\\*\\*Current Mode:\\*\\* `SOFT_MODE`"
         ]
       }
     },
@@ -141,7 +142,7 @@
       "id": "scenario-chaos-latency-cycle",
       "description": "localstack-chaos-injector: inject, read back and clear network latency.",
       "mode": "mcp_host",
-      "scenario": "Simulate a slow network: make every request to my local AWS emulator 100 milliseconds slower, check that the delay is in effect, then remove it again.",
+      "scenario": "Simulate a slow network: make every request to my local AWS emulator 100 milliseconds slower, check that the delay is in effect, then remove it again and check that it is gone.",
       "mcpHostConfig": {
         "provider": "openrouter",
         "model": "google/gemini-2.5-flash",
@@ -171,7 +172,8 @@
         "matchesPattern": [
           "\"output\":\"(?:[^\"\\\\]|\\\\.)*Latency of 100ms has been injected",
           "\"output\":\"(?:[^\"\\\\]|\\\\.)*The current network latency is 100ms",
-          "\"output\":\"(?:[^\"\\\\]|\\\\.)*Network latency has been cleared"
+          "\"output\":\"(?:[^\"\\\\]|\\\\.)*Network latency has been cleared",
+          "\"output\":\"(?:[^\"\\\\]|\\\\.)*The current network latency is 0ms"
         ]
       }
     },

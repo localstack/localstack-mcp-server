@@ -110,7 +110,7 @@ describe("dependency pins", () => {
       ".github/actions/host-tools/action.yml",
     ];
     const otherInstall =
-      /setup-terraform|setup-uv|terraform_version|releases\.hashicorp\.com|astral\.sh\/uv|\b(?:pipx?|brew|apt(?:-get)?|mise|asdf) install\b.*\b(?:terraform|uv)\b/g;
+      /setup-terraform|setup-uv|terraform_version|\b(?:curl|wget)\b.*\b(?:hashicorp\.com|astral\.sh|astral-sh)\b|\b(?:pipx?|brew|apt(?:-get)?|mise|asdf) install\b.*\b(?:terraform|uv)\b/g;
     for (const file of files) {
       expect(`${file}: ${read(file).match(otherInstall) ?? []}`).toBe(`${file}: `);
     }
@@ -120,7 +120,7 @@ describe("dependency pins", () => {
     for (const file of fs.readdirSync(path.join(ROOT, ".github/workflows"))) {
       const jobs = read(`.github/workflows/${file}`).split(/^jobs:\s*$/m)[1] ?? "";
       for (const job of jobs.split(/^(?=  [\w-]+:\s*$)/m)) {
-        if (!/yarn test:mcp(?::tools|:evals)?\s*$/m.test(job)) continue;
+        if (!/\b(?:yarn|npm|pnpm)(?: run)? test:mcp(?::tools|:evals)?\b(?!:)/.test(job)) continue;
         expect(
           `${file} ${job.trim().split(":")[0]}: ${/uses: \.\/\.github\/actions\/host-tools\b/.test(job)}`
         ).toBe(`${file} ${job.trim().split(":")[0]}: true`);

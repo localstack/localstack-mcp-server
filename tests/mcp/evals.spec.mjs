@@ -31,17 +31,39 @@ test.describe("OpenRouter comprehensive eval", () => {
     const thresholds = new Map(
       dataset.cases.map((c) => [c.id, Math.ceil((c.accuracyThreshold ?? 1) * (c.iterations ?? 1))])
     );
+    // The tester drops a tool result's isError and keeps only its text, which this server starts
+    // with ❌ on an error. A model can still read a usable answer out of an error's text, so each
+    // required call needs at least one matching call that didn't fail.
+    const cases = new Map(dataset.cases.map((c) => [c.id, c]));
+    const matches = (call, expected) =>
+      call.name === expected.name &&
+      Object.entries(expected.arguments ?? {}).every(
+        ([key, value]) => JSON.stringify(call.arguments?.[key]) === JSON.stringify(value)
+      );
+    const failedCalls = (entry, iteration) =>
+      (cases.get(entry.id)?.expect?.toolsTriggered?.calls ?? [])
+        .filter((expected) => expected.required)
+        .filter(
+          (expected) =>
+            !(iteration.response?.toolCalls ?? []).some(
+              (call) => matches(call, expected) && !String(call.output ?? "").startsWith("❌")
+            )
+        )
+        .map((expected) => expected.name);
+    const passesIteration = (entry, iteration) =>
+      iteration.pass === true && failedCalls(entry, iteration).length === 0;
     const passesCase = (entry) =>
       entry?.pass === true &&
-      (entry.iterationResults ?? [entry]).filter((r) => r.pass === true).length >=
+      (entry.iterationResults ?? [entry]).filter((r) => passesIteration(entry, r)).length >=
         thresholds.get(entry.id);
     const passed = caseResults.filter(passesCase).length;
     const failed = caseResults.filter((entry) => !passesCase(entry));
 
     if (failed.length > 0) {
       for (const entry of failed) {
+        const errored = (entry.iterationResults ?? [entry]).map((r) => failedCalls(entry, r));
         console.error(
-          `Eval case failed: ${entry.id} (infrastructure errors: ${entry.infrastructureErrorCount ?? 0})`
+          `Eval case failed: ${entry.id} (infrastructure errors: ${entry.infrastructureErrorCount ?? 0}; required calls that only returned errors: ${JSON.stringify(errored)})`
         );
         console.error(JSON.stringify(entry, null, 2));
       }

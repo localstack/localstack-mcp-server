@@ -36,6 +36,8 @@ jobs:
         run: yarn build
 
   mcp-direct-tests:
+    # Fork PRs get no secrets, so they skip it; branches in this repo and Dependabot run it.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-26.04
     env:
       LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
@@ -60,6 +62,8 @@ jobs:
   # Each tool against a real LocalStack, without a model (tests/mcp/tools.spec.mjs). The first
   # test starts LocalStack through the management tool.
   mcp-tool-tests:
+    # Fork PRs get no secrets, so they skip it; branches in this repo and Dependabot run it.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-26.04
     env:
       LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
