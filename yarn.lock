@@ -1310,6 +1310,11 @@
   resolved "https://registry.yarnpkg.com/@openrouter/ai-sdk-provider/-/ai-sdk-provider-2.10.0.tgz#83aa7b285a1f07500d85a23bfe909546e6916077"
   integrity sha512-FMsAEjLUt5pWuRE2LDC/LCvVrFjLlrEzUITH5+5SZtfq7KZ2wrOHjQVxzz92sju8S9ltpzW87CLW8/b0oBXVCw==
 
+"@openrouter/ai-sdk-provider@^3.1.0":
+  version "3.1.0"
+  resolved "https://registry.yarnpkg.com/@openrouter/ai-sdk-provider/-/ai-sdk-provider-3.1.0.tgz#67afdd5c797e5365633f78085348cf1dac2b501f"
+  integrity sha512-BQy1TA9fKrh47s9ivsO6FY5QimN7GUF0i8Qon3pkxQclEgShso0dClpcWn8OIyPLEZZPFaFKgI8TW4S/O0p0Dw==
+
 "@opentelemetry/api@^1.9.0":
   version "1.9.1"
   resolved "https://registry.yarnpkg.com/@opentelemetry/api/-/api-1.9.1.tgz#c1b0346de336ba55af2d5a7970882037baedec05"
