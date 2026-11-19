@@ -11,7 +11,8 @@ state, then the wrong result). Call something a BLOCKER only after confirming it
   "Known deviations" excuses it only if the PR records that the user approved the deviation.
 - Calling a shared helper whose behaviour is a listed deviation (for example `requireProFeature` or
   `withToolAnalytics`) is not new code; copying the pattern or changing the helper is.
-- A change may touch listed code without fixing it, but the PR must say so: fixed, left as is, or why it cannot be
+- A change may touch the deviating code itself (not just a file a row names) without fixing it, but the PR must
+  say so: fixed, left as is, or why it cannot be
   fixed yet (SHOULD-FIX if it does not). It must not extend a deviation to another tool.
 
 ## 0. Security leaks (always BLOCKER)
@@ -47,7 +48,8 @@ Each of these is a BLOCKER:
   project's packages, a third-party action) while a secret is in its environment or in `.git/config`
   (`actions/checkout` keeps the GitHub token there unless `persist-credentials: false`). Where AGENTS.md already
   lists a workflow under Known deviations for this, a change that only bumps a dependency or action is not a new
-  finding; one that adds a step, a job, or a new manifest, lockfile or registry there is. A new package in an
+  finding; one that adds a job, a step that installs or runs third-party code not run there before, or a new
+  manifest, lockfile or registry there is. A new package in an
   existing manifest is checked under "New third-party action or package from an unknown publisher" instead.
 - **Write access by default.** A new workflow, or a new job or trigger in an existing one, runs without a
   `permissions:` block, or a job that runs PR code gets more than it needs (`contents: write`, `packages: write`,
@@ -74,7 +76,8 @@ artifact, a pushed commit), say so in the review so a maintainer rotates it; del
   volumes, environment, auth env) or makes an existing one worse, so `lstk stop` or `lstk status` can find or manage
   fewer of the server's emulators, or the server fewer of lstk's; or the change drops detection of `localstack-aws`.
   Differences that already exist are not findings; the "Known deviations" list of them is not exhaustive.
-- **SHOULD-FIX:** a change to the container spec has no test that compares it with lstk's defaults.
+- **SHOULD-FIX:** a change to the container spec does not say how it compares with lstk's container
+  (`internal/config/containers.go`).
 - Endpoint handling for lstk calls is an open question in AGENTS.md. Until it is decided, report these as
   questions for the user, not as rule violations, unless the failure is confirmed:
   - an lstk call can reach a different emulator than the server's other tools, for example because a
@@ -140,8 +143,8 @@ See "IAM policies" in AGENTS.md.
   requests seen so far; or "unused permissions" is not qualified as unused in this run.
 - **SHOULD-FIX:** a summary policy is reshaped, for example by splitting a role's trust statement from its
   permissions.
-- **SHOULD-FIX:** a missing license feature (a 404 from the policy summary, or App Inspector unavailable) shows as an
-  error instead of an explanation of the feature and how to get it.
+- **SHOULD-FIX:** a missing license feature (a 404 from the policy summary, or App Inspector unavailable) returns a
+  bare failure or an empty result instead of an `isError` response that names the feature and how to get it.
 
 ## 7. Tool contract
 
@@ -151,8 +154,9 @@ See "IAM policies" in AGENTS.md.
   log lines) reaches an agent-facing response without escaping. A value must not be able to close a code fence,
   break a table, or read as an instruction. Size code fences to their content, and escape markdown in table cells
   and inline text.
-- **SHOULD-FIX:** the handler skips `withToolAnalytics`, preflights or `ResponseBuilder`, or a new tool argument is
-  missing from (or wrongly added to) the analytics allowlist in `src/core/analytics.ts`.
+- **SHOULD-FIX:** the handler skips `withToolAnalytics`, preflights or `ResponseBuilder`, or a new tool argument
+  that can never hold secrets or user data is missing from the analytics allowlist in `src/core/analytics.ts`, or
+  one that can is added to it.
 - **SHOULD-FIX:** decision or parsing logic lives in the tool file instead of a tested `*.logic.ts` module.
 - **SHOULD-FIX:** a tool's `schema` descriptions or `metadata.description` no longer match what the tool does. Agents
   choose tools from these strings.
@@ -204,7 +208,8 @@ See "Testing" in AGENTS.md.
 
 See "Dependencies" in AGENTS.md.
 
-- **BLOCKER:** a dependency or tool installed without a pinned version in a file Dependabot updates: `npm install -g`,
+- **BLOCKER:** the Dockerfile, a workflow or a script installs a dependency or tool without a pinned version in a
+  file Dependabot updates: `npm install -g`,
   `pip install`, `curl … | sh`, a `latest` tag (other than the LocalStack emulator images), or `npx` of a package
   not in `package.json`. Debian packages from the base image's release are allowed (AGENTS.md, "Dependencies").
 - **BLOCKER:** a known high or critical advisory is silenced (an `audit-ci` allowlist entry, a removed audit step)

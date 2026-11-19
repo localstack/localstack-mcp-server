@@ -70,7 +70,8 @@ Rules for tool tests:
   `ResponseBuilder.error` with `isError: true`; assert that, not just the text.
 - **Test the gates.** Each preflight the tool runs gets a case: no auth token, LocalStack not running, lstk missing,
   feature not licensed. Keep `runPreflights` real and stub only the checks that reach Docker or the license API.
-  A missing license or feature must read as an explanation (see "IAM policies"), and the test should say so.
+  A missing license or feature returns an `isError` response that names the feature and how to get it, and the
+  test checks both.
 - **Assert on what leaves the process**: the response (text, `isError`), the argument array passed to the spawned
   binary, and the HTTP method, path, query and body sent to LocalStack. Do not assert on internal calls.
 - **Schema.** Invalid arguments are rejected by the zod schema; test a missing required field and a wrong enum
