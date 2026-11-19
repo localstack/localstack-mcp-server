@@ -25,7 +25,14 @@ export function awsWorkdir(
         error: `LOCALSTACK_AWS_WORKDIR (${dir}) is not an existing directory: set it to the directory that holds the files the AWS client may read and write.`,
       };
     }
-    return { workdir: realpath(dir) };
+    const real = realpath(dir);
+    if (real === path.parse(real).root || real === realpath(deps.home ?? os.homedir())) {
+      return {
+        workdir: null,
+        error: `LOCALSTACK_AWS_WORKDIR (${real}) must not be / or your home directory: it would expose ~/.aws and every other file to the AWS client.`,
+      };
+    }
+    return { workdir: real };
   }
   if (deps.inDocker ?? fs.existsSync("/.dockerenv")) return { workdir: null };
   const cwd = realpath(deps.cwd ?? process.cwd());
@@ -34,32 +41,20 @@ export function awsWorkdir(
   return { workdir: cwd };
 }
 
-// Options whose value names a local file or directory, relative or absolute. Taken from the
-// AWS CLI v2 source: API parameters only take a local file through file://, fileb://, a
-// streaming blob (the second line, from the service models) or a streaming operation's
-// positional outfile, so the rest are customizations (the last line).
-const PATH_OPTION = new RegExp(
-  "^--(?:[a-z0-9-]+-)?(?:file|outfile)$|^--(?:" +
-    [
-      "body|block-data|annotation-payload|asset-content|documents|input-stream|invoke-args|payload",
-      "kubeconfig|ca-bundle|file-path|priv-launch-key|private-key|save-as|local-export-path|build-root|source|code|task-definition|codedeploy-appspec|dir|src|dest",
-    ].join("|") +
-    ")$"
-);
-// Options whose value is a name that may start with `/` (IAM paths, SSM parameter and log group
-// names, S3 keys and prefixes). Their values are not checked, unless one names an existing
-// file: an option missing from PATH_OPTION would read it.
-const NAME_OPTION =
-  /^--(?:[a-z0-9-]+-)?(?:name|names|path|paths|prefix|key|pattern|arn|id|ids|parameter|parameters|resource|resources|route|uri|url|expression|filter|query|location)$/;
-
 /**
- * Throws when an argument names a local path outside the directory the CLI runs in. Every value
- * counts, relative ones included, whatever comes before it: a boolean flag such as --recursive
- * takes no value, so what follows it may well be a path. A relative value resolves against that
- * directory (the workdir, or the private temp dir `deps.cwd` when there is none), and symlinks
- * are followed, so neither `../x` nor a link inside it leads out. Only NAME_OPTION values are
- * exempt, unless they name an existing file. `deps.privateHome` is never allowed: an alias file
- * written there would run shell commands.
+ * Throws when an argument may name a local path outside the directory the CLI runs in. One rule
+ * for every value, whatever option it belongs to: the CLI accepts any unambiguous prefix of an
+ * option name (`--public-key` for `--public-key-outfile`), so a name proves nothing.
+ *
+ * - A relative value resolves against that directory (the workdir, or the private temp dir
+ *   `deps.cwd` when there is none), following symlinks, and must stay inside.
+ * - An absolute or `~` value must be inside the workdir, unless its first directory does not
+ *   exist on this machine: then it is a name (/aws/lambda/f, /prod/db/password, /index.html)
+ *   the CLI cannot read, and writing it would only create a new top-level directory.
+ * - A file:// or fileb:// path, anywhere in a value (shorthand loads files with `key@=file://`),
+ *   is always a path: no name exception.
+ * - A leading `$VAR`: the CLI expands variables in paths, so `$HOME/x` would leave the check.
+ * - `deps.privateHome` is never allowed: an alias written there would run shell commands.
  */
 export function assertLocalPathsAllowed(
   args: string[],
@@ -67,52 +62,45 @@ export function assertLocalPathsAllowed(
   deps: { home?: string; cwd?: string; privateHome?: string } = {}
 ): void {
   const base = workdir ?? deps.cwd;
-  const check = (value: string) => {
-    // `~user/x` is another user's home to the CLI: always outside.
+  // `/` is a name (`iam … --path /`) except to the transfers, which would walk the whole disk.
+  const words = args.map((arg) => arg.toLowerCase());
+  const transfer = words[0] === "s3" && ["cp", "mv", "sync"].some((op) => words.includes(op));
+  const check = (value: string, mayBeName: boolean) => {
+    if (mayBeName && value === "/" && !transfer) return;
+    if (/^\$\{?[A-Za-z_]/.test(value)) {
+      throw new Error(
+        `The value '${value}' is not allowed: the AWS CLI would expand the variable in a path. Write the path out.`
+      );
+    }
     const isAbsolute = path.isAbsolute(value) || value.startsWith("~");
-    if (isAbsolute && (workdir === null || /^~[^\\/]/.test(value))) throw outside(value, workdir);
     if (!isAbsolute && base === undefined) return;
-    const root = isAbsolute ? (workdir as string) : (base as string);
     const target = isAbsolute
       ? path.resolve(expandHome(value, deps.home))
-      : path.resolve(root, value);
+      : path.resolve(base as string, value);
+    // `~user/x` is another user's home to the CLI: never a name.
+    if (isAbsolute && mayBeName && !value.startsWith("~") && !topLevelExists(target)) return;
+    const root = isAbsolute ? workdir : (base as string);
     const real = realpathOfLongestExisting(target);
-    if (!isInside(real, realpath(root))) throw outside(value, workdir);
+    if (root === null || /^~[^\\/]/.test(value) || !isInside(real, realpath(root))) {
+      throw outside(value, workdir);
+    }
     if (deps.privateHome && isInside(real, realpath(deps.privateHome))) {
       throw outside(value, workdir);
     }
   };
 
-  let previousOption: string | undefined;
   for (const arg of args) {
-    let option = previousOption;
-    let value = arg;
-    previousOption = undefined;
-    if (arg.startsWith("--")) {
-      const eq = arg.indexOf("=");
-      if (eq === -1) {
-        previousOption = arg.toLowerCase();
-        continue;
-      }
-      option = arg.slice(0, eq).toLowerCase();
-      value = arg.slice(eq + 1);
-    }
-
-    // A whole value that is file://… names one path (commas and all). Inside a value, shorthand
-    // loads files with `key@=file://path`, and a list may hold several.
+    // `--option=value`: the value; a bare `--option` is checked as the value of nothing.
+    const value = arg.startsWith("--") ? arg.slice(arg.indexOf("=") + 1 || arg.length) : arg;
+    if (value === "") continue;
     const whole = value.match(/^fileb?:\/\/([\s\S]*)$/i);
     if (whole) {
-      check(whole[1]);
+      check(whole[1], false);
       continue;
     }
-    for (const m of value.matchAll(/fileb?:\/\/([^,\]}"'\s]*)/gi)) check(m[1]);
-
-    if (option !== undefined && !PATH_OPTION.test(option) && NAME_OPTION.test(option)) {
-      if (value !== "/" && isFile(expandHome(value, deps.home))) check(value);
-    } else if (value !== "" && !/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
-      // Everything but a URL (s3://, https://, arn: has no //) may be read as a path.
-      check(value);
-    }
+    for (const m of value.matchAll(/fileb?:\/\/([^,\]}"'\s]*)/gi)) check(m[1], false);
+    // Everything but a URL (s3://, https://; an arn: has no //) may be read as a path.
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) check(value, true);
   }
 }
 
@@ -139,21 +127,18 @@ function outside(value: string, workdir: string | null): Error {
     workdir === null
       ? `The local path '${value}' is not allowed: the AWS client has no working directory here. Set LOCALSTACK_AWS_WORKDIR to the directory that holds your files, or use a relative path.`
       : `The local path '${value}' is outside the AWS client's working directory (${workdir}). Use a path inside it, or set LOCALSTACK_AWS_WORKDIR.`;
-  return new Error(
-    `${where} A list of names that start with '/' can be given as JSON instead, e.g. --names '["/a","/b"]'.`
-  );
+  return new Error(where);
 }
 
 function expandHome(value: string, home = os.homedir()): string {
   return /^~(?:[\\/]|$)/.test(value) ? path.join(home, value.slice(1)) : value;
 }
 
-function isFile(p: string): boolean {
-  try {
-    return (path.isAbsolute(p) || p.startsWith("~")) && fs.statSync(p).isFile();
-  } catch {
-    return false;
-  }
+/** Whether the first directory below the root of an absolute path exists. */
+function topLevelExists(p: string): boolean {
+  const { root } = path.parse(p);
+  const first = p.slice(root.length).split(/[\\/]/)[0];
+  return first === "" || fs.existsSync(path.join(root, first));
 }
 
 function isDirectory(p: string): boolean {
