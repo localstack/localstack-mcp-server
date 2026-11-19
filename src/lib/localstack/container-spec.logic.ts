@@ -14,7 +14,6 @@
  *     only in the port bindings, never inside the container
  */
 
-export const DEFAULT_CONTAINER_NAME = "localstack-main";
 export const DEFAULT_AWS_IMAGE = "localstack/localstack-pro:latest";
 export const DEFAULT_SNOWFLAKE_IMAGE = "localstack/snowflake:latest";
 export const DEFAULT_AZURE_IMAGE = "localstack/localstack-azure:latest";
@@ -91,6 +90,70 @@ const AI_AGENT_DETECTORS: Array<[string, string[]]> = [
 
 export type LocalStackStack = "aws" | "snowflake" | "azure";
 
+/** The name the start action gives a new container when MAIN_CONTAINER_NAME is unset. */
+export const DEFAULT_CONTAINER_NAME = "localstack-main";
+
+/** Stacks in the order their lstk names are preferred during detection. */
+const LSTK_STACKS: readonly LocalStackStack[] = ["aws", "snowflake", "azure"];
+
+/**
+ * lstk's derived container name: `localstack-{type}` for the `latest` tag, else
+ * `localstack-{type}-{tag}` (`ContainerConfig.defaultName` in lstk's
+ * `internal/config/containers.go`). The server does not create containers under these
+ * names, but finds and manages ones lstk started.
+ */
+const LSTK_CONTAINER_NAME = /^localstack-(aws|snowflake|azure)(?:-([A-Za-z0-9_.-]+))?$/;
+
+/**
+ * The label lstk puts on every container it creates (`managedLabelKey` in lstk's
+ * `internal/runtime/docker.go`). A name alone cannot tell a tagged lstk container
+ * (`localstack-aws-dev`) from the Lambda containers LocalStack starts under its own
+ * name plus a suffix (`localstack-aws-dev-lambda-...`), so names other than the exact
+ * ones below count only with this label.
+ */
+export const LSTK_MANAGED_LABEL = "cloud.localstack.lstk";
+
+export type ContainerLabels = Record<string, string> | undefined;
+
+/** How the known names are described to users, for example in "not found" errors. */
+export const KNOWN_CONTAINER_NAMES_DESCRIPTION =
+  `"${DEFAULT_CONTAINER_NAME}", "localstack-aws", "localstack-snowflake" or ` +
+  `"localstack-azure", or a container lstk started under another name`;
+
+function isLstkManaged(labels: ContainerLabels): boolean {
+  return labels?.[LSTK_MANAGED_LABEL] === "true";
+}
+
+/**
+ * The stack an lstk container belongs to, judged by its name: `localstack-{type}`, or
+ * `localstack-{type}-{tag}` when lstk's label is present. Undefined otherwise.
+ */
+export function lstkContainerStack(
+  name: string,
+  labels?: ContainerLabels
+): LocalStackStack | undefined {
+  const match = LSTK_CONTAINER_NAME.exec(name);
+  if (!match || (match[2] && !isLstkManaged(labels))) return undefined;
+  return match[1] as LocalStackStack;
+}
+
+/**
+ * Detection order of a container when MAIN_CONTAINER_NAME is unset: lower wins.
+ * `localstack-main` first, then lstk's names by stack (the `latest` name before a
+ * tagged one), then any other container lstk started (a custom `container_name`).
+ * Undefined for a container the server does not recognize.
+ */
+export function knownContainerNameRank(name: string, labels?: ContainerLabels): number | undefined {
+  if (name === DEFAULT_CONTAINER_NAME) return 0;
+  const stack = lstkContainerStack(name, labels);
+  if (stack) {
+    const tagged = name !== `localstack-${stack}`;
+    return 1 + LSTK_STACKS.indexOf(stack) * 2 + (tagged ? 1 : 0);
+  }
+  if (isLstkManaged(labels)) return 1 + LSTK_STACKS.length * 2;
+  return undefined;
+}
+
 export type VolumeResolution = { type: "bind"; source: string } | { type: "volume"; name: string };
 
 export interface GatewayListenEntry {
@@ -111,6 +174,8 @@ export interface ContainerSpecInput {
   /** Overrides for restart-in-place recreation: reuse the original container's identity. */
   imageOverride?: string;
   containerNameOverride?: string;
+  /** Labels of the original container to keep, such as lstk's. */
+  labelsOverride?: Record<string, string>;
 }
 
 export interface PortBindingEntry {
@@ -124,6 +189,7 @@ export interface LocalStackContainerSpec {
   Image: string;
   Env: string[];
   ExposedPorts: Record<string, Record<string, never>>;
+  Labels?: Record<string, string>;
   HostConfig: {
     AutoRemove: boolean;
     PortBindings: Record<string, Array<{ HostIp: string; HostPort: string }>>;
@@ -151,12 +217,39 @@ export function stackFromImage(image?: string): LocalStackStack | undefined {
   return "aws";
 }
 
-export function resolveContainerName(hostEnv: Record<string, string | undefined>): string {
+/** The container name the user configured (MAIN_CONTAINER_NAME), or undefined. */
+export function configuredContainerName(
+  hostEnv: Record<string, string | undefined>
+): string | undefined {
   return (
     hostEnv.MAIN_CONTAINER_NAME?.trim() ||
     hostEnv.LOCALSTACK_MAIN_CONTAINER_NAME?.trim() ||
-    DEFAULT_CONTAINER_NAME
+    undefined
   );
+}
+
+/** The name for a new container: the configured one, else `localstack-main`. */
+export function resolveContainerName(hostEnv: Record<string, string | undefined>): string {
+  return configuredContainerName(hostEnv) || DEFAULT_CONTAINER_NAME;
+}
+
+/**
+ * Whether a stopped container belongs to the stack, so `stop` may remove it: the
+ * configured name, else `localstack-main` and the stack's lstk containers. lstk's names
+ * need lstk's label here even without a tag: removing is riskier than detecting, and a
+ * `localstack-aws` without the label was not created by lstk (for example a compose
+ * service), so it is not ours to clean up.
+ */
+export function isStackContainerName(
+  hostEnv: Record<string, string | undefined>,
+  stack: LocalStackStack,
+  name: string,
+  labels?: ContainerLabels
+): boolean {
+  const configured = configuredContainerName(hostEnv);
+  if (configured) return name === configured;
+  if (name === DEFAULT_CONTAINER_NAME) return true;
+  return isLstkManaged(labels) && lstkContainerStack(name, labels) === stack;
 }
 
 function parsePort(text: string, context: string): number {
@@ -497,6 +590,9 @@ export function buildLocalStackContainerSpec(input: ContainerSpecInput): LocalSt
     Image: image,
     Env: buildEnv(input, ports, name),
     ExposedPorts: exposedPorts,
+    ...(input.labelsOverride && Object.keys(input.labelsOverride).length > 0
+      ? { Labels: input.labelsOverride }
+      : {}),
     HostConfig: {
       AutoRemove: true,
       PortBindings: portBindings,

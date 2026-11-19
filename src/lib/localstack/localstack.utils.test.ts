@@ -67,6 +67,7 @@ function mockDockerClient(overrides: Record<string, jest.Mock> = {}) {
   const client = {
     ping: jest.fn().mockResolvedValue(undefined),
     findContainerByNameAnyState: jest.fn().mockResolvedValue(null),
+    listKnownLocalStackContainers: jest.fn().mockResolvedValue([]),
     findLocalStackContainer: jest.fn().mockResolvedValue("container-123"),
     inspectContainer: jest
       .fn()
@@ -328,6 +329,134 @@ describe("localstack.utils", () => {
       expect(text).toContain("Snowflake");
       expect(text).toContain("action: stop");
       expect(client.createAndStartContainer).not.toHaveBeenCalled();
+    });
+
+    test("reports a conflict when an lstk container runs under its own name", async () => {
+      // lstk names the container localstack-aws, so the localstack-main name check alone
+      // would miss it; both publish the gateway port.
+      const { client } = mockDockerClient({
+        listKnownLocalStackContainers: jest.fn().mockResolvedValue([
+          {
+            id: "aws-1",
+            name: "localstack-aws",
+            state: "running",
+            running: true,
+            image: "localstack/localstack-pro:latest",
+            publicPorts: [4566, 443],
+          },
+        ]),
+      });
+      const getStatus = jest.fn().mockResolvedValue({ isRunning: false });
+
+      const result = await launchRuntime({
+        ...launchDefaults,
+        stack: "snowflake",
+        processLabel: "Snowflake emulator",
+        getStatus,
+        dockerClient: client,
+      });
+      const text = result.content[0].text;
+      expect(text).toContain('named "localstack-aws"');
+      expect(text).toContain("action: stop");
+      expect(client.createAndStartContainer).not.toHaveBeenCalled();
+    });
+
+    test("reports a conflict when lstk runs a pinned tag on the gateway port", async () => {
+      // lstk appends the tag to the name when it is not "latest".
+      const { client } = mockDockerClient({
+        listKnownLocalStackContainers: jest.fn().mockResolvedValue([
+          {
+            id: "aws-tagged",
+            name: "localstack-aws-2026.4",
+            state: "running",
+            running: true,
+            image: "localstack/localstack-pro:2026.4",
+            publicPorts: [4566, 443],
+          },
+        ]),
+      });
+      const getStatus = jest.fn().mockResolvedValue({ isRunning: false });
+
+      const result = await launchRuntime({ ...launchDefaults, getStatus, dockerClient: client });
+      const text = result.content[0].text;
+      expect(text).toContain('named "localstack-aws-2026.4"');
+      expect(text).toContain(
+        "it runs the AWS emulator too and holds ports 443, 4566 that this start needs"
+      );
+      expect(text).toContain("`lstk stop`");
+      expect(client.createAndStartContainer).not.toHaveBeenCalled();
+    });
+
+    test("reports a conflict when lstk's Azure container holds the gateway port", async () => {
+      const { client } = mockDockerClient({
+        listKnownLocalStackContainers: jest.fn().mockResolvedValue([
+          {
+            id: "old-1",
+            name: "localstack-azure",
+            state: "running",
+            running: true,
+            image: "localstack/localstack-pro:latest",
+            publicPorts: [4566],
+          },
+        ]),
+      });
+      const getStatus = jest.fn().mockResolvedValue({ isRunning: false });
+
+      const result = await launchRuntime({ ...launchDefaults, getStatus, dockerClient: client });
+      expect(result.content[0].text).toContain('named "localstack-azure"');
+      expect(client.createAndStartContainer).not.toHaveBeenCalled();
+    });
+
+    test("starts beside another stack's container that publishes other ports", async () => {
+      // lstk runs stacks side by side on their own ports; only a shared host port conflicts.
+      const { client } = mockDockerClient({
+        listKnownLocalStackContainers: jest.fn().mockResolvedValue([
+          {
+            id: "aws-1",
+            name: "localstack-aws",
+            state: "running",
+            running: true,
+            image: "localstack/localstack-pro:latest",
+            publicPorts: [5566],
+          },
+        ]),
+      });
+      const getStatus = jest
+        .fn()
+        .mockResolvedValueOnce({ isRunning: false })
+        .mockResolvedValue({ isRunning: true, isReady: true });
+
+      const result = await launchRuntime({
+        ...launchDefaults,
+        stack: "snowflake",
+        processLabel: "Snowflake emulator",
+        getStatus,
+        dockerClient: client,
+      });
+      expect(result.content[0].text).toContain("started successfully");
+      expect(client.createAndStartContainer.mock.calls[0][0].name).toBe("localstack-main");
+    });
+
+    test("leaves stopped containers of other names alone", async () => {
+      const { client } = mockDockerClient({
+        listKnownLocalStackContainers: jest.fn().mockResolvedValue([
+          {
+            id: "lstk-stopped",
+            name: "localstack-aws",
+            state: "exited",
+            running: false,
+            publicPorts: [],
+          },
+        ]),
+      });
+      const getStatus = jest
+        .fn()
+        .mockResolvedValueOnce({ isRunning: false })
+        .mockResolvedValue({ isRunning: true, isReady: true });
+
+      const result = await launchRuntime({ ...launchDefaults, getStatus, dockerClient: client });
+      expect(result.content[0].text).toContain("started successfully");
+      expect(client.removeContainer).not.toHaveBeenCalled();
     });
 
     test("names an Azure container as the Azure emulator in the conflict message", async () => {
@@ -614,6 +743,33 @@ describe("localstack.utils", () => {
         imageOverride: "localstack/localstack-pro:3.9",
         containerNameOverride: "localstack-aws",
         volumeOverride: { type: "bind", source: "/host/vol" },
+      });
+    });
+
+    test("keeps an lstk container's labels", () => {
+      // A tagged or custom lstk name counts only with lstk's label. The gateway port is
+      // not kept: the server's tools reach the gateway on LOCALSTACK_PORT only.
+      expect(
+        deriveRecreateOverrides(
+          {
+            id: "x",
+            name: "localstack-aws-2026.4",
+            image: "localstack/localstack-pro:2026.4",
+            labels: {
+              "cloud.localstack.lstk": "true",
+              "cloud.localstack.lstk.image-override": "true",
+              maintainer: "LocalStack Team",
+            },
+          },
+          "aws"
+        )
+      ).toEqual({
+        imageOverride: "localstack/localstack-pro:2026.4",
+        containerNameOverride: "localstack-aws-2026.4",
+        labelsOverride: {
+          "cloud.localstack.lstk": "true",
+          "cloud.localstack.lstk.image-override": "true",
+        },
       });
     });
 

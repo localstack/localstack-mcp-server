@@ -5,14 +5,19 @@ import {
   getLocalStackStatus,
   getSnowflakeEmulatorStatus,
   launchRuntime,
-  resolveContainerName,
 } from "../lib/localstack/localstack.utils";
 import {
   DockerApiClient,
+  isGatewayPortMismatchError,
   isLocalStackContainerNotFoundError,
   type ContainerMetadata,
 } from "../lib/docker/docker.client";
-import { stackFromImage, type VolumeResolution } from "../lib/localstack/container-spec.logic";
+import {
+  configuredContainerName,
+  isStackContainerName,
+  stackFromImage,
+  type VolumeResolution,
+} from "../lib/localstack/container-spec.logic";
 import {
   runPreflights,
   requireProFeature,
@@ -96,7 +101,7 @@ export default async function localstackManagement({
       case "start":
         return await handleStart({ envVars, service });
       case "stop":
-        return await handleStop();
+        return await handleStop({ service });
       case "restart":
         return await handleRestart({ envVars, service });
       case "status":
@@ -114,6 +119,7 @@ interface StartOverrides {
   imageOverride?: string;
   containerNameOverride?: string;
   volumeOverride?: VolumeResolution;
+  labelsOverride?: Record<string, string>;
 }
 
 /** Best-effort look at the running LocalStack container (null when none/undetectable). */
@@ -196,7 +202,7 @@ async function handleStart({
 // Handle stop action — stop the detected container via the Docker API. Also cleans up
 // stopped/stale containers occupying a LocalStack name, so start's conflict advice
 // ("stop it first") always has a working recovery path.
-async function handleStop() {
+async function handleStop({ service }: { service: Service }) {
   const dockerClient = new DockerApiClient();
   let containerId: string;
   try {
@@ -208,16 +214,32 @@ async function handleStop() {
         `Could not inspect Docker containers: ${error instanceof Error ? error.message : String(error)}`
       );
     }
+    if (isGatewayPortMismatchError(error)) {
+      return ResponseBuilder.error("LocalStack container not on LOCALSTACK_PORT", (error as Error).message);
+    }
 
-    // No RUNNING container found — check for a stale stopped one holding the name.
+    // No RUNNING container found — check for stale stopped ones holding this stack's name.
     try {
-      const stale = await dockerClient.findContainerByNameAnyState(
-        resolveContainerName(process.env)
-      );
-      if (stale && !stale.running) {
-        await dockerClient.removeContainer(stale.id);
-        await dockerClient.waitForRemoval(stale.id);
-        return ResponseBuilder.markdown(`🛑 Removed stopped LocalStack container "${stale.name}".`);
+      const configured = configuredContainerName(process.env);
+      const candidates = configured
+        ? [await dockerClient.findContainerByNameAnyState(configured)]
+        : await dockerClient.listKnownLocalStackContainers();
+      const removed: string[] = [];
+      for (const stale of candidates) {
+        if (
+          stale &&
+          !stale.running &&
+          isStackContainerName(process.env, service, stale.name, stale.labels)
+        ) {
+          await dockerClient.removeContainer(stale.id);
+          await dockerClient.waitForRemoval(stale.id);
+          removed.push(`"${stale.name}"`);
+        }
+      }
+      if (removed.length > 0) {
+        return ResponseBuilder.markdown(
+          `🛑 Removed stopped LocalStack container${removed.length > 1 ? "s" : ""} ${removed.join(", ")}.`
+        );
       }
     } catch {
       // fall through to the gateway-based reporting below
@@ -270,6 +292,9 @@ async function handleRestart({
           error instanceof Error ? error.message : String(error)
         }`
       );
+    }
+    if (isGatewayPortMismatchError(error)) {
+      return ResponseBuilder.error("LocalStack container not on LOCALSTACK_PORT", (error as Error).message);
     }
     const status = await getLocalStackStatus();
     if (status.isRunning) {

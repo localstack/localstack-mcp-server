@@ -212,7 +212,7 @@ See **[docs/DOCKER.md](./docs/DOCKER.md)** for the run command, MCP client confi
 | `LOCALSTACK_AUTH_TOKEN` (**required**)                         | The LocalStack Auth Token to use for the MCP server                                                                                                                                                                               | None                               |
 | `LOCALSTACK_HOSTNAME`                                          | Host name of the LocalStack gateway the tools call; in Docker, `host.docker.internal`. The Azure tool always calls `azure.localhost.localstack.cloud` (127.0.0.1), so it needs a local gateway.                                   | `localhost`                        |
 | `LOCALSTACK_PORT`                                              | Port of the LocalStack gateway the tools call.                                                                                                                                                                                    | `4566`                             |
-| `MAIN_CONTAINER_NAME`                                          | The explicit LocalStack container name to use for Docker-based tools. When unset, the server auto-detects standard LocalStack containers such as `localstack-main` and `localstack-aws`, then LocalStack Docker images.           | Auto-detect                        |
+| `MAIN_CONTAINER_NAME`                                          | Container name for Docker-based tools and the container `start` creates. When unset, `start` uses `localstack-main`; the tools find it, lstk's containers, then LocalStack images ([lstk](#using-lstk)).                          | Auto-detect                        |
 | `LOCALSTACK_IMAGE_NAME` / `IMAGE_NAME`                         | Docker image the `start` action launches for the AWS stack. `LOCALSTACK_IMAGE_NAME` wins when both are set (beware: bare `IMAGE_NAME` is a common CI variable).                                                                   | `localstack/localstack-pro:latest` |
 | `LOCALSTACK_VOLUME_DIR`                                        | Host directory mounted at `/var/lib/localstack` in the LocalStack container. Defaults to the same per-OS cache path the LocalStack CLI used (state carries over); inside Docker it defaults to the `localstack-mcp` named volume. | Per-OS cache dir                   |
 | `GATEWAY_LISTEN`                                               | Override the gateway port bindings for `start` (comma-separated `[host]:port`). When set, the implicit `443` binding is skipped.                                                                                                  | `:4566,:443`                       |
@@ -239,9 +239,28 @@ Since v0.6.0 the MCP server no longer uses (or requires) the `localstack` CLI. T
 - `~/.localstack/*.env` config profiles and `DOCKER_FLAGS` are **not** read at start. Pass configuration through the `envVars` argument of the `localstack-management` start action, or set `LOCALSTACK_`-prefixed variables in the MCP server's environment (LocalStack aliases `LOCALSTACK_<NAME>` to `<NAME>` natively).
 - Besides `LOCALSTACK_*`/`PROVIDER_OVERRIDE_*`, only a curated set of common unprefixed config variables is forwarded from the host environment (`DEBUG`, `LS_LOG`, `SERVICES`, `PERSISTENCE`, `EAGER_SERVICE_LOADING`, `ENFORCE_IAM`, `IAM_SOFT_MODE`, `EXTENSION_AUTO_INSTALL`, `APP_INSPECTOR`, `DNS_ADDRESS`, `MAIN_DOCKER_NETWORK`, and the `LAMBDA_*`/`CFN_*`/`SNOWFLAKE_*`/`SF_*` families).
 - Port 443 is published by default. If something else uses port 443 locally, set `GATEWAY_LISTEN=:4566` to skip it.
-- If you previously used `lstk`, note the container the server creates is named `localstack-main` (externally started `localstack-aws` containers are still detected and managed; `restart` preserves their name, image, and volume).
+- The container the server creates is named `localstack-main`, not lstk's `localstack-aws`. See [Using lstk](#using-lstk).
 
 For AWS Replicator-specific source credentials, you can use the `AWS_REPLICATOR_SOURCE_` prefixed variants instead of the unprefixed variants. Do not mix the prefixed and unprefixed source credential groups; when any `AWS_REPLICATOR_SOURCE_` variable is set, the Replicator tool reads the source configuration only from that group.
+
+### Using lstk
+
+[lstk](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/) names its container `localstack-{type}`, such as `localstack-aws`, or `localstack-{type}-{tag}` when it runs a pinned tag. The server names the container it creates `localstack-main`. It finds lstk's containers under these names, or under any name by the `cloud.localstack.lstk` label lstk sets.
+
+To have both tools manage one container, set lstk's [`container_name`](https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/configuration/) to `localstack-main`:
+
+```toml
+[[containers]]
+type = "aws"
+port = "4566"
+container_name = "localstack-main"
+```
+
+Then lstk finds the container by name, whichever tool started it.
+
+Without that setting, the server still finds and manages lstk's container: `stop` and `status` act on it, `restart` keeps its name, image, volume and lstk's labels (the gateway moves to `LOCALSTACK_PORT`, where the tools reach it), and `start` reports it as a conflict when it holds a port `start` needs. When `LOCALSTACK_PORT` is set, the tools that use Docker (`stop`, `restart`, logs, the deployer and others) act only on a container that publishes that port, or that publishes no ports at all, such as one on the host network. lstk, for its part, falls back to the first running container with a standard LocalStack image that publishes port 4566, so it may find the server's container, or another one when several run.
+
+The two tools keep state in different directories, even under one container name. lstk uses `<cache dir>/lstk/volume/<derived name>`, which does not change with `container_name`, and the server uses the LocalStack CLI's `<cache dir>/localstack/volume`. To share state, point one at the other: set `volume` in lstk's config, or `LOCALSTACK_VOLUME_DIR` for the server.
 
 ## Contributing
 

@@ -134,7 +134,7 @@ that still pass `--add-host s3.host.docker.internal:host-gateway` keep working.
 | Tools report `LocalStack Not Running` after `start`                                                         | Check `LOCALSTACK_HOSTNAME=host.docker.internal` is set and `--add-host` is present (Linux).                                                                                                     |
 | `Auth Token Required`                                                                                       | `LOCALSTACK_AUTH_TOKEN` must be passed through (every tool requires it).                                                                                                                         |
 | `Docker Not Available` / daemon unreachable                                                                 | Ensure `/var/run/docker.sock` is mounted (or pass `DOCKER_HOST` for a non-default daemon).                                                                                                       |
-| `LocalStack container not found` or `Could not find a running LocalStack container named "localstack-main"` | Set `MAIN_CONTAINER_NAME` if you use a custom LocalStack container name.                                                                                                                         |
+| `LocalStack container not found` or `Could not find a running LocalStack container named "localstack-main"` | The server finds `localstack-main`, `localstack-{type}` and containers lstk started. Set `MAIN_CONTAINER_NAME` for another name ([lstk](../README.md#using-lstk)).                               |
 | State disappeared after upgrading the image                                                                 | Old configs stored state under `$XDG_CACHE_HOME/localstack/volume` — keep that env var, or point `LOCALSTACK_VOLUME_DIR` at the old directory.                                                   |
 | MCP server containers pile up over time                                                                     | Older images did not exit when the client disconnected. Pull the latest image, then remove strays with `docker ps -aq --filter ancestor=localstack/localstack-mcp-server \| xargs docker rm -f`. |
 
@@ -161,6 +161,24 @@ Use `HARNESS_SKIP` to skip scenarios, for example:
 
 ```bash
 HARNESS_SKIP=docs,cloudpods,ephemeral,replicator
+```
+
+`tests/docker/validate-lstk.mjs` checks [lstk](../README.md#using-lstk) interop: lstk
+starts the AWS emulator with a pinned tag on port 4577, the server restarts it, and lstk
+still finds it. It needs `lstk` on `PATH` and free host ports 443 and 4510-4560. A tag
+that exists only locally avoids a second image download:
+
+```bash
+docker tag localstack/localstack-pro:latest localstack/localstack-pro:mcp-ci
+LOCALSTACK_AUTH_TOKEN="<YOUR_TOKEN>" \
+node tests/docker/validate-lstk.mjs -- \
+  docker run -i --rm \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    --add-host host.docker.internal:host-gateway \
+    -e LOCALSTACK_AUTH_TOKEN \
+    -e LOCALSTACK_HOSTNAME=host.docker.internal \
+    -e LOCALSTACK_PORT=4577 \
+    localstack/localstack-mcp-server:latest
 ```
 
 ## Tool versions in the image

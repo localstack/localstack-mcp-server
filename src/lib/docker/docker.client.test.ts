@@ -1,4 +1,8 @@
-import { DockerApiClient } from "./docker.client";
+import {
+  DockerApiClient,
+  isGatewayPortMismatchError,
+  isLocalStackContainerNotFoundError,
+} from "./docker.client";
 import { PassThrough } from "stream";
 
 jest.mock("dockerode", () => {
@@ -286,8 +290,322 @@ describe("DockerApiClient", () => {
 
     const client = new DockerApiClient();
     await expect(client.findLocalStackContainer()).rejects.toThrow(
-      /Could not find a running LocalStack container named "localstack-main"/i
+      /Could not find a running LocalStack container named "localstack-main", "localstack-aws", "localstack-snowflake" or "localstack-azure", or a container lstk started/i
     );
+  });
+
+  test("findLocalStackContainer matches lstk's per-stack names for images it does not recognize", async () => {
+    // lstk names containers localstack-{type}; snowflake-next is a preview image lstk
+    // runs with --image, which the image fallback does not know.
+    for (const name of ["localstack-snowflake", "localstack-azure"]) {
+      const mocks = getDockerMocks();
+      mocks.listContainers.mockResolvedValueOnce([
+        { Id: `${name}-id`, Names: [`/${name}`], Image: "localstack/snowflake-next:latest" },
+      ]);
+      const client = new DockerApiClient();
+      await expect(client.findLocalStackContainer()).resolves.toBe(`${name}-id`);
+    }
+  });
+
+  test("findLocalStackContainer matches lstk's names with a pinned tag", async () => {
+    // lstk names the container localstack-{type}-{tag} when the tag is not "latest".
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      { Id: "other", Names: ["/localstack-gcp"], Image: "localstack/snowflake-next:latest" },
+      {
+        Id: "snow-tagged",
+        Names: ["/localstack-snowflake-1.4"],
+        Image: "localstack/snowflake-next:1.4",
+        Labels: { "cloud.localstack.lstk": "true" },
+      },
+    ]);
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).resolves.toBe("snow-tagged");
+  });
+
+  test("findLocalStackContainer skips Lambda containers named after a tagged lstk container", async () => {
+    // LocalStack names Lambda containers "<its container>-lambda-...", without lstk's label.
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      {
+        Id: "fn",
+        Names: ["/localstack-aws-dev-lambda-fn-1234"],
+        Image: "public.ecr.aws/lambda/python:3.13",
+      },
+      {
+        Id: "lstk-dev",
+        Names: ["/localstack-aws-dev"],
+        Image: "sha256:a4a2ec94512d",
+        Labels: { "cloud.localstack.lstk": "true" },
+      },
+    ]);
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).resolves.toBe("lstk-dev");
+  });
+
+  test("findLocalStackContainer finds an lstk container with a custom container_name", async () => {
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      {
+        Id: "custom",
+        Names: ["/my-ls"],
+        Image: "registry.example/ls:1",
+        Labels: { "cloud.localstack.lstk": "true" },
+      },
+    ]);
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).resolves.toBe("custom");
+  });
+
+  test("findLocalStackContainer prefers lstk's latest name over a tagged one", async () => {
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      {
+        Id: "tagged",
+        Names: ["/localstack-aws-2026.4"],
+        Image: "registry.example/ls:1",
+        Labels: { "cloud.localstack.lstk": "true" },
+      },
+      { Id: "latest", Names: ["/localstack-aws"], Image: "registry.example/ls:1" },
+    ]);
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).resolves.toBe("latest");
+  });
+
+  test("listKnownLocalStackContainers returns known names in any state, in detection order", async () => {
+    const mocks = getDockerMocks();
+    const custom = {
+      Id: "c",
+      Names: ["/my-ls"],
+      State: "exited",
+      Labels: { "cloud.localstack.lstk": "true" },
+    };
+    mocks.listContainers.mockImplementation(async (opts: any) =>
+      opts.filters?.label ? [custom, byName.find((c) => c.Id === "a")] : byName
+    );
+    const byName: any[] = [
+      { Id: "s", Names: ["/localstack-snowflake"], State: "exited" },
+      { Id: "x", Names: ["/localstack-mcp-server-1"], State: "running" },
+      { Id: "fn", Names: ["/localstack-aws-2026.4-lambda-fn-1"], State: "created" },
+      {
+        Id: "a",
+        Names: ["/localstack-aws-2026.4"],
+        State: "running",
+        Image: "localstack/localstack-pro:2026.4",
+        Labels: { "cloud.localstack.lstk": "true" },
+        Ports: [{ PrivatePort: 4566, PublicPort: 4566, Type: "tcp" }, { PrivatePort: 53 }],
+      },
+      { Id: "m", Names: ["/localstack-main"], State: "created" },
+    ];
+    const client = new DockerApiClient();
+    const found = await client.listKnownLocalStackContainers();
+    expect(mocks.listContainers).toHaveBeenCalledWith({
+      all: true,
+      filters: { name: ["localstack-"] },
+    });
+    expect(mocks.listContainers).toHaveBeenCalledWith({
+      all: true,
+      filters: { label: ["cloud.localstack.lstk=true"] },
+    });
+    expect(found).toEqual([
+      {
+        id: "m",
+        name: "localstack-main",
+        state: "created",
+        image: undefined,
+        running: false,
+        publicPorts: [],
+      },
+      {
+        id: "a",
+        name: "localstack-aws-2026.4",
+        state: "running",
+        image: "localstack/localstack-pro:2026.4",
+        running: true,
+        labels: { "cloud.localstack.lstk": "true" },
+        publicPorts: [4566],
+      },
+      {
+        id: "s",
+        name: "localstack-snowflake",
+        state: "exited",
+        image: undefined,
+        running: false,
+        publicPorts: [],
+      },
+      {
+        id: "c",
+        name: "my-ls",
+        state: "exited",
+        image: undefined,
+        running: false,
+        labels: { "cloud.localstack.lstk": "true" },
+        publicPorts: [],
+      },
+    ]);
+  });
+
+  test("findLocalStackContainer prefers a LocalStack image on the gateway port over a known name off it", async () => {
+    // The HTTP tools talk to the gateway port (4566), so Docker actions must target the
+    // container behind it, not lstk's container from another project on 4567.
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      {
+        Id: "lstk-other-project",
+        Names: ["/localstack-aws-4.0"],
+        Image: "localstack/localstack-pro:4.0",
+        Labels: { "cloud.localstack.lstk": "true" },
+        Ports: [{ PrivatePort: 4566, PublicPort: 4567, Type: "tcp" }],
+      },
+      {
+        Id: "compose",
+        Names: ["/my-ls"],
+        Image: "localstack/localstack-pro:latest",
+        Ports: [{ PrivatePort: 4566, PublicPort: 4566, Type: "tcp" }],
+      },
+    ]);
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).resolves.toBe("compose");
+  });
+
+  test("findLocalStackContainer picks the known name on the configured gateway port", async () => {
+    // lstk in two projects can run localstack-aws on 4566 and localstack-snowflake on 4567.
+    process.env.LOCALSTACK_PORT = "4567";
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      {
+        Id: "aws",
+        Names: ["/localstack-aws"],
+        Image: "localstack/localstack-pro:latest",
+        Ports: [{ PrivatePort: 4566, PublicPort: 4566, Type: "tcp" }],
+      },
+      {
+        Id: "snow",
+        Names: ["/localstack-snowflake"],
+        Image: "localstack/snowflake:latest",
+        Ports: [{ PrivatePort: 4566, PublicPort: 4567, Type: "tcp" }],
+      },
+    ]);
+
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).resolves.toBe("snow");
+  });
+
+  test("findLocalStackContainer skips a known container off an explicit LOCALSTACK_PORT", async () => {
+    // Another lstk project on 4566 must not be stopped or recreated on 4567.
+    process.env.LOCALSTACK_PORT = "4567";
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      {
+        Id: "dev",
+        Names: ["/localstack-aws-dev"],
+        Image: "localstack/localstack-pro:latest",
+        Labels: { "cloud.localstack.lstk": "true" },
+        Ports: [{ PrivatePort: 4566, PublicPort: 4566, Type: "tcp" }],
+      },
+    ]);
+
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).rejects.toThrow(
+      /none publishes the configured gateway port 4567/i
+    );
+  });
+
+  test("findLocalStackContainer skips localstack-main off an explicit LOCALSTACK_PORT, even with a custom image", async () => {
+    process.env.LOCALSTACK_PORT = "4567";
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      {
+        Id: "mcp",
+        Names: ["/localstack-main"],
+        Image: "registry.example/ls:1",
+        Ports: [{ PrivatePort: 4566, PublicPort: 4566, Type: "tcp" }],
+      },
+    ]);
+
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).rejects.toThrow(
+      /none publishes the configured gateway port 4567/i
+    );
+  });
+
+  test("findLocalStackContainer finds localstack-main started with GATEWAY_LISTEN on an explicit LOCALSTACK_PORT", async () => {
+    // GATEWAY_LISTEN=:4567 publishes the gateway as 4567->4567.
+    process.env.LOCALSTACK_PORT = "4567";
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      {
+        Id: "mcp",
+        Names: ["/localstack-main"],
+        Image: "localstack/localstack-pro:latest",
+        Ports: [{ PrivatePort: 4567, PublicPort: 4567, Type: "tcp" }],
+      },
+    ]);
+
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).resolves.toBe("mcp");
+  });
+
+  test("findLocalStackContainer finds localstack-main on the host network with an explicit LOCALSTACK_PORT", async () => {
+    process.env.LOCALSTACK_PORT = "4566";
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      { Id: "mcp", Names: ["/localstack-main"], Image: "localstack/localstack-pro:latest", Ports: [] },
+    ]);
+
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).resolves.toBe("mcp");
+  });
+
+  test("findLocalStackContainer names the containers and their gateway ports when none is on LOCALSTACK_PORT", async () => {
+    process.env.LOCALSTACK_PORT = "4567";
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      {
+        Id: "mcp",
+        Names: ["/localstack-main"],
+        Image: "localstack/localstack-pro:latest",
+        Ports: [
+          { PrivatePort: 4566, PublicPort: 4566, Type: "tcp" },
+          { PrivatePort: 4566, PublicPort: 4566, Type: "tcp" },
+        ],
+      },
+    ]);
+
+    const client = new DockerApiClient();
+    const error = await client.findLocalStackContainer().catch((e: Error) => e);
+    expect(isGatewayPortMismatchError(error)).toBe(true);
+    expect(isLocalStackContainerNotFoundError(error)).toBe(true);
+    expect((error as Error).message).toContain('"localstack-main" (gateway on 4566)');
+    expect((error as Error).message).toContain("Set LOCALSTACK_PORT");
+  });
+
+  test("findLocalStackContainer keeps a known container on an explicit LOCALSTACK_PORT", async () => {
+    process.env.LOCALSTACK_PORT = "4567";
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      {
+        Id: "tagged",
+        Names: ["/localstack-aws-mcp-ci"],
+        Image: "localstack/localstack-pro:mcp-ci",
+        Labels: { "cloud.localstack.lstk": "true" },
+        Ports: [{ PrivatePort: 4566, PublicPort: 4567, Type: "tcp" }],
+      },
+    ]);
+
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).resolves.toBe("tagged");
+  });
+
+  test("findLocalStackContainer prefers localstack-main over lstk's localstack-aws", async () => {
+    const mocks = getDockerMocks();
+    mocks.listContainers.mockResolvedValueOnce([
+      { Id: "lstk", Names: ["/localstack-aws"], Image: "registry.example/ls:1" },
+      { Id: "mcp", Names: ["/localstack-main"], Image: "registry.example/ls:1" },
+    ]);
+
+    const client = new DockerApiClient();
+    await expect(client.findLocalStackContainer()).resolves.toBe("mcp");
   });
 
   test("stopContainer stops the container via the Docker API", async () => {
@@ -334,6 +652,7 @@ describe("DockerApiClient", () => {
       Config: {
         Image: "localstack/localstack-pro:latest",
         Env: ["MAIN_CONTAINER_NAME=localstack-aws"],
+        Labels: { "cloud.localstack.lstk": "true" },
       },
       Mounts: [
         {
@@ -350,6 +669,7 @@ describe("DockerApiClient", () => {
       name: "localstack-aws",
       image: "localstack/localstack-pro:latest",
       env: ["MAIN_CONTAINER_NAME=localstack-aws"],
+      labels: { "cloud.localstack.lstk": "true" },
       mounts: [
         {
           type: "bind",
