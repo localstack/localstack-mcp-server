@@ -1,10 +1,27 @@
 name: MCP evals
 
-# The LLM-driven eval dataset through OpenRouter: after every merge into main, weekly (to catch
-# changes outside this repo, such as a new LocalStack image or model version) and on demand.
+# The LLM-driven eval dataset through OpenRouter: after every merge into main that can change
+# the result, weekly (to catch changes outside this repo, such as a new LocalStack image or model
+# version) and on demand.
 on:
   push:
     branches: [main]
+    # What the MCP server, its tools and the evals are built from; README edits or Dependabot
+    # action bumps don't run the evals.
+    paths:
+      - "src/**"
+      - "data/**"
+      - "tests/mcp/**"
+      - "patches/**"
+      - "package.json"
+      - "yarn.lock"
+      - "playwright.config.mjs"
+      - "Dockerfile"
+      - "docker/**"
+      - "xmcp.config.*"
+      - "tsconfig*.json"
+      - ".github/workflows/mcp-evals.yml"
+      - ".github/actions/host-tools/**"
   workflow_dispatch:
     inputs:
       model:

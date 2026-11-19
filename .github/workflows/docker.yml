@@ -37,19 +37,6 @@ jobs:
             runner: ubuntu-26.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      # The integration test needs the token, and GitHub gives pull requests from forks no
-      # secrets. Fail loud rather than skip, so a fork PR never looks tested.
-      - name: Require the LocalStack auth token
-        # A step's if can't see its own env, so the shell checks the token.
-        if: matrix.arch == 'amd64'
-        env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
-        run: |
-          if [ -z "$LOCALSTACK_AUTH_TOKEN" ]; then
-            echo "::error::LOCALSTACK_AUTH_TOKEN is empty. GitHub gives pull requests from forks no secrets: before merging, a maintainer pushes this branch to the repository and opens a pull request from it."
-            exit 1
-          fi
-
       - uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
@@ -74,6 +61,20 @@ jobs:
           node tests/docker/validate-image.mjs -- \
             docker run -i --rm \
               ${{ env.IMAGE_NAME }}:ci
+
+      # The integration test needs the token, and GitHub gives pull requests from forks no
+      # secrets. Fail loud rather than skip, so a fork PR never looks tested. Placed after the
+      # build and the startup smoke test, which need no secret and still run for forks.
+      - name: Require the LocalStack auth token
+        # A step's if can't see its own env, so the shell checks the token.
+        if: matrix.arch == 'amd64'
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+        run: |
+          if [ -z "$LOCALSTACK_AUTH_TOKEN" ]; then
+            echo "::error::LOCALSTACK_AUTH_TOKEN is empty. GitHub gives pull requests from forks no secrets: before merging, a maintainer pushes this branch to the repository and opens a pull request from it."
+            exit 1
+          fi
 
       - name: Integration test Docker runtime
         # amd64 only: the deploys take minutes and do not depend on the image's architecture.
