@@ -101,6 +101,12 @@ describe("sanitizeAwsCliCommand", () => {
     "ec2-instance-connect --no-paginate ssh --instance-id i-1",
     "ssm --region us-east-1 start-session --target i-1",
     "logs --color off tail x --follow",
+    "logs tail g --foll",
+    "lightsail push-container-image --service-name s --image i --label l",
+    "cli-dev wizard-dev --run-wizard x",
+    "deploy push --application-name a --s3-location s3://b/a.zip --source app",
+    "gamelift upload-build --name b --build-version 1 --build-root app",
+    "lambda-web deploy --code app",
   ])("refuses commands that act on this machine: %s", (command) => {
     expect(() => sanitizeAwsCliCommand(command)).toThrow(/not allowed|always target LocalStack/);
   });

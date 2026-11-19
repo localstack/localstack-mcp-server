@@ -13,6 +13,11 @@ describe("awsWorkdir", () => {
     });
   });
 
+  test("refuses / and the home directory as LOCALSTACK_AWS_WORKDIR", () => {
+    expect(awsWorkdir({ LOCALSTACK_AWS_WORKDIR: "/" }).error).toContain("must not be /");
+    expect(awsWorkdir({ LOCALSTACK_AWS_WORKDIR: os.homedir() }).error).toContain("must not be /");
+  });
+
   test("is the server's directory, but none in Docker, in / or in the home directory", () => {
     const cwd = fs.realpathSync(os.tmpdir());
     const home = fs.realpathSync(os.homedir());
@@ -60,6 +65,11 @@ describe("assertLocalPathsAllowed", () => {
     "lambda invoke --function-name f --payload {} out.json",
     "lambda create-function --function-name f --code ZipFile@=fileb://in.txt",
     "ecs run-task --task-definition web:3",
+    // Names whose first directory is not on this machine.
+    "ssm get-parameters --names /a/b /c/d",
+    "sns publish --topic-arn t --message /hello",
+    "cloudfront create-invalidation --distribution-id X --paths /index.html /about.html",
+    "s3api put-object --bucket b --key /etc-like/key --body in.txt",
   ])("allows: %s", (cmd) => {
     expect(() => allowed(cmd.replace("IN", workdir))).not.toThrow();
   });
@@ -80,7 +90,6 @@ describe("assertLocalPathsAllowed", () => {
     "lambda create-function --function-name f --zip-file fileb://escape/x.zip",
     "eks update-kubeconfig --name c --kubeconfig ../x",
     "gamelift upload-build --name b --build-root escape",
-    "ssm get-parameters --names /a /b",
     "servicecatalog generate provisioning-artifact --file-path OUT/key.pem --bucket-name b",
     "ec2 get-password-data --instance-id i-1 --priv-launch-key OUT/key.pem",
     "cloudfront sign --url u --key-pair-id k --private-key OUT/key.pem --date-less-than 1",
@@ -96,6 +105,10 @@ describe("assertLocalPathsAllowed", () => {
     "s3 cp escape/secret s3://b/k",
     "s3 cp s3://b/k --quiet ../outside-new",
     "s3 cp --region us-east-1 escape s3://b/k",
+    // An abbreviated --public-key-outfile, writing a new file in an existing directory.
+    "iot create-keys-and-certificate --public-key OUT/new.fish",
+    "iot create-keys-and-certificate --public-key ~/new.fish",
+    "s3 sync / s3://b",
   ])("refuses: %s", (cmd) => {
     expect(() => allowed(cmd.replace(/OUT/g, outside))).toThrow(
       /outside the AWS client's working directory/
@@ -110,6 +123,15 @@ describe("assertLocalPathsAllowed", () => {
       /no working directory/
     );
   });
+
+  test.each(["$HOME/.aws/cli/alias", "${HOME}/x", "file://$TMPDIR/x"])(
+    "refuses a leading variable the CLI would expand: %s",
+    (value) => {
+      expect(() => allowed(`iam create-virtual-mfa-device --outfile ${value}`)).toThrow(
+        "expand the variable"
+      );
+    }
+  );
 
   test("the private home stays off limits inside a broad workdir", () => {
     expect(() =>

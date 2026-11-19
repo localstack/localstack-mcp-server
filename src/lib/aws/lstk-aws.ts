@@ -34,6 +34,14 @@ export async function checkLstkAwsDependencies(): Promise<string | null> {
   ]);
   if (lstk.error) return LSTK_INSTALL_MESSAGE;
   if (aws.error) return AWS_CLI_INSTALL_MESSAGE;
+  // 2.37.7 is the first release whose downloads honor --no-follow-symlinks.
+  const version = aws.stdout
+    .match(/aws-cli\/(\d+)\.(\d+)\.(\d+)/)
+    ?.slice(1)
+    .map(Number);
+  if (!version || version[0] !== 2 || version[1] < 37 || (version[1] === 37 && version[2] < 7)) {
+    return `❌ The AWS client needs AWS CLI v2.37.7 or newer, found: ${aws.stdout.trim() || "unknown"}.\n\n${AWS_CLI_INSTALL_MESSAGE.split("\n").slice(2).join("\n")}`;
+  }
   dependenciesFound = true;
   return null;
 }

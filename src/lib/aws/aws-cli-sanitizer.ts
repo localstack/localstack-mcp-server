@@ -89,6 +89,17 @@ export const DENIED: Array<{ match: string[]; reason: string }> = [
   ]),
   ...deny("this needs a person to answer its prompts", ["wizard"]),
   ...deny("this manages agent skills on this machine", ["agent-toolkit"]),
+  ...deny("this is the CLI's developer tooling", ["cli-dev"]),
+  ...deny("this runs lightsailctl and Docker on this machine", [
+    "lightsail",
+    "push-container-image",
+  ]),
+  ...deny(
+    "this zips a local directory and follows its symlinks out of the working directory",
+    ["deploy", "push"],
+    ["gamelift", "upload-build"],
+    ["lambda-web"]
+  ),
 ];
 
 export function sanitizeAwsCliCommand(rawCommand: string): string {
@@ -128,7 +139,12 @@ export function sanitizeAwsCliCommand(rawCommand: string): string {
   if (denied) {
     throw new Error(`'${denied.match.join(" ")}' is not allowed: ${denied.reason}.`);
   }
-  if (words[0] === "logs" && has("tail") && words.some((w) => /^--follow(?:=|$)/.test(w))) {
+  // Any unambiguous prefix of --follow is --follow to the CLI.
+  const follow = (w: string) => {
+    const name = w.match(/^--([a-z-]+)(?:=|$)/)?.[1];
+    return name !== undefined && "follow".startsWith(name);
+  };
+  if (words[0] === "logs" && has("tail") && words.some(follow)) {
     throw new Error(
       "'logs tail --follow' is not allowed: it streams until it is stopped. Use 'logs tail' with --since instead."
     );

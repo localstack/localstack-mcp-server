@@ -49,7 +49,8 @@ const missing = (): CommandResult => ({
 function fakeCli(awsResult: CommandResult, { awsInstalled = true } = {}) {
   mockedRun.mockImplementation(async (command, args) => {
     if (args[0] === "--version") {
-      return command === "aws" && !awsInstalled ? missing() : ok(`${command} 1.0.0`);
+      if (command === "aws") return awsInstalled ? ok("aws-cli/2.40.4 Python/3.14.8") : missing();
+      return ok("lstk 1.4.4");
     }
     return awsResult;
   });
