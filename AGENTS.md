@@ -61,7 +61,8 @@ the failing test first when fixing a bug.
 | Logic | `src/lib/<area>/*.logic.test.ts` | always | Parsing, validation, rendering and sanitizing, as pure functions. |
 | Handler | `src/tools-tests/<tool>.test.ts` | always | The tool's actions end to end inside the process, with Docker, LocalStack and spawned binaries mocked at the module boundary. No existing handler test follows every rule below yet; do not copy their mocks of internal modules. |
 | Tools | `tests/mcp/tools.spec.mjs` | every PR, with the auth token | Each tool over MCP stdio against a real emulator, without a model. Each case reads the state the tool left behind back through another call. |
-| Image | `tests/mcp/direct.spec.mjs`, `tests/docker/validate-image.mjs` | every PR (`docker.yml` when its path filter matches; its integration test on amd64 only), with the auth token | The built server and the Docker image: tool list, prompts, setup wizard, and real calls through the image. |
+| Server | `tests/mcp/direct.spec.mjs` | every PR, with the auth token | The built server: tool list, prompts, setup wizard. |
+| Image | `tests/docker/validate-image.mjs` | `docker.yml`, with the auth token | Real calls through the Docker image. |
 
 Rules for tool tests:
 
@@ -113,7 +114,7 @@ arrive as PRs instead of waiting for someone to notice:
   (except the LocalStack emulator images, which track the newest release on purpose), or `npx <pkg>` for a package
   that is not in `package.json`, in the Dockerfile, workflows or scripts. A new tool gets a lockfile in one of the
   places above.
-- **New ecosystem or directory, new Dependabot entry.** Keep the 7-day cooldown and the minor/patch grouping.
+- **New ecosystem or directory, new Dependabot entry.** Copy the cooldown and grouping of the existing entries.
 - **CI uses the image's versions.** Jobs that run tools on the host install them through
   `.github/actions/host-tools`, from the same files the image uses. `src/core/dependency-pins.test.ts` checks that
   the jobs running the tool tests or the evals use it, and that `ci.yml`, `docker.yml` and `mcp-evals.yml` run on
@@ -227,8 +228,8 @@ public docs or in one of the OpenAPI specs a running emulator serves:
   Inspector
 
 Ask the user before adopting an API this server does not use yet, even a documented one, and name the endpoint and
-what the tool would do with it. The APIs the server uses today are the ones its clients call
-(`src/lib/localstack/*.client.ts`, `src/core/config.ts`); an endpoint missing there is new. The IAM design below
+what the tool would do with it. An endpoint is new when `git grep -E '/_(localstack|aws)/' src` does not
+find it. The IAM design below
 would add the event policy route and the IAM policy summary; adopting them still needs the user's approval,
 recorded in the PR that adds them.
 
@@ -251,7 +252,8 @@ If two clients could compute the same answer differently, the answer belongs in 
   or user gets, and LocalStack cannot offer it yet, it may be done as a documented exception, but only with the
   user's explicit approval. This is not a default way out of the rule: first propose the LocalStack change, then
   ask the user, naming the computation, what it improves, and what it would take in LocalStack. Never assume
-  approval. An approved exception gets a row in [Known deviations](#known-deviations), saying who approved it and
+  approval. An approved exception gets a row in [Known deviations](#known-deviations) (under [Follow-ups](#follow-ups)
+  while its code is not on `main`), saying who approved it and
   when, and a [Gaps in LocalStack](#gaps-in-localstack) row for the API that would replace it; delete both once
   that API ships. Exceptions never cover decisions about IAM (which policy denied, what fixes it), and never read logs
   (rule 3).
@@ -324,7 +326,7 @@ row once it ships.
 | Filter the IAM policy summary by trace (or time range), so a run's policies don't mix with earlier requests | Not implemented: the summary is global and only resettable. | `get-iam-policy-summary` (planned) |
 | Say on the App Inspector events page when IAM events are hidden by the license (as spans do with `iam_errors_suppressed`) | Not implemented: the events routes return an empty list, so a tool has to probe one span. | `list-iam-denials`, `explain-iam` (planned) |
 | Compare suggested policies with deployed ones: permissions to add and permissions granted but unused, per ARN | Not implemented. Listed as a follow-up in localstack-appinspector-ui#341. | IAM job 3 |
-| Document App Inspector's status route (`GET`/`PUT /_localstack/appinspector/status`) in its OpenAPI spec | Not in `/_localstack/appinspector/v1/openapi.yaml`. lstk's `inspect on` / `off` uses it too. | `get-status`, `set-status` (allowed under the rule 4 exception) |
+| Document App Inspector's status route (`GET`/`PUT /_localstack/appinspector/status`) in its OpenAPI spec | Not in `/_localstack/appinspector/v1/openapi.yaml`. lstk's `inspect` command uses it too. | `get-status`, `set-status` (allowed under the rule 4 exception) |
 | Presentation fields for IAM: a display name, the services and the action count per policy summary entry; the principal kind (ARN, service, account) on suggestion hints; the statements a decision names, resolved | Not implemented. Until it ships, show the ARN, the type and the policy JSON, name statement positions without resolving them, and word hints for any kind of caller. | `explain-iam`, `get-iam-policy-summary` (planned) |
 | Document `GET /_localstack/licenseinfo`, or name the documented way to tell whether a licensed feature is available | In none of the emulator's specs and not in the docs. Whether a LocalStack client depends on it is unverified: lstk and the App Inspector UI don't. | `requireProFeature` in every Pro tool. The rule 4 exception does not cover it, since no LocalStack client is known to depend on it; see [Known deviations](#known-deviations). |
 | A failed-requests summary in App Inspector: failed spans grouped by service, operation, HTTP status and AWS error code, with counts, first and last time, and an example trace and span | Not implemented. | `lstk mcp`'s `localstack-app-inspector` `failed-requests`, planned (an approved exception, see [Follow-ups](#follow-ups)) |
@@ -341,7 +343,7 @@ row is never a way to let unapproved code through.
 - **Remove a row when the code is fixed.**
 
 An approved exception stays until what replaces it ships. One approved for code not on `main` yet is recorded
-with its follow-up until it lands.
+under [Follow-ups](#follow-ups) until it lands.
 
 | Where | Deviation | Target |
 |-------|-----------|--------|
@@ -358,6 +360,7 @@ with its follow-up until it lands.
 | `src/tools/localstack-iam-policy-analyzer.ts` | Finds IAM denials by parsing container logs (rule 3). | The IAM actions of `localstack-app-inspector` ("IAM policies"); then deprecate the analyzer and remove it after a notice period. |
 | `.github/workflows/azure-smoke.yml`, `ci.yml` (`mcp-direct-tests`), `tests/mcp/azure-offline.spec.mjs` | `azure-smoke.yml` runs on `ubuntu-latest`; it and `mcp-direct-tests` use the runner image's Azure CLI, whose version no file here pins. `azure-offline` skips its cases when `az` is missing, a skip "Testing" does not allow. | The pinned Ubuntu of the other workflows, and the Azure CLI from a pinned file, as `host-tools` does for Terraform, uv and lstk. |
 | `.github/workflows/` | Secrets reach third-party code in CI (REVIEW §0): jobs set `LOCALSTACK_AUTH_TOKEN` (and, in `mcp-evals.yml`, the OpenRouter key) at job level, so `yarn install` runs dependency install scripts and third-party actions run with them; `docker.yml` runs `npm ci` for `data/sample-cdk`, with install scripts, in a step that holds the token; and `actions/checkout` leaves the GitHub token in `.git/config` for later steps. | Install dependencies with no secret in the environment (or with `--ignore-scripts`), set secrets only on the steps that need them, and check out with `persist-credentials: false`. |
+| `src/tools/localstack-app-inspector.ts`, `src/lib/deployment/` | Render LocalStack and workload strings (span and event names, stack outputs and descriptions) into markdown tables and text unescaped (REVIEW §7). | Escape them, and size code fences to their content (REVIEW §7). |
 | `.github/workflows/docker.yml` | Its path filter misses files the image build reads (`patches/`, `xmcp.config.ts`, `tsconfig*.json`), so a change to them is not built or tested as an image. | Filter on everything the `Dockerfile` copies. |
 | `src/lib/localstack/license-checker.ts` | Calls `GET /_localstack/licenseinfo`, which is not documented and not covered by the rule 4 exception. | The documented way LocalStack names (see [Gaps in LocalStack](#gaps-in-localstack)). |
 | `data/sample-terraform/` | The AWS provider has only a version constraint, no lockfile, and no Dependabot entry; CI downloads it with secrets in the job's environment. | A committed `.terraform.lock.hcl` and a `terraform` Dependabot entry ("Dependencies"). |
