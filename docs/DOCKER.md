@@ -1,10 +1,9 @@
 # Running the LocalStack MCP Server in Docker
 
 The published image bundles everything the server shells out to — `lstk` with
-Terraform, AWS CDK, and AWS SAM, and the Snowflake `snow`
+the AWS CLI v2, Terraform, AWS CDK, and AWS SAM, and the Snowflake `snow`
 CLI — so the **only dependency on your machine is Docker itself**. LocalStack
-lifecycle, logs, and `awslocal` run through the Docker Engine API and LocalStack's
-REST APIs.
+lifecycle and logs run through the Docker Engine API and LocalStack's REST APIs.
 
 The image is multi-arch (`linux/amd64` and `linux/arm64`).
 
@@ -55,7 +54,7 @@ docker run -i --rm \
 
 | Flag                                                           | Why it's needed                                                                                                    |
 | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `-v /var/run/docker.sock:/var/run/docker.sock`                 | Lets the server create/stop/restart the sibling LocalStack container, read its logs, and run `awslocal` inside it. |
+| `-v /var/run/docker.sock:/var/run/docker.sock`                 | Lets the server create/stop/restart the sibling LocalStack container and read its logs.                            |
 | `--add-host host.docker.internal:host-gateway`                 | Resolves `host.docker.internal` on Linux. Harmless on Docker Desktop (Mac/Windows), where it already resolves.     |
 | `--add-host snowflake.localhost.localstack.cloud:host-gateway` | Lets the Snowflake CLI reach the sibling Snowflake emulator through the hostname the emulator expects for routing. |
 | `-e LOCALSTACK_AUTH_TOKEN`                                     | Required by **every** tool in this server.                                                                         |
@@ -107,14 +106,19 @@ The simplest convention is to mount it at the same absolute path:
 
 Then tell the tool `directory: /Users/you/projects/my-infra`.
 
-The deployer runs Terraform, SAM, and CDK through `lstk terraform|sam|cdk`, which
-receives the LocalStack endpoint automatically when
-`LOCALSTACK_HOSTNAME=host.docker.internal` is set. `lstk` forces CDK asset
+The deployer runs Terraform, SAM, and CDK through `lstk terraform|sam|cdk`, and the AWS
+client tool and the deployer's CloudFormation actions run the AWS CLI through `lstk aws`.
+These receive the LocalStack endpoint automatically when
+`LOCALSTACK_HOSTNAME=host.docker.internal` is set. A CloudFormation template is read inside
+the MCP container, so bind-mount it like a project directory. `lstk` forces CDK asset
 publishing to path-style S3, so no extra S3 host alias is needed. Existing configs
 that still pass `--add-host s3.host.docker.internal:host-gateway` keep working.
 
 ## Known limitations
 
+- **AWS client files.** In the image, the AWS client tool reads and writes local files only in
+  `LOCALSTACK_AWS_WORKDIR`, which is unset by default. To `s3 cp` your own files, bind-mount their
+  directory at the same absolute path and set `-e LOCALSTACK_AWS_WORKDIR=<that path>`.
 - **Extra host aliases.** Include the aliases shown in the quick-start command.
 - **First cold start** of LocalStack can take up to ~2 minutes while the image is
   pulled and the runtime initializes; subsequent starts reuse the persisted volume.
@@ -166,13 +170,15 @@ HARNESS_SKIP=docs,cloudpods,ephemeral,replicator
 ## Tool versions in the image
 
 Each tool's version is pinned in one file, and Dependabot opens the update PRs once a
-release is at least 7 days old (its `cooldown`):
+release is at least 7 days old (its `cooldown`). The `FROM` images wait 30 days, because the
+AWS CLI ships almost daily and each bump re-downloads its layer:
 
 | Tool | Pinned in | Dependabot ecosystem |
 | --- | --- | --- |
 | Node.js base image | `FROM node:…` in `Dockerfile` | `docker` (major updates by hand: the workflows use `node-version: 22.x`, the latest 22 at run time, and a test keeps the majors equal) |
 | Terraform | `FROM hashicorp/terraform:…` in `Dockerfile` | `docker` |
 | uv (build time only) | `FROM ghcr.io/astral-sh/uv:…` in `Dockerfile` | `docker` |
+| AWS CLI v2 | `FROM amazon/aws-cli:…` in `Dockerfile` | `docker` |
 | `aws-cdk`, `lstk` | `docker/tools/npm/package-lock.json` | `npm` |
 | AWS SAM CLI | `docker/tools/sam/pyproject.toml` and `uv.lock` | `uv` |
 | Snowflake CLI | `docker/tools/snowflake/pyproject.toml` and `uv.lock` | `uv` |

@@ -59,13 +59,16 @@ updates:
           - minor
           - patch
 
-  # FROM lines in the Dockerfile: node and hashicorp/terraform.
+  # FROM lines in the Dockerfile: node, hashicorp/terraform, astral-sh/uv and amazon/aws-cli.
+  # Releases wait 30 days: amazon/aws-cli ships almost daily, and each bump makes users pull its
+  # layer again. The docker ecosystem has no per-SemVer cooldown and one entry cannot set one per
+  # image, so the other images wait as long. Security updates are never delayed.
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
     cooldown:
-      default-days: 7
+      default-days: 30
     open-pull-requests-limit: 5
     groups:
       docker-minor-patch:
