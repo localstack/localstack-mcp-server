@@ -97,20 +97,23 @@ describe("dependency pins", () => {
     expect(docker).toMatch(/^[ \t]*(?:-[ \t]*)?runner:[ \t]*ubuntu-[\d.]+-arm[ \t]*$/m);
   });
 
-  it("gives CI jobs the image's Terraform and uv, from the Dockerfile's host-tools stage", () => {
+  it("gives CI jobs the image's Terraform, uv and AWS CLI, from the Dockerfile's host-tools stage", () => {
     // Dependabot bumps the FROM lines, not action inputs or install scripts, so any other way
     // of installing these tools in CI would drift from the image.
     const stage = dockerfileInstructions().join("\n");
     expect(stage).toMatch(/^FROM scratch AS host-tools$/m);
     expect(stage).toMatch(/^COPY --from=terraform \S+ \/$/m);
     expect(stage).toMatch(/^COPY --from=uv \S+ \S+ \/$/m);
+    expect(stage).toMatch(/^FROM amazon\/aws-cli:\d+\.\d+\.\d+ AS awscli$/m);
+    expect(stage).toMatch(/^COPY --from=awscli \S+ \/aws-cli\/$/m);
+    expect(read(".github/actions/host-tools/action.yml")).toContain("host-tools/aws-cli/bin");
 
     const files = [
       ...fs.readdirSync(path.join(ROOT, ".github/workflows")).map((f) => `.github/workflows/${f}`),
       ".github/actions/host-tools/action.yml",
     ];
     const otherInstall =
-      /setup-terraform|setup-uv|terraform_version|\b(?:curl|wget)\b.*\b(?:hashicorp\.com|astral\.sh|astral-sh)\b|\b(?:pipx?|brew|apt(?:-get)?|mise|asdf) install\b.*\b(?:terraform|uv)\b/g;
+      /setup-terraform|setup-uv|terraform_version|awscli-exe|configure-aws-credentials|\b(?:curl|wget)\b.*\b(?:hashicorp\.com|astral\.sh|astral-sh)\b|\b(?:pipx?|brew|apt(?:-get)?|mise|asdf) install\b.*\b(?:terraform|uv)\b/g;
     for (const file of files) {
       expect(`${file}: ${read(file).match(otherInstall) ?? []}`).toBe(`${file}: `);
     }

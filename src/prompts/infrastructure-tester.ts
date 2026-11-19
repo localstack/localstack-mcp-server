@@ -117,7 +117,7 @@ ${values.user_focus ? "Use the user focus to guide what you inspect first, valid
 Use the LocalStack MCP tools instead of guessing:
 - \`localstack-management\` for runtime status and start/restart.
 - \`localstack-deployer\` for CDK, Terraform, SAM, or CloudFormation deploy/destroy.
-- \`localstack-aws-client\` for live \`awslocal\` resource probes.
+- \`localstack-aws-client\` for live AWS CLI resource probes.
 - \`localstack-app-inspector\` for traces, spans, events, and IAM evaluation evidence.
 - \`localstack-logs-analysis\` for container errors around deploy or test windows.
 - \`localstack-docs\` for service coverage and LocalStack-specific limitations.

@@ -1,7 +1,7 @@
 import { LOCALSTACK_PORT } from "./config";
 
 /**
- * Build the environment for the spawned `lstk terraform|cdk|sam` proxies so they
+ * Build the environment for the spawned `lstk aws|terraform|cdk|sam` proxies so they
  * target the LocalStack endpoint this server is configured for.
  *
  * Why this is needed (verified against the lstk sources):
@@ -12,7 +12,7 @@ import { LOCALSTACK_PORT } from "./config";
  *   - AWS_ENDPOINT_URL_S3 is left unset: lstk derives it and, for CDK >= 2.1138,
  *     forces path-style S3. A preset S3 endpoint turns that off.
  *
- * This env is injected ONLY into the IaC CLI child processes — never globally and
+ * This env is injected ONLY into the lstk child processes — never globally and
  * never into the LocalStack container, because a container-side AWS_ENDPOINT_URL
  * would redirect LocalStack's own internal service-to-service calls and break them.
  *

@@ -4,7 +4,7 @@ import { runCommand, stripAnsiCodes } from "../core/command-runner";
 import path from "path";
 import fs from "fs";
 import { runPreflights, requireAuthToken, requireLocalStackRunning } from "../core/preflight";
-import { DockerApiClient } from "../lib/docker/docker.client";
+import { checkLstkAwsDependencies, lstkAwsErrorText, runLstkAws } from "../lib/aws/lstk-aws";
 import {
   checkDependencies,
   inferProjectType,
@@ -113,6 +113,22 @@ export default async function localstackDeployer({
       const preflightError = await runPreflights([requireAuthToken(), requireLocalStackRunning()]);
       if (preflightError) return preflightError;
 
+      // The stack name becomes an AWS CLI argument: hold it to CloudFormation's naming rule (or a
+      // stack ARN), so it can never read as an option.
+      if (
+        (action === "create-stack" || action === "delete-stack") &&
+        stackName &&
+        !/^[A-Za-z][A-Za-z0-9-]{0,127}$/.test(stackName) &&
+        !/^arn:[\w-]+:cloudformation:[\w-]+:\d{12}:stack\/[A-Za-z][A-Za-z0-9-]*\/[\w-]+$/.test(
+          stackName
+        )
+      ) {
+        return ResponseBuilder.error(
+          "Invalid Stack Name",
+          `'${stackName}' is not a CloudFormation stack name: it must start with a letter and contain only letters, digits and hyphens (at most 128 characters), or be a stack ARN.`
+        );
+      }
+
       if (action === "create-stack") {
         if (!stackName) {
           return ResponseBuilder.error(
@@ -155,9 +171,9 @@ export default async function localstackDeployer({
           }
         }
 
-        let templateBody = "";
+        const absoluteTemplatePath = path.resolve(resolvedTemplatePath);
         try {
-          templateBody = await fs.promises.readFile(resolvedTemplatePath, "utf-8");
+          await fs.promises.access(absoluteTemplatePath, fs.constants.R_OK);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           return ResponseBuilder.error(
@@ -166,60 +182,18 @@ export default async function localstackDeployer({
           );
         }
 
-        try {
-          const dockerClient = new DockerApiClient();
-          const containerId = await dockerClient.findLocalStackContainer();
-
-          const tempPath = `/tmp/ls-cfn-${Date.now()}.yaml`;
-          const writeRes = await dockerClient.executeInContainer(
-            containerId,
-            ["/bin/sh", "-c", `cat > ${tempPath}`],
-            templateBody
-          );
-          if (writeRes.exitCode !== 0) {
-            return ResponseBuilder.error(
-              "Template Upload Failed",
-              writeRes.stderr || `Failed to write template to ${tempPath}`
-            );
-          }
-
-          const createCmd = [
-            "awslocal",
+        return runCloudFormation(
+          [
             "cloudformation",
             "create-stack",
             "--stack-name",
             stackName,
             "--template-body",
-            `file://${tempPath}`,
-          ];
-          const createRes = await dockerClient.executeInContainer(containerId, createCmd);
-
-          try {
-            await dockerClient.executeInContainer(containerId, [
-              "/bin/sh",
-              "-c",
-              `rm -f ${tempPath}`,
-            ]);
-          } catch {}
-
-          if (createRes.exitCode === 0) {
-            return ResponseBuilder.markdown(
-              createRes.stdout && createRes.stdout.trim()
-                ? createRes.stdout
-                : `Stack '${stackName}' creation initiated.\n\nTip: Use the 'localstack-aws-client' tool with 'cloudformation describe-stacks' to monitor stack status and wait for CREATE_COMPLETE.`
-            );
-          }
-          return ResponseBuilder.error(
-            "CloudFormation create-stack failed",
-            createRes.stderr || "Unknown error"
-          );
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          return ResponseBuilder.error(
-            "CloudFormation Error",
-            `An unexpected error occurred: ${errorMessage}`
-          );
-        }
+            `file://${absoluteTemplatePath}`,
+          ],
+          "create-stack",
+          `Stack '${stackName}' creation initiated.\n\nTip: Use the 'localstack-aws-client' tool with 'cloudformation describe-stacks' to monitor stack status and wait for CREATE_COMPLETE.`
+        );
       }
 
       if (action === "delete-stack") {
@@ -229,29 +203,11 @@ export default async function localstackDeployer({
             "The parameter 'stackName' is required for action 'delete-stack'."
           );
         }
-        try {
-          const dockerClient = new DockerApiClient();
-          const containerId = await dockerClient.findLocalStackContainer();
-          const command = ["awslocal", "cloudformation", "delete-stack", "--stack-name", stackName];
-          const result = await dockerClient.executeInContainer(containerId, command);
-          if (result.exitCode === 0) {
-            return ResponseBuilder.markdown(
-              result.stdout && result.stdout.trim()
-                ? result.stdout
-                : `Stack '${stackName}' deletion initiated.\n\nTip: Use the 'localstack-aws-client' tool with 'cloudformation describe-stacks' to monitor deletion status until DELETE_COMPLETE.`
-            );
-          }
-          return ResponseBuilder.error(
-            "CloudFormation delete-stack failed",
-            result.stderr || "Unknown error"
-          );
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          return ResponseBuilder.error(
-            "CloudFormation Error",
-            `An unexpected error occurred: ${errorMessage}`
-          );
-        }
+        return runCloudFormation(
+          ["cloudformation", "delete-stack", "--stack-name", stackName],
+          "delete-stack",
+          `Stack '${stackName}' deletion initiated.\n\nTip: Use the 'localstack-aws-client' tool with 'cloudformation describe-stacks' to monitor deletion status until DELETE_COMPLETE.`
+        );
       }
 
       let resolvedProjectType: "cdk" | "terraform" | "sam";
@@ -355,6 +311,30 @@ Please check the directory path and ensure all prerequisites are met.`
       }
     }
   );
+}
+
+/** Runs a CloudFormation call through `lstk aws`; the template is read where this server runs. */
+async function runCloudFormation(
+  args: string[],
+  operation: "create-stack" | "delete-stack",
+  fallbackMessage: string
+) {
+  try {
+    const missing = await checkLstkAwsDependencies();
+    if (missing) return ResponseBuilder.error("Dependency Not Available", missing);
+
+    const result = await runLstkAws(args);
+    if (result.exitCode === 0) {
+      return ResponseBuilder.markdown(result.stdout.trim() ? result.stdout : fallbackMessage);
+    }
+    return ResponseBuilder.error(`CloudFormation ${operation} failed`, lstkAwsErrorText(result));
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return ResponseBuilder.error(
+      "CloudFormation Error",
+      `An unexpected error occurred: ${errorMessage}`
+    );
+  }
 }
 
 /**

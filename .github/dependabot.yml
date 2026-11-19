@@ -59,7 +59,7 @@ updates:
           - minor
           - patch
 
-  # FROM lines in the Dockerfile: node and hashicorp/terraform.
+  # FROM lines in the Dockerfile: node, hashicorp/terraform, astral-sh/uv and amazon/aws-cli.
   - package-ecosystem: docker
     directory: /
     schedule:

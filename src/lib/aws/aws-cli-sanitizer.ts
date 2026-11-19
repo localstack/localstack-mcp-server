@@ -1,3 +1,39 @@
+const HELP_TOKENS = new Set(["help", "-h", "--help"]);
+// Global options that would send a command to another endpoint, or sign it with the
+// credentials of a real AWS account, because the CLI runs where this server runs.
+const LOCALSTACK_ESCAPE_OPTIONS = ["endpoint-url", "profile"];
+
+/**
+ * Throws unless the argv `lstk aws` receives is certain to reach LocalStack. Every argv passed
+ * to `lstk aws` goes through this, whether it came from the agent's command or a tool parameter.
+ */
+export function assertTargetsLocalStack(args: string[]): void {
+  // The CLI accepts any unambiguous prefix of an option (`--endp x`, `--e=x`, `--pro p`), and a
+  // later --endpoint-url overrides the one lstk puts first.
+  for (const arg of args) {
+    const name = arg.match(/^--([^=]+)/)?.[1].toLowerCase();
+    const escape = name && LOCALSTACK_ESCAPE_OPTIONS.find((option) => option.startsWith(name));
+    if (escape) {
+      throw new Error(
+        `Option '${arg.split("=")[0]}' (--${escape}) is not allowed: commands always target LocalStack.`
+      );
+    }
+  }
+  // lstk answers any help token itself and then runs aws without its endpoint and credential
+  // handling, so an API call with a `help` value would leave LocalStack. Only a pure help
+  // request, command words followed by one trailing help token, may contain one.
+  const helpIndex = args.findIndex((arg) => HELP_TOKENS.has(arg));
+  if (
+    helpIndex !== -1 &&
+    (helpIndex !== args.length - 1 ||
+      !args.slice(0, -1).every((arg) => /^[a-z0-9][a-z0-9-]*$/i.test(arg)))
+  ) {
+    throw new Error(
+      "'help', '-h' and '--help' may only end a help request such as 's3 ls help', not appear as a value."
+    );
+  }
+}
+
 export function sanitizeAwsCliCommand(rawCommand: string): string {
   const command = rawCommand.trim();
   if (!command) {
@@ -16,7 +52,12 @@ export function sanitizeAwsCliCommand(rawCommand: string): string {
     throw new Error("Command must start with an AWS service or built-in command.");
   }
 
-  splitAwsCliArgs(command);
+  const args = splitAwsCliArgs(command);
+
+  assertTargetsLocalStack(args);
+  if (args[0]?.toLowerCase() === "configure" && args[1]?.toLowerCase() !== "list") {
+    throw new Error("Only 'configure list' is allowed: the AWS CLI config is not changed.");
+  }
 
   return command;
 }

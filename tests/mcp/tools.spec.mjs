@@ -82,6 +82,31 @@ test.describe("tools against a running LocalStack", () => {
     expect(await call(mcp, tool, { command: "sqs list-queues" })).toContain(QUEUE);
   });
 
+  // The template is read by the AWS CLI where the server runs, then the stack's queue is read
+  // back through the AWS client tool.
+  test("deployer: creates and deletes a CloudFormation stack", async ({ mcp }) => {
+    const stackName = `${PREFIX}-cfn`;
+    const aws = (command) => call(mcp, "localstack-aws-client", { command });
+    await call(mcp, "localstack-deployer", {
+      action: "create-stack",
+      stackName,
+      templatePath: "data/sample-cloudformation/template.yaml",
+    });
+    try {
+      await expect
+        .poll(() => aws(`cloudformation describe-stacks --stack-name ${stackName}`), {
+          timeout: 60_000,
+        })
+        .toContain("CREATE_COMPLETE");
+      expect(await aws("sqs list-queues")).toContain("mcp-tools-cfn-queue");
+    } finally {
+      await call(mcp, "localstack-deployer", { action: "delete-stack", stackName });
+    }
+    await expect
+      .poll(() => aws("sqs list-queues"), { timeout: 60_000 })
+      .not.toContain("mcp-tools-cfn-queue");
+  });
+
   test("state-management: shows S3 state", async ({ mcp }) => {
     const state = await call(mcp, "localstack-state-management", { action: "inspect" });
     expect(state).toContain("## LocalStack State Inspect");

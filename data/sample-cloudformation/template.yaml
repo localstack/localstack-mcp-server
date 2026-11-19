@@ -1,0 +1,12 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Sample stack for the localstack-deployer create-stack and delete-stack actions.
+
+Resources:
+  Queue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: mcp-tools-cfn-queue
+
+Outputs:
+  QueueUrl:
+    Value: !Ref Queue

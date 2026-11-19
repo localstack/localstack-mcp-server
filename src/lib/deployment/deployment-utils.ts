@@ -11,9 +11,9 @@ export interface DependencyCheckResult {
 
 export type ProjectType = "cdk" | "terraform" | "sam" | "cloudformation" | "ambiguous" | "unknown";
 
-const LSTK_INSTALL_MESSAGE = `❌ lstk is not installed or not available in PATH.
+export const LSTK_INSTALL_MESSAGE = `❌ lstk is not installed or not available in PATH.
 
-The deployer runs Terraform, CDK, and SAM through the lstk CLI. Please install it by following the official documentation:
+This server runs the AWS CLI, Terraform, CDK, and SAM through the lstk CLI. Please install it by following the official documentation:
 https://docs.localstack.cloud/aws/developer-tools/running-localstack/lstk/
 
 Installation:
