@@ -37,6 +37,19 @@ jobs:
             runner: ubuntu-26.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
+      # The integration test needs the token, and GitHub gives pull requests from forks no
+      # secrets. Fail loud rather than skip, so a fork PR never looks tested.
+      - name: Require the LocalStack auth token
+        # A step's if can't see its own env, so the shell checks the token.
+        if: matrix.arch == 'amd64'
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+        run: |
+          if [ -z "$LOCALSTACK_AUTH_TOKEN" ]; then
+            echo "::error::LOCALSTACK_AUTH_TOKEN is empty. GitHub gives pull requests from forks no secrets: before merging, a maintainer pushes this branch to the repository and opens a pull request from it."
+            exit 1
+          fi
+
       - uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
@@ -64,10 +77,7 @@ jobs:
 
       - name: Integration test Docker runtime
         # amd64 only: the deploys take minutes and do not depend on the image's architecture.
-        # Fork PRs get no secrets, so they skip it.
-        if: >-
-          matrix.arch == 'amd64' &&
-          (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
+        if: matrix.arch == 'amd64'
         env:
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
           HARNESS_TOKEN_REAL: ${{ secrets.LOCALSTACK_AUTH_TOKEN != '' && '1' || '0' }}
