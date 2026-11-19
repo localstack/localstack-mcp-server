@@ -115,6 +115,12 @@ export default async function localstackDeployer({
 
       // The stack name becomes an AWS CLI argument: hold it to CloudFormation's naming rule (or a
       // stack ARN), so it can never read as an option.
+      if ((action === "create-stack" || action === "delete-stack") && stackName === "help") {
+        return ResponseBuilder.error(
+          "Invalid Stack Name",
+          "The stack name 'help' cannot be used: lstk reads it as a request for the AWS CLI's help. Choose another name."
+        );
+      }
       if (
         (action === "create-stack" || action === "delete-stack") &&
         stackName &&
@@ -324,7 +330,7 @@ async function runCloudFormation(
     if (missing) return ResponseBuilder.error("Dependency Not Available", missing);
 
     const result = await runLstkAws(args);
-    if (result.exitCode === 0) {
+    if (result.exitCode === 0 && result.blocked.length === 0) {
       return ResponseBuilder.markdown(result.stdout.trim() ? result.stdout : fallbackMessage);
     }
     return ResponseBuilder.error(`CloudFormation ${operation} failed`, lstkAwsErrorText(result));

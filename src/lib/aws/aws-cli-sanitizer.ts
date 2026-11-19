@@ -34,6 +34,53 @@ export function assertTargetsLocalStack(args: string[]): void {
   }
 }
 
+const deny = (reason: string, ...prefixes: string[][]) =>
+  prefixes.map((match) => ({ match, reason }));
+
+/**
+ * Commands refused before anything runs, matched on the leading command words. The CLI runs
+ * where this server runs, so these would change this machine, run another program on it, or
+ * wait for a person. The private HOME and the egress guard cover most of what remains.
+ */
+export const DENIED: Array<{ match: string[]; reason: string }> = [
+  ...deny(
+    "this downloads and installs software on this machine",
+    ["update"],
+    ["deploy", "install"],
+    ["deploy", "uninstall"]
+  ),
+  ...deny(
+    "this opens a browser or waits for a person to sign in",
+    ["login"],
+    ["logout"],
+    ["sso", "login"],
+    ["sso", "logout"]
+  ),
+  ...deny(
+    "this opens a shell, a tunnel or a session on this machine",
+    ["ec2-instance-connect", "ssh"],
+    ["ec2-instance-connect", "open-tunnel"],
+    ["ssm", "start-session"],
+    ["ecs", "execute-command"],
+    ["emr", "ssh"],
+    ["emr", "socks"],
+    ["emr", "get"],
+    ["emr", "put"],
+    ["opsworks", "register"]
+  ),
+  ...deny(
+    "this configures other tools on this machine",
+    ["codeartifact", "login"],
+    ["eks", "update-kubeconfig"]
+  ),
+  ...deny(
+    "this uploads the local files a template names, which the tool cannot check; use the deployer tool",
+    ["cloudformation", "package"]
+  ),
+  ...deny("the AWS client keeps no history of its own", ["history"]),
+  ...deny("this manages agent skills on this machine", ["agent-toolkit"]),
+];
+
 export function sanitizeAwsCliCommand(rawCommand: string): string {
   const command = rawCommand.trim();
   if (!command) {
@@ -44,8 +91,8 @@ export function sanitizeAwsCliCommand(rawCommand: string): string {
     throw new Error("Command contains forbidden path traversal.");
   }
 
-  if (/^(?:aws|awslocal)(?:\s|$)/i.test(command)) {
-    throw new Error("Command must not include the aws or awslocal executable.");
+  if (/^(?:aws|awslocal|lstk)(?:\s|$)/i.test(command)) {
+    throw new Error("Command must not include the lstk, aws or awslocal executable.");
   }
 
   if (!/^(?:[a-z][a-z0-9-]*(?:\s+|$)|help$|version$)/i.test(command) || command.startsWith("-")) {
@@ -55,6 +102,11 @@ export function sanitizeAwsCliCommand(rawCommand: string): string {
   const args = splitAwsCliArgs(command);
 
   assertTargetsLocalStack(args);
+  const words = args.map((arg) => arg.toLowerCase());
+  const denied = DENIED.find(({ match }) => match.every((word, i) => words[i] === word));
+  if (denied) {
+    throw new Error(`'${denied.match.join(" ")}' is not allowed: ${denied.reason}.`);
+  }
   if (args[0]?.toLowerCase() === "configure" && args[1]?.toLowerCase() !== "list") {
     throw new Error("Only 'configure list' is allowed: the AWS CLI config is not changed.");
   }

@@ -81,6 +81,35 @@ describe("sanitizeAwsCliCommand", () => {
     expect(sanitizeAwsCliCommand(command)).toBe(command);
   });
 
+  test.each([
+    "update",
+    "login",
+    "sso login --profile x",
+    "SSO LOGIN",
+    "history show",
+    "ssm start-session --target i-1",
+    "ecs execute-command --cluster c --task t --interactive --command sh",
+    "codeartifact login --tool npm --domain d --repository r",
+    "eks update-kubeconfig --name c",
+    "cloudformation package --template-file t.yaml --s3-bucket b",
+    "deploy install --config-file c",
+    "agent-toolkit list-installed-skills",
+  ])("refuses commands that act on this machine: %s", (command) => {
+    expect(() => sanitizeAwsCliCommand(command)).toThrow(/is not allowed|always target LocalStack/);
+  });
+
+  test.each([
+    "sso list-accounts --access-token t",
+    "ssm get-parameter --name p",
+    "eks list-clusters",
+  ])("allows the API commands of those services: %s", (command) => {
+    expect(sanitizeAwsCliCommand(command)).toBe(command);
+  });
+
+  test("refuses a leading lstk", () => {
+    expect(() => sanitizeAwsCliCommand("lstk aws s3 ls")).toThrow("must not include");
+  });
+
   test.each(["configure", "configure set region eu-west-1", "configure export-credentials"])(
     "rejects configure other than list: %s",
     (command) => {

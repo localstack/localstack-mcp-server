@@ -19,7 +19,8 @@ const PREFIX = "mcp-tools";
 const BUCKET = `${PREFIX}-bucket`;
 const QUEUE = `${PREFIX}-queue`;
 // Unique per run and attempt, so a re-run never meets a pod an aborted attempt left behind.
-const POD = `mcp-tools-test-${process.env.GITHUB_RUN_ID ?? Date.now()}-${process.env.GITHUB_RUN_ATTEMPT ?? 1}`;
+const RUN = `${process.env.GITHUB_RUN_ID ?? Date.now()}-${process.env.GITHUB_RUN_ATTEMPT ?? 1}`;
+const POD = `mcp-tools-test-${RUN}`;
 
 async function callRaw(mcp, name, args) {
   const result = await mcp.client.callTool({ name, arguments: args }, undefined, {
@@ -102,7 +103,9 @@ test.describe("tools against a running LocalStack", () => {
   // The template is read by the AWS CLI where the server runs, then the stack's queue is read
   // back through the AWS client tool.
   test("deployer: creates and deletes a CloudFormation stack", async ({ mcp }) => {
-    const stackName = `${PREFIX}-cfn`;
+    // Unique per run, so a run killed before its delete-stack never blocks the next one.
+    const stackName = `${PREFIX}-cfn-${RUN}`;
+    const queue = `${stackName}-queue`;
     const aws = (command) => call(mcp, "localstack-aws-client", { command });
     await call(mcp, "localstack-deployer", {
       action: "create-stack",
@@ -115,13 +118,31 @@ test.describe("tools against a running LocalStack", () => {
           timeout: 60_000,
         })
         .toContain("CREATE_COMPLETE");
-      expect(await aws("sqs list-queues")).toContain("mcp-tools-cfn-queue");
+      expect(await aws("sqs list-queues")).toContain(queue);
     } finally {
       await call(mcp, "localstack-deployer", { action: "delete-stack", stackName });
     }
-    await expect
-      .poll(() => aws("sqs list-queues"), { timeout: 60_000 })
-      .not.toContain("mcp-tools-cfn-queue");
+    await expect.poll(() => aws("sqs list-queues"), { timeout: 60_000 }).not.toContain(queue);
+  });
+
+  // Each refusal must come from the tool, not from AWS: none of these may leave LocalStack or
+  // touch a file outside the server's working directory.
+  test("aws-client: keeps commands on LocalStack and in its working directory", async ({ mcp }) => {
+    const refused = async (command, pattern) => {
+      const { isError, text } = await callRaw(mcp, "localstack-aws-client", { command });
+      expect(isError, `${command}:\n${text}`).toBe(true);
+      expect(text, command).toMatch(pattern);
+    };
+    await refused(
+      "s3api list-objects-v2 --bucket arn:aws:s3::123456789012:accesspoint/mcp.mrap",
+      /Multi-Region Access Point ARNs are disabled/
+    );
+    await refused(
+      "sqs list-queues --endp https://sqs.us-east-1.amazonaws.com",
+      /target LocalStack/
+    );
+    await refused("s3 cp /etc/hosts s3://mcp-tools-bucket/hosts", /outside the AWS client's/);
+    await refused("update", /not allowed/);
   });
 
   test("state-management: shows S3 state", async ({ mcp }) => {

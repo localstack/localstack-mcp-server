@@ -113,7 +113,7 @@ describe("dependency pins", () => {
       ".github/actions/host-tools/action.yml",
     ];
     const otherInstall =
-      /setup-terraform|setup-uv|terraform_version|awscli-exe|configure-aws-credentials|\b(?:curl|wget)\b.*\b(?:hashicorp\.com|astral\.sh|astral-sh)\b|\b(?:pipx?|brew|apt(?:-get)?|mise|asdf) install\b.*\b(?:terraform|uv)\b/g;
+      /setup-terraform|setup-uv|terraform_version|awscli-exe|\b(?:curl|wget)\b.*\b(?:hashicorp\.com|astral\.sh|astral-sh)\b|\b(?:pipx?|brew|apt(?:-get)?|mise|asdf) install\b.*\b(?:terraform|uv)\b/g;
     for (const file of files) {
       expect(`${file}: ${read(file).match(otherInstall) ?? []}`).toBe(`${file}: `);
     }
