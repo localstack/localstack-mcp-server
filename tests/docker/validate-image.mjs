@@ -343,7 +343,7 @@ async function main() {
 
   // 5b. Readiness gate — after a cold start the container reports "running" before
   // every service accepts connections. A well-behaved client waits for readiness;
-  // poll a trivial awslocal call until it succeeds before exercising services.
+  // poll a trivial AWS CLI call until it succeeds before exercising services.
   if (!SKIP.has("start") && (!SKIP.has("aws") || !SKIP.has("deploy"))) {
     const ready = await callToolUntil(
       "localstack-aws-client",
@@ -355,7 +355,7 @@ async function main() {
     );
   }
 
-  // 6. aws-client — validates docker exec of awslocal inside the LS container
+  // 6. aws-client — validates the image's AWS CLI through lstk aws
   if (!SKIP.has("aws")) {
     try {
       const mb = await callTool(
@@ -367,7 +367,7 @@ async function main() {
       const ok = !mb.isError && !ls.isError && /harness-test-bucket/.test(ls.text);
       record(
         "aws",
-        "localstack-aws-client (awslocal s3 mb + ls)",
+        "localstack-aws-client (lstk aws s3 mb + ls)",
         ok,
         `mb: ${snip(mb.text, 120)} | ls: ${snip(ls.text, 200)}`
       );

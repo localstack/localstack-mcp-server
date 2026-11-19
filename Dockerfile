@@ -2,12 +2,13 @@
 
 # Every tool version in this image comes from a file Dependabot updates (.github/dependabot.yml):
 #   node, terraform        FROM lines below                    (docker)
+#   aws-cli (v2)           FROM line below                     (docker)
 #   aws-cdk, lstk          docker/tools/npm/package-lock.json  (npm)
 #   uv                     FROM line below                     (docker)
 #   aws-sam-cli            docker/tools/sam/uv.lock            (uv)
 #   snowflake-cli          docker/tools/snowflake/uv.lock      (uv)
 #   dockerode & co.        yarn.lock                           (npm, same lock as CI)
-# The host-tools stage hands the same terraform and uv binaries to CI jobs that run on the host.
+# The host-tools stage hands the same terraform, uv and AWS CLI to CI jobs that run on the host.
 # Debian packages (python3, git, curl) come with the node image's bookworm base.
 # Both node FROM lines must stay identical, and their major must match `node-version` in the
 # workflows; src/core/dependency-pins.test.ts checks this.
@@ -25,14 +26,25 @@ RUN yarn build
 # Terraform's official image ships a static binary, so it runs on Debian as well.
 FROM hashicorp/terraform:1.17.2 AS terraform
 
+# AWS's official image of the AWS CLI v2. Its installation under /usr/local/aws-cli is
+# self-contained (frozen Python, built for an old glibc), so it runs on Debian as well.
+# Trimmed here, before the COPYs, so the 35 MB never reach a layer: the per-service examples
+# only feed `aws <cmd> help` (which still needs the top-level global_*.rst), and aws_completer
+# only shell Tab completion. The models stay uncompressed: this CLI cannot read .json.gz.
+FROM amazon/aws-cli:2.39.3 AS awscli
+RUN cd /usr/local/aws-cli/v2/current \
+ && find dist/awscli/examples -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} + \
+ && rm -f dist/aws_completer bin/aws_completer
+
 # uv installs the Python CLIs below; it is mounted at build time and not part of the image.
 FROM ghcr.io/astral-sh/uv:0.13.9 AS uv
 
-# Terraform and uv for CI jobs that run on the host, at the image's versions
+# Terraform, uv and the AWS CLI for CI jobs that run on the host, at the image's versions
 # (.github/actions/host-tools): docker build --target host-tools --output type=local,dest=DIR .
 FROM scratch AS host-tools
 COPY --from=terraform /bin/terraform /
 COPY --from=uv /uv /uvx /
+COPY --from=awscli /usr/local/aws-cli/v2/current/ /aws-cli/
 
 FROM node:22.23.5-bookworm-slim AS runtime
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -51,6 +63,11 @@ RUN set -eux; \
 
 COPY --from=terraform /bin/terraform /usr/local/bin/terraform
 RUN terraform version
+
+# `lstk aws` runs this CLI for the AWS client tool and the deployer's CloudFormation actions.
+COPY --from=awscli /usr/local/aws-cli/v2/current/ /usr/local/aws-cli/
+RUN ln -s /usr/local/aws-cli/bin/aws /usr/local/bin/aws \
+ && aws --version
 
 # SAM CLI and Snowflake CLI each get their own venv from their own uv project: they pin
 # conflicting `rich` versions, so one environment cannot hold both. uv verifies every package
@@ -75,7 +92,7 @@ RUN --mount=from=uv,source=/uv,target=/bin/uv \
  && ln -s /opt/snowflake-cli/bin/snow /usr/local/bin/snow \
  && snow --version
 
-# lstk wraps terraform, cdk, and sam for the deployer tool. aws-cdk >= 2.1138 honors the
+# lstk wraps the AWS CLI, terraform, cdk, and sam. aws-cdk >= 2.1138 honors the
 # CDK_S3_FORCE_PATH_STYLE that lstk sets, so S3 assets reach host.docker.internal path-style.
 COPY docker/tools/npm/package.json docker/tools/npm/package-lock.json /opt/image-tools/npm/
 RUN npm ci --prefix /opt/image-tools/npm --omit=dev --ignore-scripts --no-audit --no-fund \

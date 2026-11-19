@@ -57,6 +57,55 @@ describe("sanitizeAwsCliCommand", () => {
     }
   );
 
+  test.each([
+    "s3 ls --endpoint-url https://s3.amazonaws.com",
+    "s3 ls --endpoint-url=https://s3.amazonaws.com",
+    "s3 ls --profile prod",
+    "sts get-caller-identity --PROFILE=prod",
+    "sqs list-queues --endp https://sqs.us-east-1.amazonaws.com --pro prod",
+    "sqs list-queues --e=https://sqs.us-east-1.amazonaws.com",
+    "sqs list-queues --endpoint-ur=https://sqs.us-east-1.amazonaws.com",
+    "sqs list-queues --endpoint https://sqs.us-east-1.amazonaws.com",
+    "s3 ls --profil=prod",
+    "s3 ls --p prod",
+  ])("rejects options that leave LocalStack: %s", (command) => {
+    expect(() => sanitizeAwsCliCommand(command)).toThrow("commands always target LocalStack");
+  });
+
+  test.each([
+    "s3 ls --page-size 10",
+    "s3api list-objects --bucket b --prefix logs/",
+    "sns subscribe --topic-arn t --protocol email --notification-endpoint a@b.c",
+    "ec2 describe-instances --e-tag-x y --region eu-west-1 --output json --debug",
+  ])("allows options that are not prefixes of --endpoint-url or --profile: %s", (command) => {
+    expect(sanitizeAwsCliCommand(command)).toBe(command);
+  });
+
+  test.each(["configure", "configure set region eu-west-1", "configure export-credentials"])(
+    "rejects configure other than list: %s",
+    (command) => {
+      expect(() => sanitizeAwsCliCommand(command)).toThrow("Only 'configure list'");
+    }
+  );
+
+  test.each(["help", "s3 help", "s3 ls help", "sqs list-queues --help", "s3api -h"])(
+    "allows a help request: %s",
+    (command) => {
+      expect(sanitizeAwsCliCommand(command)).toBe(command);
+    }
+  );
+
+  test.each([
+    "sqs list-queues --queue-name-prefix help",
+    "sqs send-message --queue-url q --message-body help",
+    "s3 cp help s3://bucket/key",
+    "sqs list-queues help --region eu-west-1",
+    "sqs list-queues --help --endpoint-url-x y",
+    "s3api put-object --bucket b --key '--help'",
+  ])("rejects a help token that is not a pure help request: %s", (command) => {
+    expect(() => sanitizeAwsCliCommand(command)).toThrow("may only end a help request");
+  });
+
   test.each(["s3 ls 'unterminated", 's3 ls "unterminated'])(
     "rejects unterminated quotes: %s",
     (command) => {
