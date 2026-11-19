@@ -7,6 +7,10 @@ infrastructure, run cloud CLIs, and inspect the emulator. It is a TypeScript ser
 
 Read [REVIEW.md](REVIEW.md) before opening a PR. It turns the rules below into review checks.
 
+Where a rule says to ask the user, ask the person you work for. An approval that lets a change break a rule, adopt
+a new API or grow the image counts only if it comes from a maintainer of this repository and the PR records it; a
+contributor cannot approve their own exception.
+
 ## Commands
 
 ```bash
@@ -91,9 +95,9 @@ Rules for tool tests:
   name only when a workflow `concurrency` group keeps runs from overlapping, as `mcp-evals.yml` does. Costly ones
   (ephemeral instances) stay opt-in (`HARNESS_RUN_EPHEMERAL`).
 - **Missing secrets fail loudly.** A job that needs a secret fails with a message naming it when it is empty, as
-  `ci.yml` does for fork PRs, so a fork PR never looks tested. Only an opt-in scenario (one that needs its own
-  credentials, such as the replicator's source AWS keys, or a flag such as `HARNESS_RUN_REMOTE`) or an outside
-  service being down (the docs search) may skip a case, and the output says why.
+  `ci.yml` does for fork PRs, so a fork PR never looks tested. A case may skip for a missing secret, credential
+  or tool only when it belongs to an opt-in scenario (the replicator's source AWS keys, `HARNESS_RUN_REMOTE`), or
+  when an outside service is down (the docs search), and the output says why.
 - **Evals are not PR gates.** `test:mcp:evals` depends on a model. `mcp-evals.yml` runs it after merges to `main`
   that touch its path filter, weekly and on demand. Run them yourself when a tool's description, schema or
   response wording changes, and report the result in the PR.
@@ -232,7 +236,7 @@ public docs or in one of the OpenAPI specs a running emulator serves:
 
 Ask the user before adopting an API this server does not use yet, even a documented one, and name the endpoint and
 what the tool would do with it. The IAM design below
-would add the event policy route and the IAM policy summary; adopting them still needs the user's approval,
+would add the event policy route and the IAM policy summary; adopting them still needs a maintainer's approval,
 recorded in the PR that adds them.
 
 Exception: an endpoint listed under [Gaps in LocalStack](#gaps-in-localstack) may be used before it is documented.
@@ -278,8 +282,8 @@ what is missing instead of returning an empty answer.
    App Inspector IAM events (`/_localstack/appinspector/v1/traces/{t}/spans/{s}/events/iam`), which include denials
    that were recorded but not enforced. An event's payload holds LocalStack's decisions (which policies allowed or
    denied the request, and at which statements), the policies involved, and for a denial a versioned suggestion of
-   what to change and whether that fixes the request. `explain-iam` is to render them in the section order of the
-   App Inspector UI's "Copy agent prompt", then the payload as sent. Do not recompute, merge or reorder the changes.
+   what to change and whether that fixes the request. `explain-iam` is to render, in this order: the request and its
+   result, the deciding policies, the suggested fix, then the payload as sent. Do not recompute, merge or reorder the changes.
    A policy the event stored truncated is fetched on demand with `get-iam-policy` (the event policy route), never
    automatically.
    - Without the `localstack.appinspector/view_iam_policy_errors` entitlement, LocalStack hides IAM events and
@@ -337,10 +341,10 @@ row once it ships.
 ## Known deviations
 
 Code on `main` (of the repository that holds it) that does not follow the rules: deviations that predate them, and
-exceptions the user approved. A row is never a way to let unapproved code through.
+exceptions a maintainer approved. A row is never a way to let unapproved code through.
 
 - **New code follows the rules.** A change that needs to break one raises it with the user before it is written.
-  If the user approves, the PR records the approval and adds a row naming who approved it and when.
+  If a maintainer approves, the PR records the approval and adds a row naming who approved it and when.
 - **A change that touches a listed deviation raises it.** Say in the PR whether the change fixes the deviation,
   leaves it as it is, or why it cannot fix it yet. Do not copy the pattern and do not extend it to another tool.
 - **Remove a row when the code is fixed.**
@@ -364,6 +368,7 @@ under [Follow-ups](#follow-ups) until it lands.
 | `.github/workflows/azure-smoke.yml`, `ci.yml` (`mcp-direct-tests`), `tests/mcp/azure-offline.spec.mjs` | `azure-smoke.yml` runs on `ubuntu-latest`; it and `mcp-direct-tests` use the runner image's Azure CLI, whose version no file here pins. `azure-offline` skips its cases when `az` is missing, a skip "Testing" does not allow. | The pinned Ubuntu of the other workflows, and the Azure CLI from a pinned file, as `host-tools` does for Terraform, uv and lstk. |
 | `.github/workflows/` | Secrets reach third-party code in CI (REVIEW §0): jobs set `LOCALSTACK_AUTH_TOKEN` (and, in `mcp-evals.yml`, the OpenRouter key) at job level, so `yarn install` runs dependency install scripts and third-party actions run with them; `docker.yml` runs `npm ci` for `data/sample-cdk`, with install scripts, in a step that holds the token; and `actions/checkout` leaves the GitHub token in `.git/config` for later steps. | Install dependencies with no secret in the environment (or with `--ignore-scripts`), set secrets only on the steps that need them, and check out with `persist-credentials: false`. |
 | `src/tools/`, `src/lib/` | Most tools render LocalStack and workload strings (names, outputs, log lines, error text) into markdown tables, text and fixed code fences unescaped (REVIEW §7). `list-iam-events` answers "No events found." when the license hides IAM events, instead of explaining it ("IAM policies"). | Escape them, and size code fences to their content (REVIEW §7); explain hidden IAM events. |
+| `.github/workflows/ci.yml` | `audit-ci --skip-dev` skips the devDependencies that are bundled into `dist/` and run in production, and nothing audits the `docker/tools/` lockfiles. | Audit what ships: the bundled packages and the image's lockfiles. |
 | `.github/workflows/docker.yml` | Its path filter misses files the image build reads (`patches/`, `xmcp.config.ts`, `tsconfig*.json`), so a change to them is not built or tested as an image. | Filter on everything the `Dockerfile` copies. |
 | `src/lib/localstack/license-checker.ts` | Calls `GET /_localstack/licenseinfo`, which is not documented and not covered by the rule 4 exception. | The documented way LocalStack names (see [Gaps in LocalStack](#gaps-in-localstack)). |
 | `data/sample-terraform/` | The AWS provider has only a version constraint, no lockfile, and no Dependabot entry; CI downloads it with secrets in the job's environment. | A committed `.terraform.lock.hcl` and a `terraform` Dependabot entry ("Dependencies"). |

@@ -8,9 +8,9 @@ state, then the wrong result). Call something a BLOCKER only after confirming it
 "Known deviations" in AGENTS.md lists existing code on `main` only. For a change under review:
 
 - New code that breaks a rule is a finding at the rule's severity, even if the same pattern is listed. A new row in
-  "Known deviations" excuses it only if the PR records that the user approved the deviation.
+  "Known deviations" excuses it only if the PR records that a maintainer approved the deviation.
 - Calling a shared helper whose behaviour is a listed deviation (for example `requireProFeature` or
-  `withToolAnalytics`) is not new code; copying the pattern or changing the helper is.
+  `withToolAnalytics`) is not new code; copying the pattern is. Changing the helper falls under the next bullet.
 - A change may touch the deviating code itself (not just a file a row names) without fixing it, but the PR must
   say so: fixed, left as is, or why it cannot be
   fixed yet (SHOULD-FIX if it does not). It must not extend a deviation to another tool.
@@ -172,7 +172,7 @@ mounted socket.
   (`localhost` versus `host.docker.internal`) and binaries the image must bundle.
 - **SHOULD-FIX:** a new host binary is needed but neither README prerequisites nor the `Dockerfile` are updated.
 - **BLOCKER:** the image grows by more than about 50 MB per platform, or gains a new runtime, toolchain or base
-  image, and the PR does not record that the user approved it (AGENTS.md "Docker image size").
+  image, and the PR does not record that a maintainer approved it (AGENTS.md "Docker image size").
 - **SHOULD-FIX:** a change to `Dockerfile`, `docker/` or `.dockerignore`, or a new runtime dependency, without the
   image size before and after for amd64 and arm64 (for an external or Dependabot PR, the maintainer reports it when
   re-pushing).
