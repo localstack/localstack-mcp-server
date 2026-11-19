@@ -33,7 +33,7 @@ Each of these is a BLOCKER:
   add `LOCALSTACK_AUTH_TOKEN` or another secret as a Dependabot secret: it would reach the install scripts of the
   packages the PR just bumped. Review the bump, then run it with secrets the same way as an external PR.
 - **An external PR pushed unreviewed.** For a fork or Dependabot PR to be tested, a maintainer pushes its branch to this
-  repository, where every workflow runs with secrets. Review the whole diff under this section before pushing it,
+  repository and opens a PR from it, so its workflows run with secrets. Review the whole diff under this section before pushing it,
   and push the reviewed commit, not a branch the contributor can still change.
 - **Secrets printed or stored.** A step or script echoes a secret, runs `set -x`, `env` or `printenv`, logs request
   headers, or writes a secret to a file. GitHub masks secrets in logs only: an uploaded artifact (test results,
@@ -41,8 +41,10 @@ Each of these is a BLOCKER:
   Check what each `upload-artifact` path can contain.
 - **Secrets handed to something that records or runs untrusted input.** A coding agent, a model-driven tool, a
   wrapped CLI or the LocalStack container inherits the whole environment when it needs one variable, or can read a
-  file that holds a secret. (A secret set at job level in a trusted workflow, where one step would do, is a
-  SHOULD-FIX.)
+  file that holds a secret. Or a step installs or runs third-party code (dependency install scripts, a sample
+  project's packages, a third-party action) while a secret is in its environment or in `.git/config`
+  (`actions/checkout` keeps the GitHub token there unless `persist-credentials: false`). A secret set at job level
+  where only first-party code runs is a SHOULD-FIX.
 - **Write access by default.** A new workflow, or a new job or trigger in an existing one, runs without a
   `permissions:` block, or a job that runs PR code gets more than it needs (`contents: write`, `packages: write`,
   `id-token: write`). A version bump of an action in a listed workflow is not such a change.
@@ -182,7 +184,7 @@ See "Testing" in AGENTS.md.
   the error and analytics.
 - **SHOULD-FIX:** tests assert on internal calls instead of the response, the spawned argument array or the HTTP
   request sent to LocalStack.
-- **SHOULD-FIX:** a new tool missing from `EXPECTED_TOOLS` in `tests/mcp/direct.spec.mjs`, or a new action without
+- **SHOULD-FIX:** a new tool missing from `EXPECTED_TOOLS` in `tests/mcp/direct.spec.mjs` or `tests/docker/validate-image.mjs`, or a new action without
   a case in `tests/mcp/tools.spec.mjs` that checks its effect through another call.
 - **SHOULD-FIX:** a test reaches real AWS or Azure resources; creates a LocalStack platform resource without
   cleanup, or with a fixed name outside a `concurrency` group; or skips or passes silently when a required secret
