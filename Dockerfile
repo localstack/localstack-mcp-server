@@ -53,11 +53,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
     UV_LINK_MODE=copy
 
 # python3 and python3-pip also serve `sam build` for Python functions (Debian's Python 3.11;
-# other Python runtimes need `sam build --use-container`).
+# other Python runtimes need `sam build --use-container`). mandoc renders `aws … help`.
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends ca-certificates curl unzip git \
-      python3 python3-pip python3-venv; \
+      python3 python3-pip python3-venv mandoc; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 

@@ -5,7 +5,7 @@ Resources:
   Queue:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: mcp-tools-cfn-queue
+      QueueName: !Sub "${AWS::StackName}-queue"
 
 Outputs:
   QueueUrl:

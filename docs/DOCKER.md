@@ -116,6 +116,9 @@ that still pass `--add-host s3.host.docker.internal:host-gateway` keep working.
 
 ## Known limitations
 
+- **AWS client files.** In the image, the AWS client tool reads and writes local files only in
+  `LOCALSTACK_AWS_WORKDIR`, which is unset by default. To `s3 cp` your own files, bind-mount their
+  directory at the same absolute path and set `-e LOCALSTACK_AWS_WORKDIR=<that path>`.
 - **Extra host aliases.** Include the aliases shown in the quick-start command.
 - **First cold start** of LocalStack can take up to ~2 minutes while the image is
   pulled and the runtime initializes; subsequent starts reuse the persisted volume.
@@ -167,7 +170,8 @@ HARNESS_SKIP=docs,cloudpods,ephemeral,replicator
 ## Tool versions in the image
 
 Each tool's version is pinned in one file, and Dependabot opens the update PRs once a
-release is at least 7 days old (its `cooldown`):
+release is at least 7 days old (its `cooldown`). The `FROM` images wait 30 days, because the
+AWS CLI ships almost daily and each bump re-downloads its layer:
 
 | Tool | Pinned in | Dependabot ecosystem |
 | --- | --- | --- |

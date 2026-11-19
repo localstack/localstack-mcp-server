@@ -22,14 +22,21 @@ import { LOCALSTACK_PORT } from "./config";
  * Dummy credentials and CDK defaults are injected because CDK bootstrap requires
  * them even for LocalStack.
  */
-export function buildIacCliEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
-  const base: NodeJS.ProcessEnv = { ...process.env, ...extra };
-
-  const explicitHost = process.env.LOCALSTACK_HOSTNAME?.trim();
+/**
+ * The LocalStack endpoint the lstk proxies target: localhost.localstack.cloud for a local
+ * LocalStack, otherwise LOCALSTACK_HOSTNAME (host.docker.internal in the Docker image).
+ */
+export function localstackEndpointUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const explicitHost = env.LOCALSTACK_HOSTNAME?.trim();
   const host =
     !explicitHost || explicitHost === "localhost" || explicitHost === "127.0.0.1"
       ? "localhost.localstack.cloud"
       : explicitHost;
+  return `http://${host}:${env.LOCALSTACK_PORT || LOCALSTACK_PORT}`;
+}
+
+export function buildIacCliEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
+  const base: NodeJS.ProcessEnv = { ...process.env, ...extra };
 
   return {
     ...base,
@@ -39,6 +46,6 @@ export function buildIacCliEnv(extra: Record<string, string> = {}): NodeJS.Proce
     AWS_REGION: base.AWS_REGION || base.AWS_DEFAULT_REGION || "us-east-1",
     CDK_DEFAULT_ACCOUNT: base.CDK_DEFAULT_ACCOUNT || "000000000000",
     CDK_DEFAULT_REGION: base.CDK_DEFAULT_REGION || base.AWS_DEFAULT_REGION || "us-east-1",
-    AWS_ENDPOINT_URL: base.AWS_ENDPOINT_URL || `http://${host}:${LOCALSTACK_PORT}`,
+    AWS_ENDPOINT_URL: base.AWS_ENDPOINT_URL || localstackEndpointUrl(),
   };
 }

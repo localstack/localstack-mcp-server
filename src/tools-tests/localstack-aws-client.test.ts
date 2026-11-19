@@ -4,6 +4,7 @@ import path from "path";
 import localstackAwsClient from "../tools/localstack-aws-client";
 import localstackDeployer from "../tools/localstack-deployer";
 import { runCommand, type CommandResult } from "../core/command-runner";
+import { resetLstkAwsDependencyCheck } from "../lib/aws/lstk-aws";
 
 // The deployer's other parameters, which the CloudFormation actions ignore.
 const deployerDefaults = {
@@ -61,6 +62,7 @@ const text = (r: { content: Array<{ text: string }> }) => r.content[0].text;
 describe("localstack-aws-client", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    resetLstkAwsDependencyCheck();
     process.env.LOCALSTACK_AUTH_TOKEN = "ls-test-token";
     delete process.env.AWS_ENDPOINT_URL;
     delete process.env.LOCALSTACK_HOSTNAME;
@@ -140,6 +142,7 @@ describe("localstack-deployer CloudFormation actions", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    resetLstkAwsDependencyCheck();
     process.env.LOCALSTACK_AUTH_TOKEN = "ls-test-token";
   });
 
@@ -215,7 +218,7 @@ describe("localstack-deployer CloudFormation actions", () => {
     });
 
     expect(result.isError).toBe(true);
-    expect(text(result)).toContain("may only end a help request");
+    expect(text(result)).toContain("lstk reads it as a request for the AWS CLI's help");
     expect(lstkAwsCalls()).toHaveLength(0);
   });
 });

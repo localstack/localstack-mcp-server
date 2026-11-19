@@ -21,7 +21,7 @@ export const schema = {
 export const metadata: ToolMetadata = {
   name: "localstack-aws-client",
   description:
-    "Executes an AWS CLI command against the running LocalStack for AWS emulator, through the official AWS CLI v2 and 'lstk aws', which set the endpoint, credentials and region.",
+    "Executes an AWS CLI command against the running LocalStack for AWS emulator, through the official AWS CLI v2 and 'lstk aws', which set the endpoint, credentials and region. Requests only ever reach LocalStack. Local files (s3 cp, file://, --body, an outfile) must be relative paths or inside the tool's working directory.",
   annotations: {
     title: "LocalStack AWS Client",
   },
@@ -38,9 +38,9 @@ export default async function localstackAwsClient({ command }: InferSchema<typeo
       const missing = await checkLstkAwsDependencies();
       if (missing) return ResponseBuilder.error("Dependency Not Available", missing);
 
-      const result = await runLstkAws(args);
+      const result = await runLstkAws(args, { checkLocalPaths: true });
 
-      if (result.exitCode === 0) {
+      if (result.exitCode === 0 && result.blocked.length === 0) {
         return ResponseBuilder.markdown(result.stdout || "");
       }
 
