@@ -275,7 +275,7 @@ This repository includes [MCP Server Tester](https://github.com/gleanwork/mcp-se
   yarn test:mcp:evals
   ```
   The evals check whether a model picks and combines the right tools for a goal; their prompts don't name the tools. They start, change and stop LocalStack on port 4566, so don't run them against an instance you're using. They need Docker, Terraform, [lstk](https://github.com/localstack/lstk) and the Snowflake CLI (`snow`) on the `PATH`, and the sample project's providers downloaded with `terraform -chdir=data/sample-terraform init`.
-  The [MCP evals workflow](./.github/workflows/mcp-evals.yml) runs them weekly and on demand; it needs the `OPENROUTER_API_KEY` repository secret.
+  The [MCP evals workflow](./.github/workflows/mcp-evals.yml) runs them after every merge into `main`, weekly and on demand; it needs the `OPENROUTER_API_KEY` repository secret.
 - Open the latest MCP Server Tester HTML report:
   ```bash
   npx mcp-server-tester open

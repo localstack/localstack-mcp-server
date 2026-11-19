@@ -1,7 +1,10 @@
 name: MCP evals
 
-# The LLM-driven eval dataset through OpenRouter, weekly and on demand.
+# The LLM-driven eval dataset through OpenRouter: after every merge into main, weekly (to catch
+# changes outside this repo, such as a new LocalStack image or model version) and on demand.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       model:
@@ -15,6 +18,7 @@ permissions:
   contents: read
 
 # Runs share the Cloud Pod name mcptester-e2e-pod in one LocalStack account, so they must not overlap.
+# Merges that land while a run is going wait; GitHub keeps only the newest waiting run.
 concurrency:
   group: mcp-evals
   cancel-in-progress: false
