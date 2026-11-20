@@ -46,6 +46,35 @@ export async function checkLstkAwsDependencies(): Promise<string | null> {
   return null;
 }
 
+const LOCAL_GATEWAY_HOST = "localhost.localstack.cloud";
+
+/**
+ * Where the AWS CLI sends its requests (and signs them for), and where the egress guard
+ * connects them to. The CLI uses localhost.localstack.cloud whenever LocalStack runs on this
+ * machine, so URLs it signs for the caller (s3 presign) open on the user's machine. In the
+ * Docker image the gateway is reached through the Docker host (LOCALSTACK_HOSTNAME
+ * host.docker.internal), where the same port is published: the guard connects there, for
+ * localhost.localstack.cloud and its subdomains alike, which no DNS entry could cover.
+ */
+export function lstkAwsRoute(env: NodeJS.ProcessEnv = process.env): {
+  endpointUrl: string;
+  dial: { host: string; port: number };
+} {
+  const target = new URL(localstackEndpointUrl(env));
+  const port = Number(target.port || 80);
+  if (target.hostname === LOCAL_GATEWAY_HOST) {
+    // localhost.localstack.cloud is 127.0.0.1 by definition; no DNS answer is needed for it.
+    return { endpointUrl: target.origin, dial: { host: "127.0.0.1", port } };
+  }
+  if (target.hostname === "host.docker.internal") {
+    return {
+      endpointUrl: `http://${LOCAL_GATEWAY_HOST}:${port}`,
+      dial: { host: target.hostname, port },
+    };
+  }
+  return { endpointUrl: target.origin, dial: { host: target.hostname, port } };
+}
+
 export interface LstkAwsResult extends CommandResult {
   /** Hosts outside LocalStack the egress guard refused; any entry means the command failed. */
   blocked: string[];
@@ -65,7 +94,7 @@ export async function runLstkAws(
   const { workdir, error } = awsWorkdir();
   if (error) throw new Error(error);
   const dirs = privateDirs();
-  const endpointUrl = localstackEndpointUrl();
+  const { endpointUrl, dial } = lstkAwsRoute();
   const childEnv = (proxyUrl: string) =>
     buildAwsChildEnv(process.env, process.platform, { ...dirs, endpointUrl, proxyUrl });
   if (options.checkLocalPaths) {
@@ -80,11 +109,7 @@ export async function runLstkAws(
     relayHttp: {
       allows: (host, p) =>
         p === port && (host === endpoint.hostname || host.endsWith(`.${endpoint.hostname}`)),
-      // localhost.localstack.cloud is 127.0.0.1 by definition; no DNS answer is needed for it.
-      to: {
-        host: endpoint.hostname === "localhost.localstack.cloud" ? "127.0.0.1" : endpoint.hostname,
-        port,
-      },
+      to: dial,
     },
   });
   try {

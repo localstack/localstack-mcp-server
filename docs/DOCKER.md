@@ -109,7 +109,9 @@ Then tell the tool `directory: /Users/you/projects/my-infra`.
 The deployer runs Terraform, SAM, and CDK through `lstk terraform|sam|cdk`, and the AWS
 client tool and the deployer's CloudFormation actions run the AWS CLI through `lstk aws`.
 These receive the LocalStack endpoint automatically when
-`LOCALSTACK_HOSTNAME=host.docker.internal` is set. A CloudFormation template is read inside
+`LOCALSTACK_HOSTNAME=host.docker.internal` is set. The AWS CLI addresses LocalStack as
+`localhost.localstack.cloud`, and the server connects those requests to `host.docker.internal`,
+so URLs the CLI builds for you (`s3 presign`) open on your machine. A CloudFormation template is read inside
 the MCP container, so bind-mount it like a project directory. `lstk` forces CDK asset
 publishing to path-style S3, so no extra S3 host alias is needed. Existing configs
 that still pass `--add-host s3.host.docker.internal:host-gateway` keep working.

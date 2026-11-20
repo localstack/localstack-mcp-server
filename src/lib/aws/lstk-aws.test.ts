@@ -2,7 +2,7 @@ import fs from "fs";
 import http from "http";
 import os from "os";
 import path from "path";
-import { runLstkAws } from "./lstk-aws";
+import { lstkAwsRoute, runLstkAws } from "./lstk-aws";
 
 // A stand-in `lstk` on the PATH. Like `lstk aws s3 cp - …` it reads stdin to the end first. It
 // then sends one request through the proxy it was given (to the URL in ./target, since its
@@ -142,5 +142,34 @@ describe("runLstkAws", () => {
     await expect(
       runLstkAws(["s3", "cp", "/etc/hosts", "s3://b/k"], { checkLocalPaths: true })
     ).rejects.toThrow("outside the AWS client's working directory");
+  });
+});
+
+describe("lstkAwsRoute", () => {
+  test("a local LocalStack: the CLI signs for localhost.localstack.cloud, the guard dials 127.0.0.1", () => {
+    expect(lstkAwsRoute({ LOCALSTACK_PORT: "4611" })).toEqual({
+      endpointUrl: "http://localhost.localstack.cloud:4611",
+      dial: { host: "127.0.0.1", port: 4611 },
+    });
+    expect(lstkAwsRoute({ LOCALSTACK_HOSTNAME: "localhost" }).endpointUrl).toBe(
+      "http://localhost.localstack.cloud:4566"
+    );
+  });
+
+  test("the Docker image: the CLI signs for localhost.localstack.cloud, the guard dials the Docker host", () => {
+    // So s3 presign returns a URL that opens on the user's machine.
+    expect(
+      lstkAwsRoute({ LOCALSTACK_HOSTNAME: "host.docker.internal", LOCALSTACK_PORT: "4612" })
+    ).toEqual({
+      endpointUrl: "http://localhost.localstack.cloud:4612",
+      dial: { host: "host.docker.internal", port: 4612 },
+    });
+  });
+
+  test("another machine: the CLI signs for its name, which the caller can reach too", () => {
+    expect(lstkAwsRoute({ LOCALSTACK_HOSTNAME: "ls.internal", LOCALSTACK_PORT: "4566" })).toEqual({
+      endpointUrl: "http://ls.internal:4566",
+      dial: { host: "ls.internal", port: 4566 },
+    });
   });
 });
