@@ -1,5 +1,7 @@
 import {
+  awsCliCommandName,
   awslocalExecEnv,
+  buildsClientUrl,
   containerEnvValue,
   containerGatewayEndpoint,
   containerGatewayPort,
@@ -73,9 +75,45 @@ describe("containerEnvValue", () => {
 });
 
 describe("awslocalExecEnv", () => {
+  const mapped = ["LOCALSTACK_HOST=localhost.localstack.cloud:4700", "GATEWAY_LISTEN=:4600"];
+
   test("sets only AWS_ENDPOINT_URL, to the container-side gateway", () => {
-    expect(
-      awslocalExecEnv(["LOCALSTACK_HOST=localhost.localstack.cloud:4700", "GATEWAY_LISTEN=:4600"])
-    ).toEqual(["AWS_ENDPOINT_URL=http://localhost:4600"]);
+    expect(awslocalExecEnv(mapped, ["sqs", "list-queues"])).toEqual([
+      "AWS_ENDPOINT_URL=http://localhost:4600",
+    ]);
+  });
+
+  test.each([
+    [["s3", "presign", "s3://bucket/key"]],
+    [["s3", "presign", "s3://bucket/key", "--expires-in", "60"]],
+    [["--region", "eu-west-1", "s3", "presign", "s3://bucket/key"]],
+    [["rds", "generate-db-auth-token", "--hostname", "db", "--port", "5432", "--username", "u"]],
+    [["eks", "get-token", "--cluster-name", "c1"]],
+    [["dsql", "generate-db-connect-auth-token", "--hostname", "h"]],
+    [["dsql", "generate-db-connect-admin-auth-token", "--hostname", "h"]],
+  ])("%j builds a URL for the caller, so it keeps awslocal's LOCALSTACK_HOST endpoint", (args) => {
+    expect(awslocalExecEnv(mapped, args)).toEqual([]);
+  });
+
+  test.each([
+    [["s3", "ls"]],
+    [["s3", "cp", "presign", "s3://bucket/presign"]],
+    [["s3api", "get-object", "--bucket", "presign", "--key", "k", "out"]],
+    [["rds", "describe-db-instances"]],
+    [["eks", "list-clusters"]],
+    [["--output", "s3", "sqs", "list-queues"]],
+  ])("%j calls the gateway, so it gets the container-side endpoint", (args) => {
+    expect(awslocalExecEnv(mapped, args)).toEqual(["AWS_ENDPOINT_URL=http://localhost:4600"]);
+  });
+});
+
+describe("awsCliCommandName", () => {
+  test("skips global options and their values", () => {
+    expect(awsCliCommandName(["--debug", "--profile", "p", "S3", "Presign", "x"])).toBe(
+      "s3 presign"
+    );
+    expect(awsCliCommandName(["--region=us-east-1", "sqs", "list-queues"])).toBe("sqs list-queues");
+    expect(awsCliCommandName(["help"])).toBe("help");
+    expect(buildsClientUrl([])).toBe(false);
   });
 });

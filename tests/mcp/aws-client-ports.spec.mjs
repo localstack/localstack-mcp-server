@@ -11,9 +11,10 @@ import { join } from "node:path";
 // its own MCP server pointed at it, then checks that the tools reach the gateway and that the URLs
 // LocalStack returns still name the host-side address (LOCALSTACK_HOST).
 //
-// The containers get names unique to the run and are removed afterwards. No case touches another
-// LocalStack: the default case publishes host port 4566 only when it is free, and otherwise
-// publishes the same in-container defaults on a free port.
+// The containers get names unique to the run and are removed afterwards. Every case publishes
+// its gateway on a free host port, never on 4566, so no case can take over the traffic of a
+// LocalStack already running on the host. What makes the default case the default is the
+// in-container configuration: the gateway on 4566 and no LOCALSTACK_HOST.
 
 const IMAGE = process.env.LOCALSTACK_IMAGE_NAME?.trim() || "localstack/localstack-pro:latest";
 const DEFAULT_GATEWAY_PORT = 4566;
@@ -21,27 +22,13 @@ const READY_TIMEOUT_MS = 180_000;
 const CALL_TIMEOUT_MS = 300_000;
 const RUN_ID = `${process.pid}-${Date.now()}`;
 
+/** A port the OS reports free on every address (listening without a host binds `::` and 0.0.0.0). */
 async function freePort() {
   const server = net.createServer();
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise((resolve) => server.listen(0, resolve));
   const { port } = server.address();
   await new Promise((resolve) => server.close(resolve));
   return port;
-}
-
-async function portIsFree(port) {
-  const server = net.createServer();
-  try {
-    await new Promise((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(port, "127.0.0.1", resolve);
-    });
-    return true;
-  } catch {
-    return false;
-  } finally {
-    await new Promise((resolve) => server.close(() => resolve()));
-  }
 }
 
 function docker(args) {
@@ -136,49 +123,61 @@ async function waitForStackStatus(client, stackName, wanted) {
 }
 
 /**
- * The cases: where the gateway listens inside the container, which host port publishes it, and
- * which port the URLs LocalStack returns should name.
+ * The cases: where the gateway listens inside the container, which host port publishes it, which
+ * port the URLs LocalStack returns should name, and whether a presigned URL must work from the
+ * host. Ports are picked when a case runs, not when the file is collected.
  */
-async function cases() {
-  const defaultHostPort = (await portIsFree(DEFAULT_GATEWAY_PORT))
-    ? DEFAULT_GATEWAY_PORT
-    : await freePort();
-  const mappedHostPort = await freePort();
-  const listenContainerPort = await freePort();
-  const listenHostPort = await freePort();
-  return [
-    {
-      title: "default gateway (container port 4566, no LOCALSTACK_HOST)",
-      key: "default",
-      hostPort: defaultHostPort,
-      containerPort: DEFAULT_GATEWAY_PORT,
-      env: {},
-      // Without LOCALSTACK_HOST, LocalStack names its own gateway port.
-      urlPort: DEFAULT_GATEWAY_PORT,
+const CASES = [
+  {
+    title: "default gateway (container port 4566, no LOCALSTACK_HOST)",
+    key: "default",
+    async ports() {
+      // Without LOCALSTACK_HOST, LocalStack names its own gateway port in the URLs it returns.
+      // awslocal presigns for localhost:4566, which the free host port does not serve, so the
+      // presign check needs a LOCALSTACK_HOST that names the host port (the cases below).
+      const hostPort = await freePort();
+      return {
+        hostPort,
+        containerPort: DEFAULT_GATEWAY_PORT,
+        env: {},
+        urlPort: DEFAULT_GATEWAY_PORT,
+        presign: false,
+      };
     },
-    {
-      title: "gateway published on a non-default host port, named by LOCALSTACK_HOST",
-      key: "mapped",
-      hostPort: mappedHostPort,
-      containerPort: DEFAULT_GATEWAY_PORT,
-      env: { LOCALSTACK_HOST: `localhost.localstack.cloud:${mappedHostPort}` },
-      urlPort: mappedHostPort,
+  },
+  {
+    title: "gateway published on a non-default host port, named by LOCALSTACK_HOST",
+    key: "mapped",
+    async ports() {
+      const hostPort = await freePort();
+      return {
+        hostPort,
+        containerPort: DEFAULT_GATEWAY_PORT,
+        env: { LOCALSTACK_HOST: `localhost.localstack.cloud:${hostPort}` },
+        urlPort: hostPort,
+        presign: true,
+      };
     },
-    {
-      title: "gateway moved by GATEWAY_LISTEN, published on another host port",
-      key: "listen",
-      hostPort: listenHostPort,
-      containerPort: listenContainerPort,
-      env: {
-        GATEWAY_LISTEN: `0.0.0.0:${listenContainerPort}`,
-        LOCALSTACK_HOST: `localhost.localstack.cloud:${listenHostPort}`,
-      },
-      urlPort: listenHostPort,
+  },
+  {
+    title: "gateway moved by GATEWAY_LISTEN, published on another host port",
+    key: "listen",
+    async ports() {
+      const containerPort = await freePort();
+      const hostPort = await freePort();
+      return {
+        hostPort,
+        containerPort,
+        env: {
+          GATEWAY_LISTEN: `0.0.0.0:${containerPort}`,
+          LOCALSTACK_HOST: `localhost.localstack.cloud:${hostPort}`,
+        },
+        urlPort: hostPort,
+        presign: true,
+      };
     },
-  ];
-}
-
-const CASES = await cases();
+  },
+];
 
 test.describe("aws-client and deployer reach LocalStack on any gateway port", () => {
   test.describe.configure({ timeout: 600_000 });
@@ -189,8 +188,9 @@ test.describe("aws-client and deployer reach LocalStack on any gateway port", ()
     }
   });
 
-  for (const testCase of CASES) {
-    test(testCase.title, async () => {
+  for (const { title, key, ports } of CASES) {
+    test(title, async () => {
+      const testCase = { key, ...(await ports()) };
       test.info().annotations.push({
         type: "ports",
         description: `host ${testCase.hostPort} -> container ${testCase.containerPort}`,
@@ -264,6 +264,22 @@ test.describe("aws-client and deployer reach LocalStack on any gateway port", ()
 
         await call(client, "localstack-deployer", { action: "delete-stack", stackName });
         await waitForStackStatus(client, stackName, "DELETE_COMPLETE");
+
+        // s3 presign builds a URL for the caller without calling the gateway: it must name the
+        // host-side port, and the host must be able to fetch it.
+        if (testCase.presign) {
+          const bucket = `ports-${testCase.key}-bucket`;
+          await aws(client, `s3 mb s3://${bucket}`);
+          await aws(
+            client,
+            `s3api put-object --bucket ${bucket} --key hello.txt --body /etc/hostname`
+          );
+          const url = (await aws(client, `s3 presign s3://${bucket}/hello.txt`)).trim();
+          expect(new URL(url).port).toBe(String(testCase.hostPort));
+          const response = await fetch(url);
+          expect(response.status, `GET ${url}`).toBe(200);
+          expect((await response.text()).trim()).not.toBe("");
+        }
       } finally {
         if (client) await closeMCPClient(client);
         removeContainer(name);

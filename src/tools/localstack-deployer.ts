@@ -184,22 +184,26 @@ export default async function localstackDeployer({
             );
           }
 
-          const createRes = await execAwslocal(dockerClient, containerId, [
-            "cloudformation",
-            "create-stack",
-            "--stack-name",
-            stackName,
-            "--template-body",
-            `file://${tempPath}`,
-          ]);
-
+          let createRes;
           try {
-            await dockerClient.executeInContainer(containerId, [
-              "/bin/sh",
-              "-c",
-              `rm -f ${tempPath}`,
+            createRes = await execAwslocal(dockerClient, containerId, [
+              "cloudformation",
+              "create-stack",
+              "--stack-name",
+              stackName,
+              "--template-body",
+              `file://${tempPath}`,
             ]);
-          } catch {}
+          } finally {
+            // Also when the create throws, so the template does not stay in the container.
+            try {
+              await dockerClient.executeInContainer(containerId, [
+                "/bin/sh",
+                "-c",
+                `rm -f ${tempPath}`,
+              ]);
+            } catch {}
+          }
 
           if (createRes.exitCode === 0) {
             return ResponseBuilder.markdown(
