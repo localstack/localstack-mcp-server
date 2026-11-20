@@ -221,6 +221,22 @@ describe("assertLocalPathsAllowed", () => {
     "*/[.][Ll][Ss][Tt][Kk]/*",
   ];
 
+  test.each([
+    ["s3", "cp", "s3://b/a[x]/", ".", "--recursive"],
+    ["s3", "sync", "s3://b/p?/", "."],
+    ["s3", "sync", "s3://b", "dir*", "--delete"],
+    ["s3", "mv", "s3://b/k", "x]"],
+  ])("refuses glob characters that would defuse the filters: %j", (...args) => {
+    expect(() => confineTransfers(args)).toThrow("take no *, ?, [ or ]");
+  });
+
+  test("filters keep their glob patterns", () => {
+    expect(() =>
+      confineTransfers(["s3", "sync", ".", "s3://b", "--exclude", "*.tmp", "--include=a?[0-9]"])
+    ).not.toThrow();
+    expect(() => confineTransfers(["s3", "cp", ".", "s3://b", "--exc", "*"])).not.toThrow();
+  });
+
   test("local transfers get --no-follow-symlinks and skip .git and .lstk, last", () => {
     expect(confineTransfers(["s3", "--region", "x", "sync", ".", "s3://b"])).toEqual([
       "s3",

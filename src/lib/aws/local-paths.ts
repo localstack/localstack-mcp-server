@@ -143,7 +143,7 @@ const PROTECTED_DIRS = ["[Gg][Ii][Tt]", "[Ll][Ss][Tt][Kk]"].flatMap((name) => [
  *   because the last of the two flags wins; --follow-symlinks is refused in any abbreviation.
  * - A recursive download writes a key `.git/config` to .git/config, and sync --delete removes
  *   files missing from the bucket. Filters exclude .git and .lstk; they come last, because the
- *   last filter that matches wins.
+ *   last filter that matches wins, and no other argument may hold a glob character.
  */
 export function confineTransfers(args: string[]): string[] {
   const words = args.map((arg) => arg.toLowerCase());
@@ -158,6 +158,20 @@ export function confineTransfers(args: string[]): string[] {
       "'--follow-symlinks' is not allowed: a link could lead outside the AWS client's working directory."
     );
   }
+  // The CLI matches a filter against the transfer's root joined with the pattern, so a glob
+  // character in the root (s3://b/a[x]/) would keep the .git filter from matching. Only the
+  // filters' own patterns may hold one.
+  const isFilter = (w: string | undefined) =>
+    w !== undefined && w.length > 4 && ["--exclude", "--include"].some((f) => f.startsWith(w));
+  args.forEach((arg, i) => {
+    const [name] = words[i].split("=");
+    const pattern = isFilter(words[i - 1]) || (words[i].includes("=") && isFilter(name));
+    if (!pattern && /[[\]*?]/.test(arg)) {
+      throw new Error(
+        `The argument '${arg}' is not allowed: s3 cp, mv and sync take no *, ?, [ or ] outside --exclude and --include patterns.`
+      );
+    }
+  });
   return [...args, "--no-follow-symlinks", ...PROTECTED_DIRS];
 }
 
