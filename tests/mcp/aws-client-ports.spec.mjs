@@ -1,15 +1,16 @@
 import { expect, test } from "@playwright/test";
 import { closeMCPClient, createMCPClientForConfig } from "@gleanwork/mcp-server-tester";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// localstack-aws-client and the deployer's CloudFormation actions run `awslocal` inside the
-// LocalStack container. Each case starts its own LocalStack with a different gateway setup and
-// its own MCP server pointed at it, then checks that the tools reach the gateway and that the URLs
-// LocalStack returns still name the host-side address (LOCALSTACK_HOST).
+// localstack-aws-client and the deployer's CloudFormation actions run the AWS CLI through
+// `lstk aws` where the server runs, against LOCALSTACK_HOSTNAME:LOCALSTACK_PORT. Each case starts
+// its own LocalStack with a different gateway setup and its own MCP server pointed at it, then
+// checks that the tools reach the gateway, that the URLs LocalStack returns name the host-side
+// address (LOCALSTACK_HOST), and that a presigned URL works from the host.
 //
 // The containers get names unique to the run and are removed afterwards. Every case publishes
 // its gateway on a free host port, never on 4566, so no case can take over the traffic of a
@@ -123,9 +124,9 @@ async function waitForStackStatus(client, stackName, wanted) {
 }
 
 /**
- * The cases: where the gateway listens inside the container, which host port publishes it, which
- * port the URLs LocalStack returns should name, and whether a presigned URL must work from the
- * host. Ports are picked when a case runs, not when the file is collected.
+ * The cases: where the gateway listens inside the container, which host port publishes it, and
+ * which port the URLs LocalStack returns should name. Ports are picked when a case runs, not when
+ * the file is collected.
  */
 const CASES = [
   {
@@ -133,15 +134,13 @@ const CASES = [
     key: "default",
     async ports() {
       // Without LOCALSTACK_HOST, LocalStack names its own gateway port in the URLs it returns.
-      // awslocal presigns for localhost:4566, which the free host port does not serve, so the
-      // presign check needs a LOCALSTACK_HOST that names the host port (the cases below).
+      // A presigned URL is built by the CLI on the host, so it names the host port anyway.
       const hostPort = await freePort();
       return {
         hostPort,
         containerPort: DEFAULT_GATEWAY_PORT,
         env: {},
         urlPort: DEFAULT_GATEWAY_PORT,
-        presign: false,
       };
     },
   },
@@ -155,7 +154,6 @@ const CASES = [
         containerPort: DEFAULT_GATEWAY_PORT,
         env: { LOCALSTACK_HOST: `localhost.localstack.cloud:${hostPort}` },
         urlPort: hostPort,
-        presign: true,
       };
     },
   },
@@ -173,7 +171,6 @@ const CASES = [
           LOCALSTACK_HOST: `localhost.localstack.cloud:${hostPort}`,
         },
         urlPort: hostPort,
-        presign: true,
       };
     },
   },
@@ -196,7 +193,8 @@ test.describe("aws-client and deployer reach LocalStack on any gateway port", ()
         description: `host ${testCase.hostPort} -> container ${testCase.containerPort}`,
       });
       const name = `lsmcp-port-test-${testCase.key}-${RUN_ID}`;
-      const templateDir = mkdtempSync(join(tmpdir(), "lsmcp-port-test-"));
+      // The AWS client's working directory: the template and the file to upload live here.
+      const workdir = realpathSync(mkdtempSync(join(tmpdir(), "lsmcp-port-test-")));
       let client;
       try {
         startLocalStack({ name, ...testCase });
@@ -217,6 +215,7 @@ test.describe("aws-client and deployer reach LocalStack on any gateway port", ()
             ...process.env,
             LOCALSTACK_HOSTNAME: "localhost",
             LOCALSTACK_PORT: String(testCase.hostPort),
+            LOCALSTACK_AWS_WORKDIR: workdir,
             MAIN_CONTAINER_NAME: name,
             MCP_ANALYTICS_DISABLED: "1",
           },
@@ -240,7 +239,7 @@ test.describe("aws-client and deployer reach LocalStack on any gateway port", ()
         // deployer: create-stack and delete-stack, checked through the aws-client.
         const stackName = `ports-${testCase.key}-stack`;
         const stackQueue = `ports-${testCase.key}-stack-queue`;
-        const templatePath = join(templateDir, "template.yaml");
+        const templatePath = join(workdir, "template.yaml");
         writeFileSync(
           templatePath,
           [
@@ -267,23 +266,19 @@ test.describe("aws-client and deployer reach LocalStack on any gateway port", ()
 
         // s3 presign builds a URL for the caller without calling the gateway: it must name the
         // host-side port, and the host must be able to fetch it.
-        if (testCase.presign) {
-          const bucket = `ports-${testCase.key}-bucket`;
-          await aws(client, `s3 mb s3://${bucket}`);
-          await aws(
-            client,
-            `s3api put-object --bucket ${bucket} --key hello.txt --body /etc/hostname`
-          );
-          const url = (await aws(client, `s3 presign s3://${bucket}/hello.txt`)).trim();
-          expect(new URL(url).port).toBe(String(testCase.hostPort));
-          const response = await fetch(url);
-          expect(response.status, `GET ${url}`).toBe(200);
-          expect((await response.text()).trim()).not.toBe("");
-        }
+        const bucket = `ports-${testCase.key}-bucket`;
+        writeFileSync(join(workdir, "hello.txt"), "hello\n");
+        await aws(client, `s3 mb s3://${bucket}`);
+        await aws(client, `s3api put-object --bucket ${bucket} --key hello.txt --body hello.txt`);
+        const url = (await aws(client, `s3 presign s3://${bucket}/hello.txt`)).trim();
+        expect(new URL(url).port).toBe(String(testCase.hostPort));
+        const response = await fetch(url);
+        expect(response.status, `GET ${url}`).toBe(200);
+        expect(await response.text()).toBe("hello\n");
       } finally {
         if (client) await closeMCPClient(client);
         removeContainer(name);
-        rmSync(templateDir, { recursive: true, force: true });
+        rmSync(workdir, { recursive: true, force: true });
       }
     });
   }

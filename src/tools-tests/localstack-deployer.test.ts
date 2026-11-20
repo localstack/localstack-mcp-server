@@ -1,13 +1,13 @@
-// Handler tests for the deployer's CloudFormation actions, which run awslocal in the
-// container. Docker, the gateway health probe and PostHog are mocked at the module boundary;
-// analytics and the preflights run for real. The assertions are on the execs sent to the
-// container (argument arrays and environment), the response, and the analytics events.
-import fs from "fs";
-import os from "os";
+// Handler tests for the deployer's CloudFormation actions, which run the AWS CLI through
+// `lstk aws`. The spawned process (runCommand, answered by a fake lstk/aws pair), the gateway
+// health probe and PostHog are mocked at the module boundary; analytics and the preflights run
+// for real.
 import path from "path";
 import localstackDeployer from "../tools/localstack-deployer";
-import { DockerApiClient } from "../lib/docker/docker.client";
+import { runCommand } from "../core/command-runner";
 import { getGatewayHealth } from "../lib/localstack/localstack.utils";
+import { resetLstkAwsDependencyCheck } from "../lib/aws/lstk-aws";
+import { fakeCli, failed, isError, lstkAwsCalls, ok, text } from "./lstk-aws-fakes";
 
 const mockCapture = jest.fn();
 jest.mock("posthog-node", () => ({
@@ -17,191 +17,162 @@ jest.mock("posthog-node", () => ({
     shutdown: jest.fn().mockResolvedValue(undefined),
   })),
 }));
+jest.mock("../lib/localstack/localstack.utils", () => ({
+  ...jest.requireActual("../lib/localstack/localstack.utils"),
+  getGatewayHealth: jest.fn(),
+}));
+jest.mock("../core/command-runner", () => ({
+  ...jest.requireActual("../core/command-runner"),
+  runCommand: jest.fn(),
+}));
 
-jest.mock("../lib/localstack/localstack.utils", () => {
-  const actual = jest.requireActual("../lib/localstack/localstack.utils");
-  return { ...actual, getGatewayHealth: jest.fn() };
-});
+const mockedRun = jest.mocked(runCommand);
+const mockedHealth = jest.mocked(getGatewayHealth);
 
-jest.mock("../lib/docker/docker.client", () => {
-  const actual = jest.requireActual("../lib/docker/docker.client");
-  return { ...actual, DockerApiClient: jest.fn() };
-});
-
-const MockedDocker = DockerApiClient as jest.MockedClass<typeof DockerApiClient>;
-const mockedHealth = getGatewayHealth as jest.MockedFunction<typeof getGatewayHealth>;
-const MAPPED_ENV = [
-  "GATEWAY_LISTEN=0.0.0.0:4700",
-  "LOCALSTACK_HOST=localhost.localstack.cloud:5700",
-];
-const text = (r: unknown) => (r as { content: Array<{ text: string }> }).content[0].text;
-const isError = (r: unknown) => (r as { isError?: boolean }).isError;
-
-type ExecResult = { stdout: string; stderr: string; exitCode: number };
-const OK: ExecResult = { stdout: "", stderr: "", exitCode: 0 };
-
-function mockContainer(
-  env: string[],
-  awslocalResult: ExecResult = OK,
-  inspectContainer = jest.fn().mockResolvedValue({ id: "ls-id", env })
-) {
-  const executeInContainer = jest
-    .fn()
-    .mockImplementation(async (_id: string, cmd: string[]) =>
-      cmd[0] === "awslocal" ? awslocalResult : OK
-    );
-  MockedDocker.mockImplementation(
-    () =>
-      ({
-        findLocalStackContainer: jest.fn().mockResolvedValue("ls-id"),
-        inspectContainer,
-        executeInContainer,
-      }) as any
-  );
-  return executeInContainer;
-}
-
-const awslocalCalls = (exec: jest.Mock) => exec.mock.calls.filter((c) => c[1][0] === "awslocal");
-const shellCalls = (exec: jest.Mock) =>
-  exec.mock.calls.filter((c) => c[1][0] === "/bin/sh").map((c) => c[1][2] as string);
+// The deployer's other parameters, which the CloudFormation actions ignore.
+const deployerDefaults = {
+  projectType: "auto" as const,
+  directory: undefined,
+  variables: undefined,
+  stackName: undefined,
+  templatePath: undefined,
+  s3Bucket: undefined,
+  resolveS3: undefined,
+  saveParams: undefined,
+};
 
 describe("localstack-deployer CloudFormation actions", () => {
-  let dir: string;
-  let templatePath: string;
+  const template = path.resolve(__dirname, "../../data/sample-cloudformation/template.yaml");
 
   beforeEach(() => {
     jest.clearAllMocks();
+    resetLstkAwsDependencyCheck();
     delete process.env.MCP_ANALYTICS_DISABLED;
     process.env.LOCALSTACK_AUTH_TOKEN = "ls-test-token";
     mockedHealth.mockResolvedValue({ reachable: true, ready: true } as any);
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), "deployer-test-"));
-    templatePath = path.join(dir, "template.yaml");
-    fs.writeFileSync(templatePath, "Resources: {}\n");
   });
-
-  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   const createStack = () =>
     localstackDeployer({
+      ...deployerDefaults,
       action: "create-stack",
-      projectType: "auto",
-      stackName: "s1",
-      templatePath,
-    } as any);
+      stackName: "s",
+      directory: path.relative(process.cwd(), path.dirname(template)),
+    });
   const deleteStack = () =>
-    localstackDeployer({ action: "delete-stack", projectType: "auto", stackName: "s1" } as any);
+    localstackDeployer({ ...deployerDefaults, action: "delete-stack", stackName: "s" });
 
-  test("create-stack points awslocal at the container-side gateway and removes the template", async () => {
-    const exec = mockContainer(MAPPED_ENV);
+  test("create-stack hands the AWS CLI the template file by absolute path", async () => {
+    fakeCli(ok('{"StackId": "arn:aws:cloudformation:us-east-1:000000000000:stack/s/1"}'));
 
-    const result = await createStack();
+    const result = await localstackDeployer({
+      ...deployerDefaults,
+      action: "create-stack",
+      stackName: "s",
+      directory: path.relative(process.cwd(), path.dirname(template)),
+    });
 
     expect(isError(result)).toBeFalsy();
-    const calls = awslocalCalls(exec);
-    expect(calls).toHaveLength(1);
-    expect(calls[0][1].slice(0, 5)).toEqual([
-      "awslocal",
+    expect(text(result)).toContain("StackId");
+    expect(lstkAwsCalls()[0][1]).toEqual([
+      "aws",
       "cloudformation",
       "create-stack",
       "--stack-name",
-      "s1",
+      "s",
+      "--template-body",
+      `file://${template}`,
     ]);
-    expect(calls[0][3]).toEqual({ env: ["AWS_ENDPOINT_URL=http://localhost:4700"] });
-    expect(shellCalls(exec).filter((c) => c.startsWith("rm -f /tmp/ls-cfn-"))).toHaveLength(1);
   });
 
-  test("create-stack failure returns an error with awslocal's stderr", async () => {
-    mockContainer(MAPPED_ENV, {
-      stdout: "",
-      stderr: "ValidationError: bad template",
-      exitCode: 255,
+  test("delete-stack reports the AWS CLI's error", async () => {
+    fakeCli(failed("", "An error occurred (ValidationError): Stack s does not exist"));
+
+    const result = await localstackDeployer({
+      ...deployerDefaults,
+      action: "delete-stack",
+      stackName: "s",
     });
+
+    expect(isError(result)).toBe(true);
+    expect(text(result)).toContain("CloudFormation delete-stack failed");
+    expect(text(result)).toContain("Stack s does not exist");
+    expect(lstkAwsCalls()[0][1]).toEqual([
+      "aws",
+      "cloudformation",
+      "delete-stack",
+      "--stack-name",
+      "s",
+    ]);
+  });
+
+  test.each([
+    "--endpoint-url=https://cloudformation.us-east-1.amazonaws.com",
+    "my_stack",
+    "1stack",
+  ])("refuses a stack name that is not one, without running the CLI: %s", async (stackName) => {
+    fakeCli(ok());
+
+    const result = await localstackDeployer({
+      ...deployerDefaults,
+      action: "delete-stack",
+      stackName,
+    });
+
+    expect(text(result)).toContain("Invalid Stack Name");
+    expect(lstkAwsCalls()).toHaveLength(0);
+  });
+
+  // A valid name, but lstk would read it as a help request and skip its endpoint handling.
+  test.each(["help"])("refuses the stack name '%s', without running the CLI", async (stackName) => {
+    fakeCli(ok());
+
+    const result = await localstackDeployer({
+      ...deployerDefaults,
+      action: "delete-stack",
+      stackName,
+    });
+
+    expect(isError(result)).toBe(true);
+    expect(text(result)).toContain("lstk reads it as a request for the AWS CLI's help");
+    expect(lstkAwsCalls()).toHaveLength(0);
+  });
+
+  test("create-stack reports the AWS CLI's error", async () => {
+    fakeCli(failed("", "An error occurred (ValidationError): Template format error"));
 
     const result = await createStack();
 
     expect(isError(result)).toBe(true);
     expect(text(result)).toContain("CloudFormation create-stack failed");
-    expect(text(result)).toContain("ValidationError: bad template");
+    expect(text(result)).toContain("Template format error");
   });
 
-  test("create-stack with a failing inspect returns an error and still removes the template", async () => {
-    const exec = mockContainer(
-      [],
-      OK,
-      jest.fn().mockRejectedValue(new Error("no such container: ls-id"))
-    );
-
-    const result = await createStack();
-
-    expect(isError(result)).toBe(true);
-    expect(text(result)).toContain("no such container: ls-id");
-    expect(awslocalCalls(exec)).toHaveLength(0);
-    const shell = shellCalls(exec);
-    const written = shell.find((c) => c.startsWith("cat > "))!.slice("cat > ".length);
-    expect(shell).toContain(`rm -f ${written}`);
-  });
-
-  test.each([["create-stack"], ["delete-stack"]])(
+  test.each(["create-stack", "delete-stack"] as const)(
     "%s without stackName is rejected before anything runs",
     async (action) => {
-      const exec = mockContainer([]);
+      fakeCli(ok());
 
-      const result = await localstackDeployer({ action, projectType: "auto", templatePath } as any);
+      const result = await localstackDeployer({ ...deployerDefaults, action });
 
       expect(isError(result)).toBe(true);
       expect(text(result)).toContain("stackName");
-      expect(exec).not.toHaveBeenCalled();
+      expect(mockedRun).not.toHaveBeenCalled();
     }
   );
 
-  test("delete-stack points awslocal at the container-side gateway", async () => {
-    const exec = mockContainer(["LOCALSTACK_HOST=localhost.localstack.cloud:4700"]);
-
-    const result = await deleteStack();
-
-    expect(isError(result)).toBeFalsy();
-    expect(exec).toHaveBeenCalledWith(
-      "ls-id",
-      ["awslocal", "cloudformation", "delete-stack", "--stack-name", "s1"],
-      undefined,
-      { env: ["AWS_ENDPOINT_URL=http://localhost:4566"] }
-    );
-  });
-
-  test("delete-stack failure returns an error with awslocal's stderr", async () => {
-    mockContainer([], { stdout: "", stderr: "Stack s1 does not exist", exitCode: 255 });
-
-    const result = await deleteStack();
-
-    expect(isError(result)).toBe(true);
-    expect(text(result)).toContain("CloudFormation delete-stack failed");
-    expect(text(result)).toContain("Stack s1 does not exist");
-  });
-
-  test("delete-stack with a failing inspect returns an error and runs nothing", async () => {
-    const exec = mockContainer(
-      [],
-      OK,
-      jest.fn().mockRejectedValue(new Error("no such container: ls-id"))
-    );
-
-    const result = await deleteStack();
-
-    expect(isError(result)).toBe(true);
-    expect(text(result)).toContain("no such container: ls-id");
-    expect(exec).not.toHaveBeenCalled();
-  });
-
-  test("the container's auth token reaches neither the exec env, the response nor analytics", async () => {
-    const secret = "ls-FAKE-container-token-0123456789";
-    const exec = mockContainer([`LOCALSTACK_AUTH_TOKEN=${secret}`, ...MAPPED_ENV]);
+  test("the auth token reaches neither the CLI's environment, the responses nor analytics", async () => {
+    const secret = "ls-FAKE-server-token-0123456789";
+    process.env.LOCALSTACK_AUTH_TOKEN = secret;
+    fakeCli(ok("{}"));
 
     const created = await createStack();
     const deleted = await deleteStack();
 
     expect(isError(created)).toBeFalsy();
     expect(isError(deleted)).toBeFalsy();
-    expect(JSON.stringify(exec.mock.calls)).not.toContain(secret);
+    expect(lstkAwsCalls()).toHaveLength(2);
+    expect(JSON.stringify(mockedRun.mock.calls)).not.toContain(secret);
     expect(JSON.stringify([created, deleted])).not.toContain(secret);
     expect(mockCapture).toHaveBeenCalled();
     expect(JSON.stringify(mockCapture.mock.calls)).not.toContain(secret);
