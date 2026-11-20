@@ -70,7 +70,7 @@ export async function runLstkAws(
     buildAwsChildEnv(process.env, process.platform, { ...dirs, endpointUrl, proxyUrl });
   if (options.checkLocalPaths) {
     assertLocalPathsAllowed(args, workdir, { cwd: dirs.tmpDir, privateHome: dirs.homeDir });
-    args = confineTransfers(args);
+    args = confineTransfers(args, workdir ?? dirs.tmpDir);
   }
 
   const endpoint = new URL(endpointUrl);

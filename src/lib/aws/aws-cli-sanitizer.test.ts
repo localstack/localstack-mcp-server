@@ -84,6 +84,7 @@ describe("sanitizeAwsCliCommand", () => {
   test.each([
     "update",
     "login",
+    "signup --remote",
     "sso login --profile x",
     "SSO LOGIN",
     "history show",

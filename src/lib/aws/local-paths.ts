@@ -147,10 +147,17 @@ const PROTECTED_DIRS = ["[Gg][Ii][Tt]", "[Ll][Ss\u017f][Tt][Kk\u212a]"].flatMap(
  *   files missing from the bucket. Filters exclude .git and .lstk; they come last, because the
  *   last filter that matches wins, and no other argument may hold a glob character.
  */
-export function confineTransfers(args: string[]): string[] {
+export function confineTransfers(args: string[], cwd: string): string[] {
   const words = args.map((arg) => arg.toLowerCase());
   const transfer = words[0] === "s3" && ["cp", "mv", "sync"].some((op) => words.includes(op));
   if (!transfer) return args;
+  // Local roots lie in the directory the CLI runs in; a glob character in its path would keep
+  // the filters from matching, as in an argument (below).
+  if (/[[\]*?]/.test(cwd)) {
+    throw new Error(
+      `s3 cp, mv and sync are not available: the AWS client's working directory (${cwd}) has *, ?, [ or ] in its path, which would keep them from skipping .git and .lstk. Set LOCALSTACK_AWS_WORKDIR to a directory without them.`
+    );
+  }
   const follows = (w: string) => {
     const name = w.split("=")[0];
     return name.length > 2 && "--follow-symlinks".startsWith(name);

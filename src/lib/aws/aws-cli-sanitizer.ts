@@ -58,6 +58,7 @@ export const DENIED: Array<{ match: string[]; reason: string }> = [
     "this opens a browser or waits for a person to sign in",
     ["login"],
     ["logout"],
+    ["signup"],
     ["sso", "login"],
     ["sso", "logout"]
   ),

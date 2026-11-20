@@ -220,7 +220,9 @@ describe("assertLocalPathsAllowed", () => {
   test.each(["s3://b/.git", "s3://b/p/.lstk/", "s3://b/.l\u017ftk"])(
     "refuses a transfer of a .git or .lstk object: %s",
     (source) => {
-      expect(() => confineTransfers(["s3", "cp", source, "."])).toThrow("files in .git and .lstk");
+      expect(() => confineTransfers(["s3", "cp", source, "."], workdir)).toThrow(
+        "files in .git and .lstk"
+      );
     }
   );
 
@@ -230,18 +232,30 @@ describe("assertLocalPathsAllowed", () => {
     ["s3", "sync", "s3://b", "dir*", "--delete"],
     ["s3", "mv", "s3://b/k", "x]"],
   ])("refuses glob characters that would defuse the filters: %j", (...args) => {
-    expect(() => confineTransfers(args)).toThrow("take no *, ?, [ or ]");
+    expect(() => confineTransfers(args, workdir)).toThrow("take no *, ?, [ or ]");
+  });
+
+  test("refuses transfers when the working directory's path holds a glob character", () => {
+    expect(() => confineTransfers(["s3", "sync", "s3://b", "."], "/tmp/w[1]")).toThrow(
+      "has *, ?, [ or ] in its path"
+    );
+    expect(confineTransfers(["s3", "ls"], "/tmp/w[1]")).toEqual(["s3", "ls"]);
   });
 
   test("filters keep their glob patterns", () => {
     expect(() =>
-      confineTransfers(["s3", "sync", ".", "s3://b", "--exclude", "*.tmp", "--include=a?[0-9]"])
+      confineTransfers(
+        ["s3", "sync", ".", "s3://b", "--exclude", "*.tmp", "--include=a?[0-9]"],
+        workdir
+      )
     ).not.toThrow();
-    expect(() => confineTransfers(["s3", "cp", ".", "s3://b", "--exc", "*"])).not.toThrow();
+    expect(() =>
+      confineTransfers(["s3", "cp", ".", "s3://b", "--exc", "*"], workdir)
+    ).not.toThrow();
   });
 
   test("local transfers get --no-follow-symlinks and skip .git and .lstk, last", () => {
-    expect(confineTransfers(["s3", "--region", "x", "sync", ".", "s3://b"])).toEqual([
+    expect(confineTransfers(["s3", "--region", "x", "sync", ".", "s3://b"], workdir)).toEqual([
       "s3",
       "--region",
       "x",
@@ -251,15 +265,18 @@ describe("assertLocalPathsAllowed", () => {
       "--no-follow-symlinks",
       ...PROTECTED,
     ]);
-    expect(confineTransfers(["s3", "ls"])).toEqual(["s3", "ls"]);
+    expect(confineTransfers(["s3", "ls"], workdir)).toEqual(["s3", "ls"]);
     for (const flag of ["--follow-symlinks", "--follow-sym", "--fol", "--FOLLOW"]) {
       expect(() =>
-        confineTransfers(["s3", "cp", ".", "s3://b", "--no-follow-symlinks", flag])
+        confineTransfers(["s3", "cp", ".", "s3://b", "--no-follow-symlinks", flag], workdir)
       ).toThrow("not allowed");
     }
     // Always last, since the last of the two flags wins.
     expect(
-      confineTransfers(["s3", "cp", "--no-follow-symlinks", ".", "s3://b", "--include", "*"])
+      confineTransfers(
+        ["s3", "cp", "--no-follow-symlinks", ".", "s3://b", "--include", "*"],
+        workdir
+      )
     ).toEqual([
       "s3",
       "cp",
