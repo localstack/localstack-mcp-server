@@ -5,6 +5,7 @@ import { ResponseBuilder } from "../core/response-builder";
 import { withToolAnalytics } from "../core/analytics";
 import { DockerApiClient } from "../lib/docker/docker.client";
 import { sanitizeAwsCliCommand, splitAwsCliArgs } from "../lib/aws/aws-cli-sanitizer";
+import { execAwslocal } from "../lib/aws/awslocal";
 
 // Define the schema for tool parameters
 export const schema = {
@@ -39,9 +40,7 @@ export default async function localstackAwsClient({ command }: InferSchema<typeo
       const sanitized = sanitizeAwsCliCommand(command);
 
       const args = splitAwsCliArgs(sanitized);
-      const cmd = ["awslocal", ...args];
-
-      const result = await dockerClient.executeInContainer(containerId, cmd);
+      const result = await execAwslocal(dockerClient, containerId, args);
 
       if (result.exitCode === 0) {
         return ResponseBuilder.markdown(result.stdout || "");

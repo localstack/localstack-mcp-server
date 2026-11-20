@@ -5,6 +5,7 @@ import path from "path";
 import fs from "fs";
 import { runPreflights, requireAuthToken, requireLocalStackRunning } from "../core/preflight";
 import { DockerApiClient } from "../lib/docker/docker.client";
+import { execAwslocal } from "../lib/aws/awslocal";
 import {
   checkDependencies,
   inferProjectType,
@@ -183,16 +184,14 @@ export default async function localstackDeployer({
             );
           }
 
-          const createCmd = [
-            "awslocal",
+          const createRes = await execAwslocal(dockerClient, containerId, [
             "cloudformation",
             "create-stack",
             "--stack-name",
             stackName,
             "--template-body",
             `file://${tempPath}`,
-          ];
-          const createRes = await dockerClient.executeInContainer(containerId, createCmd);
+          ]);
 
           try {
             await dockerClient.executeInContainer(containerId, [
@@ -232,8 +231,12 @@ export default async function localstackDeployer({
         try {
           const dockerClient = new DockerApiClient();
           const containerId = await dockerClient.findLocalStackContainer();
-          const command = ["awslocal", "cloudformation", "delete-stack", "--stack-name", stackName];
-          const result = await dockerClient.executeInContainer(containerId, command);
+          const result = await execAwslocal(dockerClient, containerId, [
+            "cloudformation",
+            "delete-stack",
+            "--stack-name",
+            stackName,
+          ]);
           if (result.exitCode === 0) {
             return ResponseBuilder.markdown(
               result.stdout && result.stdout.trim()
