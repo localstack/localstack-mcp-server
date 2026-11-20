@@ -1,7 +1,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { assertLocalPathsAllowed, awsWorkdir, withoutFollowingSymlinks } from "./local-paths";
+import { assertLocalPathsAllowed, awsWorkdir, confineTransfers } from "./local-paths";
 
 describe("awsWorkdir", () => {
   test("is LOCALSTACK_AWS_WORKDIR when it is a directory, else an error", () => {
@@ -51,7 +51,12 @@ describe("assertLocalPathsAllowed", () => {
       cwd: path.join(outside, "tmp"),
       privateHome: path.join(outside, "home"),
       // The CLI's environment always holds an empty variable.
-      env: { AWS_PAGER: "", HOME: path.join(outside, "home"), AWS_REGION: "us-east-1" },
+      env: {
+        AWS_PAGER: "",
+        HOME: path.join(outside, "home"),
+        TMPDIR: path.join(outside, "tmp"),
+        PYTHONUNBUFFERED: "1",
+      },
       platform: "linux",
     });
 
@@ -79,6 +84,10 @@ describe("assertLocalPathsAllowed", () => {
     // A variable the CLI does not know stays as written; JSONata names one in every expression.
     "stepfunctions create-state-machine --name m --role-arn r --definition {%$states.input%}",
     "sns publish --topic-arn t --message price-$5",
+    // CloudFormation and VTL references are not environment variables.
+    "cloudformation validate-template --template-body Value:!Sub${AWS::Region}-${MyParam}",
+    "apigateway put-integration --request-templates application/json=$input.body",
+    "s3api put-object --bucket b --key $FOO/x --body in.txt",
   ])("allows: %s", (cmd) => {
     expect(() => allowed(cmd.replace("IN", workdir))).not.toThrow();
   });
@@ -118,19 +127,41 @@ describe("assertLocalPathsAllowed", () => {
     "iot create-keys-and-certificate --public-key OUT/new.fish",
     "iot create-keys-and-certificate --public-key ~/new.fish",
     "s3 sync / s3://b",
-    // Variables the CLI expands, later in a value: /$AWS_PAGER/x is //x to it.
-    "s3api put-object --bucket b --key k --body /$AWS_PAGER/REL_OUT/key.pem",
-    "s3api put-object --bucket b --key k --body /${AWS_PAGER}REL_OUT/key.pem",
-    "iam create-virtual-mfa-device --virtual-mfa-device-name x --outfile /$AWS_PAGER/REL_OUT/new.rc",
+  ])("refuses: %s", (cmd) => {
+    expect(() => allowed(cmd.replace(/OUT/g, outside))).toThrow(
+      /outside the AWS client's working directory/
+    );
+  });
+
+  test.each([
+    // Anywhere in a value: /$AWS_PAGER/x is //x to the CLI, .$AWS_PAGER./x is ../x.
+    "s3api put-object --bucket b --key k --body /$AWS_PAGER/x",
+    "s3api put-object --bucket b --key k --body /${AWS_PAGER}x",
+    "iam create-virtual-mfa-device --virtual-mfa-device-name x --outfile /$AWS_PAGER/x",
     "s3api put-object --bucket b --key k --body .$AWS_PAGER./x",
     "ssm put-parameter --name p --value file://.$AWS_PAGER./x",
-    // An unknown variable lstk might set: tried as empty, ., / and ..
+    "iam create-virtual-mfa-device --outfile $HOME/.aws/cli/alias",
+    "iam create-virtual-mfa-device --outfile ${HOME}/x",
+    "iam create-virtual-mfa-device --outfile file://$TMPDIR/x",
+    // lstk sets PYTHONUNBUFFERED=1 and its own AWS_* values; it may set more of its kind.
+    "s3api put-object --bucket b --key k --body /x/dir$PYTHONUNBUFFERED/secret",
+    "s3api put-object --bucket b --key k --body x$AWS_ACCESS_KEY_ID",
     "s3api put-object --bucket b --key k --body .$LSTK_SOMETHING./x",
-    "s3api put-object --bucket b --key k --body /$LSTK_SOMETHING/REL_OUT/key.pem",
-  ])("refuses: %s", (cmd) => {
-    expect(() =>
-      allowed(cmd.replace(/REL_OUT/g, outside.slice(1)).replace(/OUT/g, outside))
-    ).toThrow(/outside the AWS client's working directory/);
+    "s3api put-object --bucket b --key k --body /$LOCALSTACK_X/x",
+  ])("refuses a variable the CLI may replace: %s", (cmd) => {
+    expect(() => allowed(cmd)).toThrow("the AWS CLI would replace");
+  });
+
+  test("on Windows, %VAR% and names in any case are variables too", () => {
+    const win = (value: string) =>
+      assertLocalPathsAllowed(["s3api", "put-object", "--body", value], workdir, {
+        env: { PATH: "C:\\Windows" },
+        platform: "win32",
+      });
+    expect(() => win("x%path%y")).toThrow("would replace %path%");
+    expect(() => win("x$Path")).toThrow("would replace $Path");
+    expect(() => win("x%aws_region%")).toThrow("would replace");
+    expect(() => win("50%off%")).not.toThrow();
   });
 
   test("without a workdir, every absolute path is refused and relative ones stay private", () => {
@@ -141,15 +172,6 @@ describe("assertLocalPathsAllowed", () => {
       /no working directory/
     );
   });
-
-  test.each(["$HOME/.aws/cli/alias", "${HOME}/x", "file://$TMPDIR/x"])(
-    "refuses a leading variable the CLI would expand: %s",
-    (value) => {
-      expect(() => allowed(`iam create-virtual-mfa-device --outfile ${value}`)).toThrow(
-        "expand the variable"
-      );
-    }
-  );
 
   test("~ is checked as the private home the CLI expands it to", () => {
     // With the workdir under the real home, ~/<workdir> would pass a check that used it.
@@ -188,8 +210,19 @@ describe("assertLocalPathsAllowed", () => {
     ).toThrow(/outside the AWS client's working directory/);
   });
 
-  test("local transfers get --no-follow-symlinks, and --follow-symlinks is refused", () => {
-    expect(withoutFollowingSymlinks(["s3", "--region", "x", "sync", ".", "s3://b"])).toEqual([
+  const PROTECTED = [
+    "--exclude",
+    "[.][Gg][Ii][Tt]/*",
+    "--exclude",
+    "*/[.][Gg][Ii][Tt]/*",
+    "--exclude",
+    "[.][Ll][Ss][Tt][Kk]/*",
+    "--exclude",
+    "*/[.][Ll][Ss][Tt][Kk]/*",
+  ];
+
+  test("local transfers get --no-follow-symlinks and skip .git and .lstk, last", () => {
+    expect(confineTransfers(["s3", "--region", "x", "sync", ".", "s3://b"])).toEqual([
       "s3",
       "--region",
       "x",
@@ -197,21 +230,27 @@ describe("assertLocalPathsAllowed", () => {
       ".",
       "s3://b",
       "--no-follow-symlinks",
+      ...PROTECTED,
     ]);
-    expect(withoutFollowingSymlinks(["s3", "ls"])).toEqual(["s3", "ls"]);
+    expect(confineTransfers(["s3", "ls"])).toEqual(["s3", "ls"]);
     for (const flag of ["--follow-symlinks", "--follow-sym", "--fol", "--FOLLOW"]) {
       expect(() =>
-        withoutFollowingSymlinks(["s3", "cp", ".", "s3://b", "--no-follow-symlinks", flag])
+        confineTransfers(["s3", "cp", ".", "s3://b", "--no-follow-symlinks", flag])
       ).toThrow("not allowed");
     }
     // Always last, since the last of the two flags wins.
-    expect(withoutFollowingSymlinks(["s3", "cp", "--no-follow-symlinks", ".", "s3://b"])).toEqual([
+    expect(
+      confineTransfers(["s3", "cp", "--no-follow-symlinks", ".", "s3://b", "--include", "*"])
+    ).toEqual([
       "s3",
       "cp",
       "--no-follow-symlinks",
       ".",
       "s3://b",
+      "--include",
+      "*",
       "--no-follow-symlinks",
+      ...PROTECTED,
     ]);
   });
 });

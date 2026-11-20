@@ -54,10 +54,12 @@ export function awsWorkdir(
  *   directory exists, so the CLI can neither read nor write it.
  * - A file:// or fileb:// path, anywhere in a value (shorthand loads files with `key@=file://`),
  *   is always a path: no name exception.
- * - The CLI expands `$VAR`, `${VAR}` and `~` in paths with its own environment (`deps.env`, whose
- *   HOME is the private one). Every value is checked as written and as the CLI may expand it,
- *   with a variable lstk might add as empty, `.`, `/` or `..`, so `/$EMPTY/etc` and `.$EMPTY./x`
- *   do not pass. A leading `$VAR` is refused outright.
+ * - The CLI expands `$VAR` and `${VAR}` in paths with its own environment: `deps.env`, plus what
+ *   lstk sets, whose values the server cannot know. So a value may not name a variable `deps.env`
+ *   holds, or one lstk may set (AWS_*, PYTHON*, LSTK_*, LOCALSTACK_*): `/$AWS_PAGER/etc` is
+ *   `//etc` to the CLI. Any other variable is not set, and the CLI leaves it as written, so
+ *   `${AWS::Region}`, `$states` and `$input` in inline documents keep working.
+ * - The CLI's `~` is the private home, so a `~` value is checked against both homes.
  * - `deps.privateHome` is never allowed: an alias written there would run shell commands.
  * - Nothing inside `.git` or `.lstk`: git and lstk run what their config there tells them to.
  */
@@ -101,18 +103,14 @@ export function assertLocalPathsAllowed(
     }
   };
   const checkAll = (value: string, mayBeName: boolean) => {
-    if (/^\$\{?[A-Za-z_]/.test(value)) {
+    const variable = setVariable(value, deps.env ?? {}, deps.platform);
+    if (variable) {
       throw new Error(
-        `The value '${value}' is not allowed: the AWS CLI would expand the variable in a path. Write the path out.`
+        `The value '${value}' is not allowed: the AWS CLI would replace ${variable} with its value in a path. Write the path out.`
       );
     }
     check(value, value, mayBeName, deps.home);
-    // The CLI's `~` is the private home.
-    const expansions = cliExpansions(value, deps.env ?? {}, deps.platform);
-    if (value.startsWith("~")) expansions.push(value);
-    for (const expanded of expansions) {
-      check(value, expanded, mayBeName, deps.privateHome ?? deps.home);
-    }
+    if (value.startsWith("~")) check(value, value, mayBeName, deps.privateHome ?? deps.home);
   };
 
   for (const arg of args) {
@@ -130,12 +128,24 @@ export function assertLocalPathsAllowed(
   }
 }
 
+// .git and .lstk at any depth, in any case (case-insensitive file systems), for s3 filters.
+const PROTECTED_DIRS = ["[Gg][Ii][Tt]", "[Ll][Ss][Tt][Kk]"].flatMap((name) => [
+  "--exclude",
+  `[.]${name}/*`,
+  "--exclude",
+  `*/[.]${name}/*`,
+]);
+
 /**
- * s3 cp, mv and sync walk a local directory and follow its symlinks by default, so a link inside
- * the workdir would upload, or delete, files outside it. They get --no-follow-symlinks, last,
- * because the last of the two flags wins; --follow-symlinks is refused in any abbreviation.
+ * Confines s3 cp, mv and sync, which take their local paths from the bucket's keys as well:
+ * - They walk a local directory and follow its symlinks by default, so a link inside the
+ *   workdir would upload, or delete, files outside it. They get --no-follow-symlinks, last,
+ *   because the last of the two flags wins; --follow-symlinks is refused in any abbreviation.
+ * - A recursive download writes a key `.git/config` to .git/config, and sync --delete removes
+ *   files missing from the bucket. Filters exclude .git and .lstk; they come last, because the
+ *   last filter that matches wins.
  */
-export function withoutFollowingSymlinks(args: string[]): string[] {
+export function confineTransfers(args: string[]): string[] {
   const words = args.map((arg) => arg.toLowerCase());
   const transfer = words[0] === "s3" && ["cp", "mv", "sync"].some((op) => words.includes(op));
   if (!transfer) return args;
@@ -148,40 +158,27 @@ export function withoutFollowingSymlinks(args: string[]): string[] {
       "'--follow-symlinks' is not allowed: a link could lead outside the AWS client's working directory."
     );
   }
-  return [...args, "--no-follow-symlinks"];
+  return [...args, "--no-follow-symlinks", ...PROTECTED_DIRS];
 }
 
 /**
- * What the CLI may turn a path into: Python's os.path.expandvars with its environment, where a
- * variable it does not know stays as written (and %VAR% too, on Windows). A variable `env` does
- * not hold may still be set by lstk, so it is also tried as empty, `.`, `/` and `..`.
+ * The first variable reference in `value` that the CLI's os.path.expandvars may replace: one
+ * `env` holds, or one lstk may set. Windows also expands %VAR% and ignores case in names.
  */
-function cliExpansions(
+function setVariable(
   value: string,
   env: Record<string, string | undefined>,
   platform: NodeJS.Platform = process.platform
-): string[] {
-  const refs = platform === "win32" ? /\$(\w+|\{[^}]*\})|%(\w+)%/g : /\$(\w+|\{[^}]*\})/g;
-  if (!value.match(refs)) return [];
-  const results = new Set<string>();
-  for (const unknown of [undefined, "", ".", "/", ".."]) {
-    results.add(
-      value.replace(refs, (match, ref?: string, winRef?: string) => {
-        const name = winRef ?? (ref!.startsWith("{") ? ref!.slice(1, -1) : ref!);
-        const known = platform === "win32" ? lookupIgnoringCase(env, name) : env[name];
-        return known ?? unknown ?? match;
-      })
-    );
-  }
-  return [...results];
-}
-
-function lookupIgnoringCase(
-  env: Record<string, string | undefined>,
-  name: string
 ): string | undefined {
-  const key = Object.keys(env).find((k) => k.toUpperCase() === name.toUpperCase());
-  return key === undefined ? undefined : env[key];
+  const win = platform === "win32";
+  const refs = win ? /\$(\w+|\{[^}]*\})|%(\w+)%/g : /\$(\w+|\{[^}]*\})/g;
+  const names = new Set(Object.keys(env).map((k) => (win ? k.toUpperCase() : k)));
+  for (const [match, ref, winRef] of value.matchAll(refs)) {
+    const raw = winRef ?? (ref.startsWith("{") ? ref.slice(1, -1) : ref);
+    const name = win ? raw.toUpperCase() : raw;
+    if (names.has(name) || /^(?:AWS_|PYTHON|LSTK_|LOCALSTACK_)/i.test(name)) return match;
+  }
+  return undefined;
 }
 
 const isInside = (p: string, dir: string) => p === dir || p.startsWith(dir + path.sep);

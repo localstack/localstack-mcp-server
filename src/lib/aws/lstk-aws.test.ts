@@ -90,7 +90,14 @@ describe("runLstkAws", () => {
     ]);
     expect(result.exitCode).toBe(0);
     // A local transfer never follows a symlink out of the workdir.
-    expect(out.args).toEqual(["aws", "s3", "cp", "-", "s3://bucket/key", "--no-follow-symlinks"]);
+    expect(out.args.slice(0, 6)).toEqual([
+      "aws",
+      "s3",
+      "cp",
+      "-",
+      "s3://bucket/key",
+      "--no-follow-symlinks",
+    ]);
     expect(out.input).toBe("");
   }, 10_000);
 

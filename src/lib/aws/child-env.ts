@@ -109,6 +109,8 @@ export function buildAwsChildEnv(
   env.AWS_EC2_METADATA_DISABLED = "true";
   env.AWS_PAGER = "";
   env.AWS_CLI_AUTO_PROMPT = "off";
+  // lstk sets it when it is missing; set here, the path check knows its value.
+  env.PYTHONUNBUFFERED = "1";
 
   for (const name of ["HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"]) {
     env[name] = options.proxyUrl;
