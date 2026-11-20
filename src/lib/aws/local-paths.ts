@@ -54,11 +54,12 @@ export function awsWorkdir(
  *   directory exists, so the CLI can neither read nor write it.
  * - A file:// or fileb:// path, anywhere in a value (shorthand loads files with `key@=file://`),
  *   is always a path: no name exception.
- * - The CLI expands `$VAR` and `${VAR}` in paths with its own environment: `deps.env`, plus what
- *   lstk sets, whose values the server cannot know. So a value may not name a variable `deps.env`
- *   holds, or one lstk may set (AWS_*, PYTHON*, LSTK_*, LOCALSTACK_*): `/$AWS_PAGER/etc` is
- *   `//etc` to the CLI. Any other variable is not set, and the CLI leaves it as written, so
- *   `${AWS::Region}`, `$states` and `$input` in inline documents keep working.
+ * - The CLI expands `$VAR`, `${VAR}` (and `%VAR%` on Windows) in paths with an environment the
+ *   server cannot know: lstk and the CLI's own launcher add variables (`_PYI_ARCHIVE_FILE` is the
+ *   CLI's path). So no value checked as a path may reference a variable, unless it is an inline
+ *   document (it starts with `{` or `[`, or spans lines: `${AWS::Region}` in a template,
+ *   `$states` in a definition), which can only expand to a path inside a directory named `{`.
+ *   `$5` is no variable name. A file:// path never may.
  * - The CLI's `~` is the private home, so a `~` value is checked against both homes.
  * - `deps.privateHome` is never allowed: an alias written there would run shell commands.
  * - Nothing inside `.git` or `.lstk`: git and lstk run what their config there tells them to.
@@ -70,7 +71,6 @@ export function assertLocalPathsAllowed(
     home?: string;
     cwd?: string;
     privateHome?: string;
-    env?: Record<string, string | undefined>;
     platform?: NodeJS.Platform;
   } = {}
 ): void {
@@ -96,17 +96,18 @@ export function assertLocalPathsAllowed(
       throw outside(written, workdir);
     }
     const inner = path.relative(realpath(root), real).split(path.sep);
-    if (inner.some((part) => /^\.(?:git|lstk)$/i.test(part))) {
+    if (inner.some(isProtectedName)) {
       throw new Error(
         `The local path '${written}' is not allowed: files in .git and .lstk configure programs that run on your machine.`
       );
     }
   };
   const checkAll = (value: string, mayBeName: boolean) => {
-    const variable = setVariable(value, deps.env ?? {}, deps.platform);
-    if (variable) {
+    const variable = variableReference(value, deps.platform);
+    const inlineDocument = mayBeName && (/^\s*[{[]/.test(value) || value.includes("\n"));
+    if (variable && !inlineDocument) {
       throw new Error(
-        `The value '${value}' is not allowed: the AWS CLI would replace ${variable} with its value in a path. Write the path out.`
+        `The value '${value}' is not allowed: the AWS CLI would replace ${variable} with a value of its environment in a path. Write the value out.`
       );
     }
     check(value, value, mayBeName, deps.home);
@@ -128,13 +129,14 @@ export function assertLocalPathsAllowed(
   }
 }
 
-// .git and .lstk at any depth, in any case (case-insensitive file systems), for s3 filters.
-const PROTECTED_DIRS = ["[Gg][Ii][Tt]", "[Ll][Ss][Tt][Kk]"].flatMap((name) => [
-  "--exclude",
-  `[.]${name}/*`,
-  "--exclude",
-  `*/[.]${name}/*`,
-]);
+// .git and .lstk, as entries or directories, at any depth, as a case-insensitive file system
+// sees them (see isProtectedName), for s3 filters.
+const PROTECTED_DIRS = ["[Gg][Ii][Tt]", "[Ll][Ss\u017f][Tt][Kk\u212a]"].flatMap((name) =>
+  [`[.]${name}`, `*/[.]${name}`, `[.]${name}/*`, `*/[.]${name}/*`].flatMap((pattern) => [
+    "--exclude",
+    pattern,
+  ])
+);
 
 /**
  * Confines s3 cp, mv and sync, which take their local paths from the bucket's keys as well:
@@ -164,6 +166,12 @@ export function confineTransfers(args: string[]): string[] {
   const isFilter = (w: string | undefined) =>
     w !== undefined && w.length > 4 && ["--exclude", "--include"].some((f) => f.startsWith(w));
   args.forEach((arg, i) => {
+    // A single object copied into a directory takes the key's name: s3 cp s3://b/.git .
+    if (/^s3:\/\//i.test(arg) && arg.slice(5).split("/").some(isProtectedName)) {
+      throw new Error(
+        `The argument '${arg}' is not allowed: files in .git and .lstk configure programs that run on your machine.`
+      );
+    }
     const [name] = words[i].split("=");
     const pattern = isFilter(words[i - 1]) || (words[i].includes("=") && isFilter(name));
     if (!pattern && /[[\]*?]/.test(arg)) {
@@ -175,24 +183,26 @@ export function confineTransfers(args: string[]): string[] {
   return [...args, "--no-follow-symlinks", ...PROTECTED_DIRS];
 }
 
-/**
- * The first variable reference in `value` that the CLI's os.path.expandvars may replace: one
- * `env` holds, or one lstk may set. Windows also expands %VAR% and ignores case in names.
- */
-function setVariable(
+/** The first variable reference in `value` that os.path.expandvars could replace. */
+function variableReference(
   value: string,
-  env: Record<string, string | undefined>,
   platform: NodeJS.Platform = process.platform
 ): string | undefined {
-  const win = platform === "win32";
-  const refs = win ? /\$(\w+|\{[^}]*\})|%(\w+)%/g : /\$(\w+|\{[^}]*\})/g;
-  const names = new Set(Object.keys(env).map((k) => (win ? k.toUpperCase() : k)));
+  const refs = platform === "win32" ? /\$(\w+|\{[^}]*\})|%(\w+)%/g : /\$(\w+|\{[^}]*\})/g;
   for (const [match, ref, winRef] of value.matchAll(refs)) {
-    const raw = winRef ?? (ref.startsWith("{") ? ref.slice(1, -1) : ref);
-    const name = win ? raw.toUpperCase() : raw;
-    if (names.has(name) || /^(?:AWS_|PYTHON|LSTK_|LOCALSTACK_)/i.test(name)) return match;
+    const name = winRef ?? (ref.startsWith("{") ? ref.slice(1, -1) : ref);
+    if (!/^\d/.test(name)) return match;
   }
   return undefined;
+}
+
+/**
+ * `.git` or `.lstk`, as a case-insensitive file system sees it: in any case, and with the
+ * letters that fold to s and k (ſ U+017F, K U+212A).
+ */
+function isProtectedName(name: string): boolean {
+  const folded = name.normalize("NFC").toUpperCase().toLowerCase();
+  return folded === ".git" || folded === ".lstk";
 }
 
 const isInside = (p: string, dir: string) => p === dir || p.startsWith(dir + path.sep);

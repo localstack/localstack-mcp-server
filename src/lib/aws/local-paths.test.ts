@@ -51,12 +51,6 @@ describe("assertLocalPathsAllowed", () => {
       cwd: path.join(outside, "tmp"),
       privateHome: path.join(outside, "home"),
       // The CLI's environment always holds an empty variable.
-      env: {
-        AWS_PAGER: "",
-        HOME: path.join(outside, "home"),
-        TMPDIR: path.join(outside, "tmp"),
-        PYTHONUNBUFFERED: "1",
-      },
       platform: "linux",
     });
 
@@ -84,10 +78,9 @@ describe("assertLocalPathsAllowed", () => {
     // A variable the CLI does not know stays as written; JSONata names one in every expression.
     "stepfunctions create-state-machine --name m --role-arn r --definition {%$states.input%}",
     "sns publish --topic-arn t --message price-$5",
-    // CloudFormation and VTL references are not environment variables.
-    "cloudformation validate-template --template-body Value:!Sub${AWS::Region}-${MyParam}",
-    "apigateway put-integration --request-templates application/json=$input.body",
-    "s3api put-object --bucket b --key $FOO/x --body in.txt",
+    // Inline documents: CloudFormation, VTL and JSONata references are no paths.
+    'apigateway put-integration --request-templates {"application/json":"$input.body"}',
+    "cloudformation create-stack --stack-name s --template-body Resources:\n_Q:_!Sub_${AWS::Region}",
   ])("allows: %s", (cmd) => {
     expect(() => allowed(cmd.replace("IN", workdir))).not.toThrow();
   });
@@ -143,25 +136,26 @@ describe("assertLocalPathsAllowed", () => {
     "iam create-virtual-mfa-device --outfile $HOME/.aws/cli/alias",
     "iam create-virtual-mfa-device --outfile ${HOME}/x",
     "iam create-virtual-mfa-device --outfile file://$TMPDIR/x",
-    // lstk sets PYTHONUNBUFFERED=1 and its own AWS_* values; it may set more of its kind.
+    // lstk and the CLI's launcher add variables the server cannot know.
     "s3api put-object --bucket b --key k --body /x/dir$PYTHONUNBUFFERED/secret",
-    "s3api put-object --bucket b --key k --body x$AWS_ACCESS_KEY_ID",
-    "s3api put-object --bucket b --key k --body .$LSTK_SOMETHING./x",
-    "s3api put-object --bucket b --key k --body /$LOCALSTACK_X/x",
+    "s3api put-object --bucket b --key k --body link$_PYI_PARENT_PROCESS_LEVEL/victim.txt",
+    "iot create-keys-and-certificate --certificate-pem-outfile $_PYI_ARCHIVE_FILE",
+    "sqs send-message --queue-url q --message-body file://link$_PYI_PARENT_PROCESS_LEVEL/v",
+    "s3api put-object --bucket b --key k --body .$ANYTHING./x",
+    // An inline document is exempt, a file:// path never.
+    "sqs send-message --queue-url q --message-body file://{$X}",
   ])("refuses a variable the CLI may replace: %s", (cmd) => {
     expect(() => allowed(cmd)).toThrow("the AWS CLI would replace");
   });
 
-  test("on Windows, %VAR% and names in any case are variables too", () => {
+  test("on Windows, %VAR% is a variable too", () => {
     const win = (value: string) =>
       assertLocalPathsAllowed(["s3api", "put-object", "--body", value], workdir, {
-        env: { PATH: "C:\\Windows" },
         platform: "win32",
       });
     expect(() => win("x%path%y")).toThrow("would replace %path%");
     expect(() => win("x$Path")).toThrow("would replace $Path");
-    expect(() => win("x%aws_region%")).toThrow("would replace");
-    expect(() => win("50%off%")).not.toThrow();
+    expect(() => win("50%")).not.toThrow();
   });
 
   test("without a workdir, every absolute path is refused and relative ones stay private", () => {
@@ -189,17 +183,23 @@ describe("assertLocalPathsAllowed", () => {
     ).toThrow(/outside the AWS client's working directory/);
   });
 
-  test.each([".git/config", ".git/hooks/pre-commit", "sub/.GIT/config", ".lstk/config.toml"])(
-    "refuses paths into .git and .lstk: %s",
-    (p) => {
-      expect(() => allowed(`s3api get-object --bucket b --key k ${p}`)).toThrow(
-        "files in .git and .lstk configure programs"
-      );
-      expect(() => allowed(`ssm put-parameter --name p --value file://${p}`)).toThrow(
-        "files in .git and .lstk"
-      );
-    }
-  );
+  test.each([
+    ".git/config",
+    ".git/hooks/pre-commit",
+    "sub/.GIT/config",
+    ".lstk/config.toml",
+    ".git",
+    // What a case-insensitive file system takes for .lstk: ſ is s, the Kelvin sign is k.
+    ".l\u017ftk/config.toml",
+    ".lst\u212a/config.toml",
+  ])("refuses paths into .git and .lstk: %s", (p) => {
+    expect(() => allowed(`s3api get-object --bucket b --key k ${p}`)).toThrow(
+      "files in .git and .lstk configure programs"
+    );
+    expect(() => allowed(`ssm put-parameter --name p --value file://${p}`)).toThrow(
+      "files in .git and .lstk"
+    );
+  });
 
   test("the private home stays off limits inside a broad workdir", () => {
     expect(() =>
@@ -210,16 +210,19 @@ describe("assertLocalPathsAllowed", () => {
     ).toThrow(/outside the AWS client's working directory/);
   });
 
-  const PROTECTED = [
-    "--exclude",
-    "[.][Gg][Ii][Tt]/*",
-    "--exclude",
-    "*/[.][Gg][Ii][Tt]/*",
-    "--exclude",
-    "[.][Ll][Ss][Tt][Kk]/*",
-    "--exclude",
-    "*/[.][Ll][Ss][Tt][Kk]/*",
-  ];
+  const PROTECTED = ["[Gg][Ii][Tt]", "[Ll][Ss\u017f][Tt][Kk\u212a]"].flatMap((name) =>
+    [`[.]${name}`, `*/[.]${name}`, `[.]${name}/*`, `*/[.]${name}/*`].flatMap((p) => [
+      "--exclude",
+      p,
+    ])
+  );
+
+  test.each(["s3://b/.git", "s3://b/p/.lstk/", "s3://b/.l\u017ftk"])(
+    "refuses a transfer of a .git or .lstk object: %s",
+    (source) => {
+      expect(() => confineTransfers(["s3", "cp", source, "."])).toThrow("files in .git and .lstk");
+    }
+  );
 
   test.each([
     ["s3", "cp", "s3://b/a[x]/", ".", "--recursive"],

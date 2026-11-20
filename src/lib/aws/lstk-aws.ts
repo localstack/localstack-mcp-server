@@ -69,12 +69,7 @@ export async function runLstkAws(
   const childEnv = (proxyUrl: string) =>
     buildAwsChildEnv(process.env, process.platform, { ...dirs, endpointUrl, proxyUrl });
   if (options.checkLocalPaths) {
-    // The CLI expands variables in paths with this environment; the proxy port does not matter.
-    assertLocalPathsAllowed(args, workdir, {
-      cwd: dirs.tmpDir,
-      privateHome: dirs.homeDir,
-      env: childEnv("http://127.0.0.1:1"),
-    });
+    assertLocalPathsAllowed(args, workdir, { cwd: dirs.tmpDir, privateHome: dirs.homeDir });
     args = confineTransfers(args);
   }
 
