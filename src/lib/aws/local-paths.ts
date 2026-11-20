@@ -48,44 +48,70 @@ export function awsWorkdir(
  *
  * - A relative value resolves against that directory (the workdir, or the private temp dir
  *   `deps.cwd` when there is none), following symlinks, and must stay inside.
- * - An absolute or `~` value must be inside the workdir, unless its first directory does not
- *   exist on this machine: then it is a name (/aws/lambda/f, /prod/db/password, /index.html)
- *   the CLI cannot read, and writing it would only create a new top-level directory.
+ * - An absolute or `~` value must be inside the workdir, unless it is a name (/aws/lambda/f,
+ *   /dev/db/password, /index.html): its first directory does not exist on this machine, or,
+ *   except to s3 cp, mv and sync, which create missing directories, neither it nor its parent
+ *   directory exists, so the CLI can neither read nor write it.
  * - A file:// or fileb:// path, anywhere in a value (shorthand loads files with `key@=file://`),
  *   is always a path: no name exception.
- * - A leading `$VAR`: the CLI expands variables in paths, so `$HOME/x` would leave the check.
+ * - The CLI expands `$VAR`, `${VAR}` and `~` in paths with its own environment (`deps.env`, whose
+ *   HOME is the private one). Every value is checked as written and as the CLI may expand it,
+ *   with a variable lstk might add as empty, `.`, `/` or `..`, so `/$EMPTY/etc` and `.$EMPTY./x`
+ *   do not pass. A leading `$VAR` is refused outright.
  * - `deps.privateHome` is never allowed: an alias written there would run shell commands.
+ * - Nothing inside `.git` or `.lstk`: git and lstk run what their config there tells them to.
  */
 export function assertLocalPathsAllowed(
   args: string[],
   workdir: string | null,
-  deps: { home?: string; cwd?: string; privateHome?: string } = {}
+  deps: {
+    home?: string;
+    cwd?: string;
+    privateHome?: string;
+    env?: Record<string, string | undefined>;
+    platform?: NodeJS.Platform;
+  } = {}
 ): void {
   const base = workdir ?? deps.cwd;
   // `/` is a name (`iam … --path /`) except to the transfers, which would walk the whole disk.
   const words = args.map((arg) => arg.toLowerCase());
   const transfer = words[0] === "s3" && ["cp", "mv", "sync"].some((op) => words.includes(op));
-  const check = (value: string, mayBeName: boolean) => {
+  const check = (written: string, value: string, mayBeName: boolean, home?: string) => {
     if (mayBeName && value === "/" && !transfer) return;
+    const isAbsolute = path.isAbsolute(value) || value.startsWith("~");
+    if (!isAbsolute && base === undefined) return;
+    const target = isAbsolute
+      ? path.resolve(expandHome(value, home))
+      : path.resolve(base as string, value);
+    // `~user/x` is another user's home to the CLI: never a name.
+    if (isAbsolute && mayBeName && !value.startsWith("~") && isName(target, transfer)) return;
+    const root = isAbsolute ? workdir : (base as string);
+    const real = realpathOfLongestExisting(target);
+    if (root === null || /^~[^\\/]/.test(value) || !isInside(real, realpath(root))) {
+      throw outside(written, workdir);
+    }
+    if (deps.privateHome && isInside(real, realpath(deps.privateHome))) {
+      throw outside(written, workdir);
+    }
+    const inner = path.relative(realpath(root), real).split(path.sep);
+    if (inner.some((part) => /^\.(?:git|lstk)$/i.test(part))) {
+      throw new Error(
+        `The local path '${written}' is not allowed: files in .git and .lstk configure programs that run on your machine.`
+      );
+    }
+  };
+  const checkAll = (value: string, mayBeName: boolean) => {
     if (/^\$\{?[A-Za-z_]/.test(value)) {
       throw new Error(
         `The value '${value}' is not allowed: the AWS CLI would expand the variable in a path. Write the path out.`
       );
     }
-    const isAbsolute = path.isAbsolute(value) || value.startsWith("~");
-    if (!isAbsolute && base === undefined) return;
-    const target = isAbsolute
-      ? path.resolve(expandHome(value, deps.home))
-      : path.resolve(base as string, value);
-    // `~user/x` is another user's home to the CLI: never a name.
-    if (isAbsolute && mayBeName && !value.startsWith("~") && !topLevelExists(target)) return;
-    const root = isAbsolute ? workdir : (base as string);
-    const real = realpathOfLongestExisting(target);
-    if (root === null || /^~[^\\/]/.test(value) || !isInside(real, realpath(root))) {
-      throw outside(value, workdir);
-    }
-    if (deps.privateHome && isInside(real, realpath(deps.privateHome))) {
-      throw outside(value, workdir);
+    check(value, value, mayBeName, deps.home);
+    // The CLI's `~` is the private home.
+    const expansions = cliExpansions(value, deps.env ?? {}, deps.platform);
+    if (value.startsWith("~")) expansions.push(value);
+    for (const expanded of expansions) {
+      check(value, expanded, mayBeName, deps.privateHome ?? deps.home);
     }
   };
 
@@ -95,29 +121,67 @@ export function assertLocalPathsAllowed(
     if (value === "") continue;
     const whole = value.match(/^fileb?:\/\/([\s\S]*)$/i);
     if (whole) {
-      check(whole[1], false);
+      checkAll(whole[1], false);
       continue;
     }
-    for (const m of value.matchAll(/fileb?:\/\/([^,\]}"'\s]*)/gi)) check(m[1], false);
+    for (const m of value.matchAll(/fileb?:\/\/([^,\]}"'\s]*)/gi)) checkAll(m[1], false);
     // Everything but a URL (s3://, https://; an arn: has no //) may be read as a path.
-    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) check(value, true);
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) checkAll(value, true);
   }
 }
 
 /**
  * s3 cp, mv and sync walk a local directory and follow its symlinks by default, so a link inside
- * the workdir would upload, or delete, files outside it. They get --no-follow-symlinks.
+ * the workdir would upload, or delete, files outside it. They get --no-follow-symlinks, last,
+ * because the last of the two flags wins; --follow-symlinks is refused in any abbreviation.
  */
 export function withoutFollowingSymlinks(args: string[]): string[] {
   const words = args.map((arg) => arg.toLowerCase());
   const transfer = words[0] === "s3" && ["cp", "mv", "sync"].some((op) => words.includes(op));
   if (!transfer) return args;
-  if (words.some((w) => /^--follow-symlinks(?:=|$)/.test(w))) {
+  const follows = (w: string) => {
+    const name = w.split("=")[0];
+    return name.length > 2 && "--follow-symlinks".startsWith(name);
+  };
+  if (words.some(follows)) {
     throw new Error(
       "'--follow-symlinks' is not allowed: a link could lead outside the AWS client's working directory."
     );
   }
-  return words.includes("--no-follow-symlinks") ? args : [...args, "--no-follow-symlinks"];
+  return [...args, "--no-follow-symlinks"];
+}
+
+/**
+ * What the CLI may turn a path into: Python's os.path.expandvars with its environment, where a
+ * variable it does not know stays as written (and %VAR% too, on Windows). A variable `env` does
+ * not hold may still be set by lstk, so it is also tried as empty, `.`, `/` and `..`.
+ */
+function cliExpansions(
+  value: string,
+  env: Record<string, string | undefined>,
+  platform: NodeJS.Platform = process.platform
+): string[] {
+  const refs = platform === "win32" ? /\$(\w+|\{[^}]*\})|%(\w+)%/g : /\$(\w+|\{[^}]*\})/g;
+  if (!value.match(refs)) return [];
+  const results = new Set<string>();
+  for (const unknown of [undefined, "", ".", "/", ".."]) {
+    results.add(
+      value.replace(refs, (match, ref?: string, winRef?: string) => {
+        const name = winRef ?? (ref!.startsWith("{") ? ref!.slice(1, -1) : ref!);
+        const known = platform === "win32" ? lookupIgnoringCase(env, name) : env[name];
+        return known ?? unknown ?? match;
+      })
+    );
+  }
+  return [...results];
+}
+
+function lookupIgnoringCase(
+  env: Record<string, string | undefined>,
+  name: string
+): string | undefined {
+  const key = Object.keys(env).find((k) => k.toUpperCase() === name.toUpperCase());
+  return key === undefined ? undefined : env[key];
 }
 
 const isInside = (p: string, dir: string) => p === dir || p.startsWith(dir + path.sep);
@@ -134,11 +198,15 @@ function expandHome(value: string, home = os.homedir()): string {
   return /^~(?:[\\/]|$)/.test(value) ? path.join(home, value.slice(1)) : value;
 }
 
-/** Whether the first directory below the root of an absolute path exists. */
-function topLevelExists(p: string): boolean {
+/**
+ * Whether an absolute path is a name the CLI cannot read or write. An outfile is written into an
+ * existing directory, and only s3 cp, mv and sync create the directories above their target.
+ */
+function isName(p: string, transfer: boolean): boolean {
   const { root } = path.parse(p);
   const first = p.slice(root.length).split(/[\\/]/)[0];
-  return first === "" || fs.existsSync(path.join(root, first));
+  if (first !== "" && !fs.existsSync(path.join(root, first))) return true;
+  return !transfer && !fs.existsSync(p) && !fs.existsSync(path.dirname(p));
 }
 
 function isDirectory(p: string): boolean {

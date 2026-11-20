@@ -65,12 +65,19 @@ export async function runLstkAws(
   const { workdir, error } = awsWorkdir();
   if (error) throw new Error(error);
   const dirs = privateDirs();
+  const endpointUrl = localstackEndpointUrl();
+  const childEnv = (proxyUrl: string) =>
+    buildAwsChildEnv(process.env, process.platform, { ...dirs, endpointUrl, proxyUrl });
   if (options.checkLocalPaths) {
-    assertLocalPathsAllowed(args, workdir, { cwd: dirs.tmpDir, privateHome: dirs.homeDir });
+    // The CLI expands variables in paths with this environment; the proxy port does not matter.
+    assertLocalPathsAllowed(args, workdir, {
+      cwd: dirs.tmpDir,
+      privateHome: dirs.homeDir,
+      env: childEnv("http://127.0.0.1:1"),
+    });
     args = withoutFollowingSymlinks(args);
   }
 
-  const endpointUrl = localstackEndpointUrl();
   const endpoint = new URL(endpointUrl);
   const port = Number(endpoint.port || 80);
   const guard = await startEgressGuard({
@@ -89,11 +96,7 @@ export async function runLstkAws(
     // No stdin: lstk hands it on to aws, and a command reading it (`s3 cp - …`) would otherwise
     // wait for input that never comes until the timeout.
     const result = await runCommand("lstk", ["aws", ...args], {
-      env: buildAwsChildEnv(process.env, process.platform, {
-        ...dirs,
-        endpointUrl,
-        proxyUrl: guard.env.HTTP_PROXY,
-      }),
+      env: childEnv(guard.env.HTTP_PROXY),
       cwd: workdir ?? dirs.tmpDir,
       stdio: ["ignore", "pipe", "pipe"],
     });

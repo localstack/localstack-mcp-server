@@ -50,6 +50,9 @@ describe("assertLocalPathsAllowed", () => {
       home,
       cwd: path.join(outside, "tmp"),
       privateHome: path.join(outside, "home"),
+      // The CLI's environment always holds an empty variable.
+      env: { AWS_PAGER: "", HOME: path.join(outside, "home"), AWS_REGION: "us-east-1" },
+      platform: "linux",
     });
 
   test.each([
@@ -70,6 +73,12 @@ describe("assertLocalPathsAllowed", () => {
     "sns publish --topic-arn t --message /hello",
     "cloudfront create-invalidation --distribution-id X --paths /index.html /about.html",
     "s3api put-object --bucket b --key /etc-like/key --body in.txt",
+    // Neither the path nor its parent exists: the CLI can neither read nor write it.
+    "ssm get-parameter --name /dev/db/password",
+    "logs create-log-group --log-group-name /tmp/no-such-dir-x/app",
+    // A variable the CLI does not know stays as written; JSONata names one in every expression.
+    "stepfunctions create-state-machine --name m --role-arn r --definition {%$states.input%}",
+    "sns publish --topic-arn t --message price-$5",
   ])("allows: %s", (cmd) => {
     expect(() => allowed(cmd.replace("IN", workdir))).not.toThrow();
   });
@@ -109,10 +118,19 @@ describe("assertLocalPathsAllowed", () => {
     "iot create-keys-and-certificate --public-key OUT/new.fish",
     "iot create-keys-and-certificate --public-key ~/new.fish",
     "s3 sync / s3://b",
+    // Variables the CLI expands, later in a value: /$AWS_PAGER/x is //x to it.
+    "s3api put-object --bucket b --key k --body /$AWS_PAGER/REL_OUT/key.pem",
+    "s3api put-object --bucket b --key k --body /${AWS_PAGER}REL_OUT/key.pem",
+    "iam create-virtual-mfa-device --virtual-mfa-device-name x --outfile /$AWS_PAGER/REL_OUT/new.rc",
+    "s3api put-object --bucket b --key k --body .$AWS_PAGER./x",
+    "ssm put-parameter --name p --value file://.$AWS_PAGER./x",
+    // An unknown variable lstk might set: tried as empty, ., / and ..
+    "s3api put-object --bucket b --key k --body .$LSTK_SOMETHING./x",
+    "s3api put-object --bucket b --key k --body /$LSTK_SOMETHING/REL_OUT/key.pem",
   ])("refuses: %s", (cmd) => {
-    expect(() => allowed(cmd.replace(/OUT/g, outside))).toThrow(
-      /outside the AWS client's working directory/
-    );
+    expect(() =>
+      allowed(cmd.replace(/REL_OUT/g, outside.slice(1)).replace(/OUT/g, outside))
+    ).toThrow(/outside the AWS client's working directory/);
   });
 
   test("without a workdir, every absolute path is refused and relative ones stay private", () => {
@@ -129,6 +147,34 @@ describe("assertLocalPathsAllowed", () => {
     (value) => {
       expect(() => allowed(`iam create-virtual-mfa-device --outfile ${value}`)).toThrow(
         "expand the variable"
+      );
+    }
+  );
+
+  test("~ is checked as the private home the CLI expands it to", () => {
+    // With the workdir under the real home, ~/<workdir> would pass a check that used it.
+    const realHome = path.dirname(workdir);
+    const cmd = ["s3", "cp", "s3://b/k", `~/${path.basename(workdir)}/x`];
+    expect(() =>
+      assertLocalPathsAllowed(cmd, workdir, { home: realHome, cwd: workdir, platform: "linux" })
+    ).not.toThrow();
+    expect(() =>
+      assertLocalPathsAllowed(cmd, workdir, {
+        home: realHome,
+        privateHome: path.join(outside, "home"),
+        platform: "linux",
+      })
+    ).toThrow(/outside the AWS client's working directory/);
+  });
+
+  test.each([".git/config", ".git/hooks/pre-commit", "sub/.GIT/config", ".lstk/config.toml"])(
+    "refuses paths into .git and .lstk: %s",
+    (p) => {
+      expect(() => allowed(`s3api get-object --bucket b --key k ${p}`)).toThrow(
+        "files in .git and .lstk configure programs"
+      );
+      expect(() => allowed(`ssm put-parameter --name p --value file://${p}`)).toThrow(
+        "files in .git and .lstk"
       );
     }
   );
@@ -153,8 +199,19 @@ describe("assertLocalPathsAllowed", () => {
       "--no-follow-symlinks",
     ]);
     expect(withoutFollowingSymlinks(["s3", "ls"])).toEqual(["s3", "ls"]);
-    expect(() =>
-      withoutFollowingSymlinks(["s3", "cp", ".", "s3://b", "--follow-symlinks"])
-    ).toThrow("not allowed");
+    for (const flag of ["--follow-symlinks", "--follow-sym", "--fol", "--FOLLOW"]) {
+      expect(() =>
+        withoutFollowingSymlinks(["s3", "cp", ".", "s3://b", "--no-follow-symlinks", flag])
+      ).toThrow("not allowed");
+    }
+    // Always last, since the last of the two flags wins.
+    expect(withoutFollowingSymlinks(["s3", "cp", "--no-follow-symlinks", ".", "s3://b"])).toEqual([
+      "s3",
+      "cp",
+      "--no-follow-symlinks",
+      ".",
+      "s3://b",
+      "--no-follow-symlinks",
+    ]);
   });
 });

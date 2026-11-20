@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync } from "fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "fs";
 import os from "os";
 import path from "path";
 
@@ -25,14 +25,44 @@ export interface AwsChildDirs {
 
 let dirs: AwsChildDirs | undefined;
 
-/** One private home and temp dir per server process, owner-only. */
+const PREFIX = "localstack-mcp-aws-";
+
+/**
+ * One private home and temp dir per server process, owner-only. It is removed when the process
+ * exits normally; one left by a process that was killed is removed by the next server.
+ */
 export function privateDirs(): AwsChildDirs {
   if (!dirs) {
-    const root = mkdtempSync(path.join(os.tmpdir(), "localstack-mcp-aws-"));
+    removeAbandonedDirs();
+    const root = mkdtempSync(path.join(os.tmpdir(), `${PREFIX}${process.pid}-`));
     dirs = { homeDir: path.join(root, "home"), tmpDir: path.join(root, "tmp") };
     for (const dir of Object.values(dirs)) mkdirSync(dir, { recursive: true, mode: 0o700 });
+    process.once("exit", () => rmSync(root, { recursive: true, force: true }));
   }
   return dirs;
+}
+
+/** Removes the private dirs of server processes that no longer run. */
+function removeAbandonedDirs(): void {
+  try {
+    for (const name of readdirSync(os.tmpdir())) {
+      const pid = Number(name.startsWith(PREFIX) && name.slice(PREFIX.length).split("-")[0]);
+      if (!Number.isInteger(pid) || pid <= 0 || isRunning(pid)) continue;
+      rmSync(path.join(os.tmpdir(), name), { recursive: true, force: true });
+    }
+  } catch {
+    // Best effort: a dir that cannot be listed or removed only costs disk space.
+  }
+}
+
+function isRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM: it runs, as another user.
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
 }
 
 const REGION = /^[a-z]{2}(?:-[a-z]+)+-\d+$/;
