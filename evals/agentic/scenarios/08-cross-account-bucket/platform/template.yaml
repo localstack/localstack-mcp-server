@@ -1,0 +1,94 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Owned by the platform team and deployed into the platform account, separately from the workload accounts. A shared
+  bucket for exports, where each workload team writes under its own prefix, teams/<team>/. The audit role reads everything, the inventory report lands under inventory/,
+  and only the platform's maintenance role deletes.
+
+Resources:
+  AuditRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: platform-audit
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: sts:AssumeRole
+
+  MaintenanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: platform-maintenance
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: sts:AssumeRole
+
+  ExportsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: platform-exports
+
+  ExportsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ExportsBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt ExportsBucket.Arn
+              - !Sub "${ExportsBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+          - Sid: AuditRead
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt AuditRole.Arn
+            Action:
+              - s3:GetObject
+              - s3:ListBucket
+            Resource:
+              - !GetAtt ExportsBucket.Arn
+              - !Sub "${ExportsBucket.Arn}/*"
+          - Sid: InventoryDelivery
+            Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub "${ExportsBucket.Arn}/inventory/*"
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+          - Sid: WorkloadsList
+            Effect: Allow
+            Principal:
+              AWS: arn:aws:iam::000000000000:root
+            Action: s3:ListBucket
+            Resource: !GetAtt ExportsBucket.Arn
+          - Sid: TeamPrefixes
+            Effect: Allow
+            Principal:
+              AWS: arn:aws:iam::000000000000:root
+            Action: s3:PutObject
+            Resource: "arn:aws:s3:::platform-exports/teams/${aws:PrincipalTag/team}/*"
+          - Sid: DeletesByMaintenanceOnly
+            Effect: Deny
+            Principal: "*"
+            Action:
+              - s3:DeleteObject
+              - s3:DeleteObjectVersion
+            Resource: !Sub "${ExportsBucket.Arn}/*"
+            Condition:
+              ArnNotEquals:
+                aws:PrincipalArn: !GetAtt MaintenanceRole.Arn

@@ -11,5 +11,6 @@ terraform.tfstate*
 .terraform/
 .terraform.lock.hcl
 .mcp-test-results/
+evals/agentic/results/
 .DS_Store
 cdk.out/

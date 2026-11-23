@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Report storage. The report-cleanup state machine enforces retention: it archives an audited report whose retention
+  period has ended, then deletes it from the reports bucket. Audited reports are protected by the protect-reports
+  policy. An auditor role reads every report.
+
+Resources:
+  ReportsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: company-reports
+
+  ArchiveBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: company-reports-archive
+
+  ProtectReportsPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: protect-reports
+      Description: Audited reports must never be deleted.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: NoReportDeletion
+            Effect: Deny
+            Action: s3:DeleteObject
+            Resource: !Sub "arn:aws:s3:::${ReportsBucket}/audited/*"
+
+  CleanupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: report-cleanup
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Ref ProtectReportsPolicy
+      Policies:
+        - PolicyName: report-cleanup-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub "arn:aws:s3:::${ReportsBucket}/*"
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub "arn:aws:s3:::${ArchiveBucket}/*"
+
+  AuditorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: report-auditor
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Ref ProtectReportsPolicy
+      Policies:
+        - PolicyName: report-auditor-read
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt ReportsBucket.Arn
+                  - !Sub "arn:aws:s3:::${ReportsBucket}/*"
+                  - !GetAtt ArchiveBucket.Arn
+                  - !Sub "arn:aws:s3:::${ArchiveBucket}/*"
+
+  CleanupWorkflow:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: report-cleanup
+      RoleArn: !GetAtt CleanupRole.Arn
+      DefinitionString: !Sub |
+        {
+          "StartAt": "ArchiveExpiredReport",
+          "States": {
+            "ArchiveExpiredReport": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::aws-sdk:s3:putObject",
+              "Parameters": { "Bucket": "${ArchiveBucket}", "Key": "2017/q3.txt", "Body": "q3 2017 report" },
+              "ResultPath": null,
+              "Next": "DeleteExpiredReport"
+            },
+            "DeleteExpiredReport": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::aws-sdk:s3:deleteObject",
+              "Parameters": { "Bucket": "${ReportsBucket}", "Key": "audited/2017/q3.txt" },
+              "End": true
+            }
+          }
+        }

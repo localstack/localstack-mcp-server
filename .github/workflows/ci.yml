@@ -32,6 +32,9 @@ jobs:
       - name: Unit tests
         run: yarn test
 
+      - name: Unit tests of the agentic eval runner
+        run: yarn test:evals
+
       - name: Build the project
         run: yarn build
 

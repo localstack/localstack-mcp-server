@@ -25,11 +25,13 @@ updates:
       # when it no longer applies. Bump it by hand and redo or drop the patch.
       - dependency-name: "@gleanwork/mcp-server-tester"
 
-  # CLIs inside the Docker image (aws-cdk, lstk) and the CDK sample app that CI deploys with them.
+  # CLIs inside the Docker image (aws-cdk, lstk), the CDK sample app that CI deploys with them, and the
+  # coding agent the agentic eval runs (Claude Code).
   - package-ecosystem: npm
     directories:
       - /docker/tools/npm
       - /data/sample-cdk
+      - /evals/agentic/tools
     schedule:
       interval: weekly
     cooldown:
@@ -61,7 +63,11 @@ updates:
 
   # FROM lines in the Dockerfile: node and hashicorp/terraform.
   - package-ecosystem: docker
-    directory: /
+    directories:
+      - /
+      # TODO: remove with evals/agentic/tools/Dockerfile once
+      # https://github.com/localstack/localstack-mcp-server/pull/137 lands
+      - /evals/agentic/tools
     schedule:
       interval: weekly
     cooldown:

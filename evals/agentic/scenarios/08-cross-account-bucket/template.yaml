@@ -1,0 +1,74 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Usage reports, owned by the analytics team. The usage-report state machine records the month's report run in the
+  usage-report-runs table, then writes the report file to the shared platform-exports bucket, which the platform team
+  runs in the platform account (111111111111). Every team writes under its own prefix there, teams/<team>/; analytics' is
+  teams/analytics/.
+
+Resources:
+  ReportRunsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: usage-report-runs
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: month
+          AttributeType: S
+      KeySchema:
+        - AttributeName: month
+          KeyType: HASH
+
+  ReportRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: usage-report
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: usage-report-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt ReportRunsTable.Arn
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: arn:aws:s3:::platform-exports/teams/analytics/*
+
+  ReportWorkflow:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: usage-report
+      RoleArn: !GetAtt ReportRole.Arn
+      DefinitionString: !Sub |
+        {
+          "StartAt": "RecordRun",
+          "States": {
+            "RecordRun": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:putItem",
+              "Parameters": {
+                "TableName": "${ReportRunsTable}",
+                "Item": { "month": { "S": "2026-11" } }
+              },
+              "ResultPath": null,
+              "Next": "WriteReportFile"
+            },
+            "WriteReportFile": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::aws-sdk:s3:putObject",
+              "Parameters": {
+                "Bucket": "platform-exports",
+                "Key": "teams/analytics/usage-2026-11.csv",
+                "Body": "customer,requests\nC-1,1200"
+              },
+              "End": true
+            }
+          }
+        }

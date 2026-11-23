@@ -1,0 +1,113 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Loyalty points. Order events on the default event bus with detail-type "OrderPlaced" go to the award-points
+  function, which credits points in the loyalty-points table. A rewards catalog table and a reporting role are used
+  by the rewards team.
+
+Resources:
+  PointsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: loyalty-points
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: orderId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: orderId
+          KeyType: HASH
+
+  RewardsCatalogTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: rewards-catalog
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: sku
+          AttributeType: S
+      KeySchema:
+        - AttributeName: sku
+          KeyType: HASH
+
+  AwardPointsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: award-points
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: award-points-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt PointsTable.Arn
+              - Effect: Allow
+                Action: dynamodb:GetItem
+                Resource: !GetAtt RewardsCatalogTable.Arn
+
+  AwardPointsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: award-points
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !GetAtt AwardPointsRole.Arn
+      Timeout: 10
+      Environment:
+        Variables:
+          POINTS_TABLE: !Ref PointsTable
+      Code:
+        ZipFile: |
+          import os
+          import boto3
+
+          table = boto3.resource("dynamodb").Table(os.environ["POINTS_TABLE"])
+
+
+          def handler(event, context):
+              order = event["detail"]
+              table.put_item(Item={"orderId": order["orderId"], "points": int(order["total"]) // 10})
+
+  OrderPlacedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: order-placed
+      EventPattern:
+        source:
+          - shop.orders
+        detail-type:
+          - OrderPlaced
+      Targets:
+        - Id: award-points
+          Arn: !GetAtt AwardPointsFunction.Arn
+
+  RewardsReportingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: rewards-reporting
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: rewards-reporting-read
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !GetAtt PointsTable.Arn
+                  - !GetAtt RewardsCatalogTable.Arn

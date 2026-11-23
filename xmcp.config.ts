@@ -18,7 +18,7 @@ const config: XmcpConfig = {
     // agent's context and point it to the IAM actions. Without them, agents in the agentic evaluation never found
     // localstack-app-inspector for a permission error; without the trigger "before concluding that another team or
     // account has to change its policy", agents with the AWS CLI stopped at "the other account must grant us" for a
-    // policy they couldn't read.
+    // policy they couldn't read (evals/agentic/README.md).
     instructions:
       "IAM in LocalStack: LocalStack records every request it denies, with the policies that decided it. Call localstack-app-inspector with action list-iam-denials before changing an IAM policy, role, bucket, key or queue policy to fix a failure, and before concluding that another team or account has to change its policy: explain-iam shows the statements of policies you can't read yourself (another account's bucket, key or event bus) and the conditions that almost allowed the request, which often tell you what to change in your own request or role. It also shows denials that never surface as an error (an event source, a subscription, a workflow step). To write a least-privilege policy for a workload, use reset-auto-derived-iam-policies, run the workload, then get-auto-derived-iam-policies. Prefer these actions over localstack-iam-policy-analyzer, which parses LocalStack's log.",
     icons: [

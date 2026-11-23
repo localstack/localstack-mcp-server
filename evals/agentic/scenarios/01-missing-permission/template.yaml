@@ -1,0 +1,117 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Order service. The order-workflow state machine records each order in the orders table and queues it for
+  fulfilment. A reporting role reads exported order statistics.
+
+Resources:
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: orders
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+
+  FulfilmentQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: orders
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt FulfilmentDeadLetterQueue.Arn
+        maxReceiveCount: 5
+
+  FulfilmentDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: orders-dlq
+
+  OrderStatisticsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: order-statistics
+
+  OrderWorkflowRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: order-workflow
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: order-workflow-orders
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt OrdersTable.Arn
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt FulfilmentDeadLetterQueue.Arn
+
+  ReportingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: order-reporting
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: order-reporting-read
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt OrderStatisticsBucket.Arn
+                  - !Sub "${OrderStatisticsBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource: !GetAtt OrdersTable.Arn
+
+  OrderWorkflow:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: order-workflow
+      RoleArn: !GetAtt OrderWorkflowRole.Arn
+      DefinitionString: !Sub |
+        {
+          "StartAt": "RecordOrder",
+          "States": {
+            "RecordOrder": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:putItem",
+              "Parameters": {
+                "TableName": "${OrdersTable}",
+                "Item": { "id": { "S.$": "$.id" }, "status": { "S": "received" } }
+              },
+              "ResultPath": null,
+              "Next": "QueueForFulfilment"
+            },
+            "QueueForFulfilment": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::sqs:sendMessage",
+              "Parameters": { "QueueUrl": "${FulfilmentQueue}", "MessageBody.$": "$" },
+              "End": true
+            }
+          }
+        }
