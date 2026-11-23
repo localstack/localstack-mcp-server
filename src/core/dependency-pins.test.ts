@@ -78,11 +78,11 @@ describe("dependency pins", () => {
     // Runners are either a literal label or `${{ matrix.runner }}`, whose values are checked
     // as literals; any other expression could hide an unpinned label.
     const docker = read(".github/workflows/docker.yml");
-    const workflow = [
-      docker,
-      read(".github/workflows/ci.yml"),
-      read(".github/workflows/mcp-evals.yml"),
-    ].join("\n");
+    const workflow = fs
+      .readdirSync(path.join(ROOT, ".github/workflows"))
+      .filter((file) => /\.ya?ml$/.test(file))
+      .map((file) => read(`.github/workflows/${file}`))
+      .join("\n");
     for (const [, value] of workflow.matchAll(/^[ \t]*runs-on:[ \t]*(.*)$/gm)) {
       if (value.startsWith("${{")) expect(value).toBe("${{ matrix.runner }}");
     }

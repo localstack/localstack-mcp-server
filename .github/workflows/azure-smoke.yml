@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   azure-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     env:
       # The token's licence must include LocalStack for Azure, or the emulator refuses to start.

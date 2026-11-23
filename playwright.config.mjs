@@ -4,6 +4,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const mcpCommand = process.env.MCP_TEST_COMMAND || "node";
+
+// The model keys are for the eval host, not the server under test: the server and the CLIs it spawns (lstk,
+// terraform, cdk, sam) never see them.
+const MODEL_KEYS = [
+  "OPENROUTER_API_KEY",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_AUTH_TOKEN",
+];
+const serverEnv = Object.fromEntries(
+  Object.entries(process.env).filter(([name]) => !MODEL_KEYS.includes(name))
+);
 const mcpArgs = process.env.MCP_TEST_ARGS
   ? process.env.MCP_TEST_ARGS.split(" ").filter(Boolean)
   : ["dist/cli.js"];
@@ -44,7 +56,7 @@ export default defineConfig({
           requestTimeoutMs: 300000,
           callTimeoutMs: 300000,
           env: {
-            ...process.env,
+            ...serverEnv,
             LOCALSTACK_AUTH_TOKEN: process.env.LOCALSTACK_AUTH_TOKEN || "",
           },
         },
@@ -66,7 +78,7 @@ export default defineConfig({
           requestTimeoutMs: 300000,
           callTimeoutMs: 300000,
           env: {
-            ...process.env,
+            ...serverEnv,
             LOCALSTACK_AUTH_TOKEN: "ls-dummy-token-for-offline-tests",
             LOCALSTACK_PORT: String(freePort),
             LOCALSTACK_AZ_CONFIG_DIR: join(tmpdir(), "lsmcp-azure-offline"),
