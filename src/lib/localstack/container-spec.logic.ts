@@ -1,9 +1,9 @@
 /**
  * Pure builder for the LocalStack container spec (dockerode `createContainer` options).
  *
- * Replicates what `localstack start` used to assemble via the Python CLI so the MCP
- * server can create the runtime with no CLI installed. Behavioral anchors (verified
- * against the 2026.x `localstack_cli` wheel source):
+ * The MCP server starts LocalStack itself, so it works without lstk installed. The
+ * container follows lstk's (internal/config/containers.go in github.com/localstack/lstk)
+ * except for the differences listed in AGENTS.md ("Known deviations"). Anchors:
  *   - image `localstack/localstack-pro:latest` (pro unconditional), `--stack snowflake`
  *     ⇒ `localstack/snowflake:latest`
  *   - container name `localstack-main`, also injected as `MAIN_CONTAINER_NAME` env

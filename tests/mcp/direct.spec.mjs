@@ -42,6 +42,22 @@ test("exposes all expected LocalStack MCP tools", async ({ mcp }) => {
   }
 });
 
+// Clients that load tools on demand choose them by name; the server instructions stay in the agent's context
+// and are what led agents to the IAM actions in the agentic evaluation.
+test("server instructions point to the IAM actions of localstack-app-inspector", async ({
+  mcp,
+}) => {
+  const instructions = mcp.client.getInstructions() ?? "";
+  for (const expected of [
+    "localstack-app-inspector",
+    "list-iam-denials",
+    "explain-iam",
+    "get-auto-derived-iam-policies",
+  ]) {
+    expect(instructions).toContain(expected);
+  }
+});
+
 test("smoke tests the infrastructure tester prompt", async ({ mcp }) => {
   const prompts = await mcp.client.listPrompts();
   const prompt = prompts.prompts.find((entry) => entry.name === EXPECTED_PROMPT);
