@@ -12,6 +12,11 @@ import { expect, test } from "@gleanwork/mcp-server-tester/fixtures/mcp";
 // The tests share one LocalStack and run in order: the first starts LocalStack if needed, the
 // deploy creates the bucket and queue that later tests look for. To use an instance other than
 // the default on 4566, set LOCALSTACK_PORT and MAIN_CONTAINER_NAME.
+//
+// MCP_TEST_RESTART_LOCALSTACK=1 (set in CI) lets a test stop and start LocalStack. Leave it unset
+// when the tests run against a LocalStack you use: a restart loses its state, and the server
+// starts it again with its own settings, not yours.
+const MAY_RESTART = process.env.MCP_TEST_RESTART_LOCALSTACK === "1";
 
 // The tester's callTool applies the MCP SDK's 60s request timeout; a start, a deploy or a Cloud
 // Pod save can take longer, so call the SDK client directly.
@@ -77,20 +82,29 @@ test.describe("tools against a running LocalStack", () => {
   // The AWS client runs `lstk aws` with a private HOME, so lstk knows no containers of its own:
   // it must reach the one this server starts (localstack-main, not lstk's localstack-aws)
   // through the endpoint the server hands it. Stopping first makes this server start it, even
-  // when another tool started the running instance.
-  test("aws-client: reaches the LocalStack the server started, through lstk aws", async ({
+  // when another tool started the running instance; without MCP_TEST_RESTART_LOCALSTACK the
+  // test uses the running instance instead.
+  test("aws-client: reaches LocalStack through lstk aws, after the server restarts it", async ({
     mcp,
   }) => {
-    await call(mcp, "localstack-management", { action: "stop" });
-    await call(mcp, "localstack-management", { action: "start" });
-    const container = process.env.MAIN_CONTAINER_NAME || "localstack-main";
-    const { stdout } = await promisify(execFile)("docker", [
-      "inspect",
-      "--format",
-      "{{.State.Running}}",
-      container,
-    ]);
-    expect(stdout.trim(), `container ${container}`).toBe("true");
+    if (MAY_RESTART) {
+      await call(mcp, "localstack-management", { action: "stop" });
+      await call(mcp, "localstack-management", { action: "start" });
+      const container = process.env.MAIN_CONTAINER_NAME || "localstack-main";
+      const { stdout } = await promisify(execFile)("docker", [
+        "inspect",
+        "--format",
+        "{{.State.Running}}",
+        container,
+      ]);
+      expect(stdout.trim(), `container ${container}`).toBe("true");
+    } else {
+      test.info().annotations.push({
+        type: "note",
+        description:
+          "LocalStack was not restarted (MCP_TEST_RESTART_LOCALSTACK unset): the client reached the running instance.",
+      });
+    }
 
     const aws = (command) => call(mcp, "localstack-aws-client", { command });
     await expect

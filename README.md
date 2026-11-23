@@ -288,7 +288,7 @@ This repository includes [MCP Server Tester](https://github.com/gleanwork/mcp-se
   export LOCALSTACK_AUTH_TOKEN="<your-localstack-auth-token>"
   yarn test:mcp:tools
   ```
-  The tests deploy a sample project, switch IAM enforcement to soft mode and save a Cloud Pod, so point them at an instance you don't need: set `LOCALSTACK_PORT` and `MAIN_CONTAINER_NAME` to use one other than the default on 4566. They need Docker, Terraform, the AWS CLI v2 and [lstk](https://github.com/localstack/lstk) on the `PATH`.
+  The tests deploy a sample project, switch IAM enforcement to soft mode and save a Cloud Pod, so point them at an instance you don't need: set `LOCALSTACK_PORT` and `MAIN_CONTAINER_NAME` to use one other than the default on 4566. Set `MCP_TEST_RESTART_LOCALSTACK=1` (as CI does) to let a test stop and start that instance, so the AWS client is checked against one the server started; without it the test uses the running instance. They need Docker, Terraform, the AWS CLI v2 and [lstk](https://github.com/localstack/lstk) on the `PATH`.
 - Run MCP host evals through [OpenRouter](https://openrouter.ai) (default model `google/gemini-2.5-flash`; set `EVAL_MODEL` to any OpenRouter model ID to override it):
   ```bash
   export OPENROUTER_API_KEY="<your-openrouter-key>"

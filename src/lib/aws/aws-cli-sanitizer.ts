@@ -101,6 +101,12 @@ export const DENIED: Array<{ match: string[]; reason: string }> = [
     ["gamelift", "upload-build"],
     ["lambda-web"]
   ),
+  // The only command that fetches a URL from a server's response: with urlopen, which opens
+  // file:// URLs too, so it would copy a local file into the working directory.
+  ...deny("this downloads whatever URL the server returns, local files included", [
+    "gamelift",
+    "get-game-session-log",
+  ]),
 ];
 
 export function sanitizeAwsCliCommand(rawCommand: string): string {
