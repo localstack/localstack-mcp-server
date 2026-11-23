@@ -158,6 +158,29 @@ describe("assertLocalPathsAllowed", () => {
     expect(() => win("50%")).not.toThrow();
   });
 
+  // Windows reads `C://Users/x` as C:\Users\x. The variable shows the value is checked as a path
+  // on any platform; on Windows the path itself is refused too.
+  test.each(["C://Users/joe/$X", "c://Users/joe/$X", "S3://b/$X"])(
+    "checks a drive path or an upper-case scheme as a path: %s",
+    (value) => {
+      expect(() => allowed(`s3 cp ${value} s3://b/k`)).toThrow("the AWS CLI would replace");
+    }
+  );
+
+  test.each(["s3://b/$k", "https://example.com/$x"])(
+    "does not check a URL as a path: %s",
+    (value) => {
+      expect(() => allowed(`sqs send-message --queue-url q --message-body ${value}`)).not.toThrow();
+    }
+  );
+
+  (process.platform === "win32" ? test : test.skip)(
+    "on Windows, refuses a drive path outside the workdir",
+    () => {
+      expect(() => allowed("s3 cp C://Windows/win.ini s3://b/k")).toThrow(/outside|not allowed/);
+    }
+  );
+
   test("without a workdir, every absolute path is refused and relative ones stay private", () => {
     expect(() => allowed("s3 cp in.txt s3://b/k", null)).not.toThrow();
     expect(() => allowed("s3 cp /tmp/x s3://b/k", null)).toThrow(/no working directory/);

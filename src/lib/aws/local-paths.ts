@@ -124,8 +124,10 @@ export function assertLocalPathsAllowed(
       continue;
     }
     for (const m of value.matchAll(/fileb?:\/\/([^,\]}"'\s]*)/gi)) checkAll(m[1], false);
-    // Everything but a URL (s3://, https://; an arn: has no //) may be read as a path.
-    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) checkAll(value, true);
+    // Everything but a URL (s3://, https://; an arn: has no //) may be read as a path. The CLI
+    // knows s3:// in lower case only, and a one-letter scheme is a Windows drive: it reads
+    // `C://Users/x` as C:\Users\x.
+    if (!/^[a-z][a-z0-9+.-]+:\/\//.test(value)) checkAll(value, true);
   }
 }
 
