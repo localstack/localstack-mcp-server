@@ -1,4 +1,4 @@
-import { buildIacCliEnv } from "./localstack-env";
+import { buildIacCliEnv, localstackEndpointUrl } from "./localstack-env";
 
 const ORIGINAL_ENV = process.env;
 
@@ -65,4 +65,34 @@ describe("buildIacCliEnv", () => {
     expect(env.CDK_DEFAULT_ACCOUNT).toBe("111111111111");
     expect(env.CDK_DEFAULT_REGION).toBe("eu-central-1");
   });
+});
+
+describe("localstackEndpointUrl", () => {
+  test.each([
+    [{}, "http://localhost.localstack.cloud:4566"],
+    [{ LOCALSTACK_HOSTNAME: "LOCALHOST" }, "http://localhost.localstack.cloud:4566"],
+    [{ LOCALSTACK_HOSTNAME: " Host.Docker.Internal " }, "http://host.docker.internal:4566"],
+    [{ LOCALSTACK_HOSTNAME: "10.0.0.5", LOCALSTACK_PORT: "4611" }, "http://10.0.0.5:4611"],
+    [{ LOCALSTACK_PORT: " 04612 " }, "http://localhost.localstack.cloud:4612"],
+  ])("accepts %j", (env, url) => {
+    expect(localstackEndpointUrl({ LOCALSTACK_PORT: "4566", ...env })).toBe(url);
+  });
+
+  test.each(["::1", "[::1]", "a@b", "evil.com:81", "x/y", "evil.com#", "-x", "a..b", "a_b"])(
+    "refuses LOCALSTACK_HOSTNAME=%s with a clear error",
+    (host) => {
+      expect(() => localstackEndpointUrl({ LOCALSTACK_HOSTNAME: host })).toThrow(
+        `LOCALSTACK_HOSTNAME (${host}) is not a host name`
+      );
+    }
+  );
+
+  test.each(["abc", "0", "65536", "4566/x", "45 66", "-1"])(
+    "refuses LOCALSTACK_PORT=%s with a clear error",
+    (port) => {
+      expect(() => localstackEndpointUrl({ LOCALSTACK_PORT: port })).toThrow(
+        `LOCALSTACK_PORT (${port}) is not a port`
+      );
+    }
+  );
 });

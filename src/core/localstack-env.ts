@@ -27,12 +27,28 @@ import { LOCALSTACK_PORT } from "./config";
  * LocalStack, otherwise LOCALSTACK_HOSTNAME (host.docker.internal in the Docker image).
  */
 export function localstackEndpointUrl(env: NodeJS.ProcessEnv = process.env): string {
-  const explicitHost = env.LOCALSTACK_HOSTNAME?.trim();
+  const explicitHost = env.LOCALSTACK_HOSTNAME?.trim().toLowerCase();
+  // A DNS name or an IPv4 address. Anything else (an IPv6 address, `user@host`, `host:port`,
+  // a path) would turn into a different host or port in the URL, or none at all.
+  if (
+    explicitHost &&
+    !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(explicitHost)
+  ) {
+    throw new Error(
+      `LOCALSTACK_HOSTNAME (${env.LOCALSTACK_HOSTNAME}) is not a host name: set it to a host name or IPv4 address only, such as host.docker.internal or 127.0.0.1, without a port, user or path. IPv6 addresses are not supported.`
+    );
+  }
+  const port = String(env.LOCALSTACK_PORT || LOCALSTACK_PORT).trim();
+  if (!/^\d{1,5}$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
+    throw new Error(
+      `LOCALSTACK_PORT (${env.LOCALSTACK_PORT}) is not a port: set it to a number from 1 to 65535, such as 4566.`
+    );
+  }
   const host =
     !explicitHost || explicitHost === "localhost" || explicitHost === "127.0.0.1"
       ? "localhost.localstack.cloud"
       : explicitHost;
-  return `http://${host}:${env.LOCALSTACK_PORT || LOCALSTACK_PORT}`;
+  return `http://${host}:${Number(port)}`;
 }
 
 export function buildIacCliEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
