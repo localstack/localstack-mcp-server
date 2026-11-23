@@ -1,0 +1,106 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Ticket booking. The ticket-booking state machine reserves a seat in the reservations table and queues a confirmation
+  email. A venue role reads the seating plans in the venue-plans bucket.
+
+Resources:
+  ReservationsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: reservations
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: bookingId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: bookingId
+          KeyType: HASH
+
+  ConfirmationsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: booking-confirmations
+
+  VenuePlansBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: venue-plans
+
+  BookingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ticket-booking
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ticket-booking-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt ReservationsTable.Arn
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt ConfirmationsQueue.Arn
+
+  VenueRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: venue-plans-reader
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: venue-plans-read
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt VenuePlansBucket.Arn
+                  - !Sub "${VenuePlansBucket.Arn}/*"
+
+  BookingWorkflow:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: ticket-booking
+      RoleArn: !GetAtt BookingRole.Arn
+      DefinitionString: !Sub |
+        {
+          "StartAt": "ReserveSeat",
+          "States": {
+            "ReserveSeat": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:putItem",
+              "Parameters": {
+                "TableName": "${ReservationsTable}",
+                "Item": {
+                  "id": { "S.$": "$.bookingId" },
+                  "seat": { "S.$": "$.seat" },
+                  "status": { "S": "reserved" }
+                }
+              },
+              "ResultPath": null,
+              "Next": "QueueConfirmation"
+            },
+            "QueueConfirmation": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::sqs:sendMessage",
+              "Parameters": { "QueueUrl": "${ConfirmationsQueue}", "MessageBody.$": "$" },
+              "End": true
+            }
+          }
+        }

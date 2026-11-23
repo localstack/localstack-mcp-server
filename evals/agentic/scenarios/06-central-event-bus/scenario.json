@@ -1,0 +1,29 @@
+{
+  "description": "The cause is in another account: the platform team's central event bus (account 111111111111, deployed separately, not in the agent's files) accepts events from the project's account only with events:source com.acme.orders, and the place-order workflow publishes with Source orders-service. The role allows events:PutEvents on the bus, so the project looks right. The fix is the event source in the workflow; widening the role, publishing elsewhere or dropping the event fail, and the bus policy can't be changed from the project. The execution history and the logs say only that no resource-based policy allows events:PutEvents on the bus, and the agent's AWS CLI runs as the project's account, which can't read the bus policy, as on AWS. App Inspector shows the OrdersTeamPuts statement as a near miss failing on its condition. Tool use is reported, not graded.",
+  "iam_mode": "ENFORCED",
+  "platform_account": "111111111111",
+  "prompt": "Shipping says it never receives our new orders: placing an order fails. This project runs against LocalStack: ./deploy.sh deploys template.yaml and ./trigger.sh places a test order. Find out why, fix the project, deploy your fix and confirm it works.",
+  "initial_denial": {
+    "service": "events",
+    "operation": "PutEvents"
+  },
+  "checks": [
+    {
+      "type": "trigger_succeeds"
+    },
+    {
+      "type": "no_denials_after_rerun"
+    },
+    {
+      "type": "role_policy",
+      "role": "place-order",
+      "actions": ["dynamodb:PutItem", "events:PutEvents"],
+      "exact": true
+    },
+    {
+      "type": "tool_called",
+      "action": ["list-iam-denials", "explain-iam"],
+      "report": true
+    }
+  ]
+}

@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Customer statements. The statement-export state machine records each statement run in the statement-runs table and
+  writes the statement file to the customer-statements bucket. Every role of this application's workloads carries
+  the workload-boundary policy as its permissions boundary, which this project maintains: it lists what the
+  application's workloads may do. A support role looks up statement runs.
+
+Resources:
+  StatementRunsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: statement-runs
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customer
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customer
+          KeyType: HASH
+
+  StatementsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: customer-statements
+
+  WorkloadBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: workload-boundary
+      Description: Permissions boundary for the workloads of the statements application.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: StatementRuns
+            Effect: Allow
+            Action:
+              - dynamodb:GetItem
+              - dynamodb:PutItem
+              - dynamodb:Query
+            Resource: !GetAtt StatementRunsTable.Arn
+          - Sid: ReadStatements
+            Effect: Allow
+            Action: s3:GetObject
+            Resource: !Sub "${StatementsBucket.Arn}/*"
+
+  StatementExportRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: statement-export
+      PermissionsBoundary: !Ref WorkloadBoundary
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: statement-export-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt StatementRunsTable.Arn
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub "${StatementsBucket.Arn}/statements/*"
+
+  SupportRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: statement-support
+      PermissionsBoundary: !Ref WorkloadBoundary
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: statement-support-read
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource: !GetAtt StatementRunsTable.Arn
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "${StatementsBucket.Arn}/statements/*"
+
+  StatementExportWorkflow:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: statement-export
+      RoleArn: !GetAtt StatementExportRole.Arn
+      DefinitionString: !Sub |
+        {
+          "StartAt": "RecordRun",
+          "States": {
+            "RecordRun": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:putItem",
+              "Parameters": {
+                "TableName": "${StatementRunsTable}",
+                "Item": { "customer": { "S.$": "$.customer" }, "month": { "S.$": "$.month" } }
+              },
+              "ResultPath": null,
+              "Next": "WriteStatement"
+            },
+            "WriteStatement": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::aws-sdk:s3:putObject",
+              "Parameters": {
+                "Bucket": "${StatementsBucket}",
+                "Key.$": "States.Format('statements/{}/{}.txt', $.customer, $.month)",
+                "Body": "statement"
+              },
+              "End": true
+            }
+          }
+        }

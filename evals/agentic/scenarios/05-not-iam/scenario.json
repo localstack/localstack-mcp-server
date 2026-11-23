@@ -1,0 +1,24 @@
+{
+  "description": "Negative control, not IAM: the booking workflow writes the reservation with the key attribute id, but the table's key is bookingId, so DynamoDB rejects the item (ValidationException). The role is exactly right and App Inspector records no denial. The fix is in the workflow definition; any change to the role fails. The trigger shows only the workflow status. Tool use is reported, not graded.",
+  "iam_mode": "ENFORCED",
+  "prompt": "Bookings made through the ticket booking workflow are never confirmed. This project runs against LocalStack: ./deploy.sh deploys template.yaml and ./trigger.sh runs the workflow. Find out why, fix the project, deploy your fix and confirm it works.",
+  "checks": [
+    {
+      "type": "trigger_succeeds"
+    },
+    {
+      "type": "no_denials_after_rerun"
+    },
+    {
+      "type": "role_policy",
+      "role": "ticket-booking",
+      "actions": ["dynamodb:PutItem", "sqs:SendMessage"],
+      "exact": true
+    },
+    {
+      "type": "tool_called",
+      "action": ["list-iam-denials", "explain-iam"],
+      "report": true
+    }
+  ]
+}

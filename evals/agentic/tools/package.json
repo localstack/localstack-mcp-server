@@ -1,0 +1,8 @@
+{
+  "name": "localstack-mcp-server-agentic-eval-tools",
+  "private": true,
+  "description": "The coding agent the agentic eval runs. Dependabot keeps it current.",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.322"
+  }
+}

@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Owned by the platform team and deployed into the platform account, separately from the workload accounts. The key that encrypts customer personal data for
+  all teams, administered by the platform's key administrators. Teams grant their own roles the use of the key.
+
+Resources:
+  KeyAdminRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: platform-key-admin
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: sts:AssumeRole
+
+  PiiKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: Encrypts customer personal data.
+      Tags:
+        # a fixed key ID, so the key ARN teams use stays the same across deployments
+        - Key: _custom_id_
+          Value: 7d3b9e42-1c6a-4f05-8e2d-a9b4c6f01e73
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: KeyAdministration
+            Effect: Allow
+            Principal:
+              AWS:
+                - !GetAtt KeyAdminRole.Arn
+                - !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action:
+              - kms:DescribeKey
+              - kms:GetKeyPolicy
+              - kms:PutKeyPolicy
+              - kms:EnableKey
+              - kms:DisableKey
+              - kms:EnableKeyRotation
+              - kms:TagResource
+              - kms:UntagResource
+              - kms:ScheduleKeyDeletion
+              - kms:CancelKeyDeletion
+            Resource: "*"
+          - Sid: TeamUse
+            Effect: Allow
+            Principal:
+              AWS: arn:aws:iam::000000000000:root
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:GenerateDataKey
+            Resource: "*"
+            Condition:
+              StringEquals:
+                kms:EncryptionContext:data-class: customer-pii
+
+  PiiKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/platform-pii
+      TargetKeyId: !Ref PiiKey
