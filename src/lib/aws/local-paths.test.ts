@@ -67,6 +67,10 @@ describe("assertLocalPathsAllowed", () => {
     "lambda invoke --function-name f --payload {} out.json",
     "lambda create-function --function-name f --code ZipFile@=fileb://in.txt",
     "ecs run-task --task-definition web:3",
+    // Only --website-redirect's value may be a name to s3 cp, mv and sync.
+    "s3 cp in.txt s3://b/k --website-redirect /index.html",
+    "s3 cp in.txt s3://b/k --website-redirect=/no-such-dir-x/a.html",
+    "s3 sync . s3://b --website /index.html",
     // Names whose first directory is not on this machine.
     "ssm get-parameters --names /a/b /c/d",
     "sns publish --topic-arn t --message /hello",
@@ -120,6 +124,10 @@ describe("assertLocalPathsAllowed", () => {
     "iot create-keys-and-certificate --public-key OUT/new.fish",
     "iot create-keys-and-certificate --public-key ~/new.fish",
     "s3 sync / s3://b",
+    // s3 cp, mv and sync create the directories above a local path: no positional is a name.
+    "s3 cp s3://b/k /no-such-dir-x/index.js",
+    "s3 sync s3://b/pre/ /no-such-dir-x",
+    "s3 mv s3://b/k /no-such-dir-x/a/b",
   ])("refuses: %s", (cmd) => {
     expect(() => allowed(cmd.replace(/OUT/g, outside))).toThrow(
       /outside the AWS client's working directory/
@@ -316,7 +324,7 @@ describe("assertLocalPathsAllowed", () => {
     ).not.toThrow();
   });
 
-  test("local transfers get --no-follow-symlinks and skip .git and .lstk, last", () => {
+  test("local transfers get --no-progress, --no-follow-symlinks and skip .git and .lstk, last", () => {
     expect(confineTransfers(["s3", "--region", "x", "sync", ".", "s3://b"], workdir)).toEqual([
       "s3",
       "--region",
@@ -324,6 +332,7 @@ describe("assertLocalPathsAllowed", () => {
       "sync",
       ".",
       "s3://b",
+      "--no-progress",
       "--no-follow-symlinks",
       ...PROTECTED,
     ]);
@@ -347,6 +356,7 @@ describe("assertLocalPathsAllowed", () => {
       "s3://b",
       "--include",
       "*",
+      "--no-progress",
       "--no-follow-symlinks",
       ...PROTECTED,
     ]);

@@ -50,12 +50,18 @@ describe("sanitizeAwsCliCommand", () => {
     }
   );
 
-  test.each(["--profile dev s3 ls", "123invalid command", "!invalid command"])(
-    "rejects invalid command starts: %s",
-    (command) => {
-      expect(() => sanitizeAwsCliCommand(command)).toThrow("must start with");
-    }
-  );
+  test("allows --version alone", () => {
+    expect(sanitizeAwsCliCommand("--version")).toBe("--version");
+  });
+
+  test.each([
+    "--profile dev s3 ls",
+    "--version --profile dev",
+    "123invalid command",
+    "!invalid command",
+  ])("rejects invalid command starts: %s", (command) => {
+    expect(() => sanitizeAwsCliCommand(command)).toThrow("must start with");
+  });
 
   test.each([
     "s3 ls --endpoint-url https://s3.amazonaws.com",
@@ -132,7 +138,12 @@ describe("sanitizeAwsCliCommand", () => {
     `s3 cp ."."/outside/secret s3://b/k`,
     `s3 cp s3://b/k "../outside/x"`,
     "s3 cp --body='..'/x s3://b/k",
-  ])("rejects path traversal hidden by quotes: %s", (command) => {
+    // A URL-shaped value is no path to the rule, but the CLI opens ab://../x through ./ab:/.
+    "s3api get-object --bucket b --key k ab://../../outside/x",
+    "s3api put-object --bucket b --key k --body s3://../../outside/x",
+    // Shorthand reads an embedded file:// path past a space.
+    "dynamodb put-item --table-name t --item 'A=a/a/a,Key@=file://a b/../../etc/hosts'",
+  ])("rejects path traversal hidden by quotes, URLs and shorthand: %s", (command) => {
     expect(() => sanitizeAwsCliCommand(command)).toThrow("forbidden path traversal");
   });
 

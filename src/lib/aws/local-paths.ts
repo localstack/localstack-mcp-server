@@ -51,7 +51,8 @@ export function awsWorkdir(
  * - An absolute or `~` value must be inside the workdir, unless it is a name (/aws/lambda/f,
  *   /dev/db/password, /index.html): its first directory does not exist on this machine, or,
  *   except to s3 cp, mv and sync, which create missing directories, neither it nor its parent
- *   directory exists, so the CLI can neither read nor write it.
+ *   directory exists, so the CLI can neither read nor write it. To s3 cp, mv and sync, only
+ *   --website-redirect's value is ever a name.
  * - A file:// or fileb:// path, anywhere in a value (shorthand loads files with `key@=file://`),
  *   is always a path: no name exception.
  * - The CLI expands `$VAR`, `${VAR}` (and `%VAR%` on Windows) in paths with an environment the
@@ -127,22 +128,30 @@ export function assertLocalPathsAllowed(
     if (value.startsWith("~")) check(value, value, mayBeName, deps.privateHome ?? deps.home);
   };
 
-  for (const arg of args) {
+  // To s3 cp, mv and sync, which create the directories above a local path (/new-dir/x), only
+  // --website-redirect's value (/index.html) may be a name.
+  const redirect = (w: string | undefined) =>
+    w !== undefined && w.length > 4 && "--website-redirect".startsWith(w);
+  args.forEach((arg, i) => {
     // `--option=value`: the value; a bare `--option` is checked as the value of nothing.
     const value = arg.startsWith("--") ? arg.slice(arg.indexOf("=") + 1 || arg.length) : arg;
-    if (value === "") continue;
+    const mayBeName =
+      !transfer ||
+      redirect(words[i - 1]) ||
+      (arg.startsWith("--") && redirect(words[i].split("=")[0]));
+    if (value === "") return;
     const whole = value.match(/^fileb?:\/\/([\s\S]*)$/i);
     if (whole) {
       checkAll(whole[1], false);
-      continue;
+      return;
     }
     for (const m of value.matchAll(/fileb?:\/\/([^,\]}"'\s]*)/gi)) checkAll(m[1], false);
     // Everything but a URL (s3://, https://; an arn: has no //) may be read as a path. The CLI
     // knows s3:// in lower case only, and a one-letter scheme is a Windows drive: it reads
     // `C://Users/x` as C:\Users\x. To s3 cp, mv and sync, anything but s3:// is a local path.
     const url = transfer ? value.startsWith("s3://") : /^[a-z][a-z0-9+.-]+:\/\//.test(value);
-    if (!url) checkAll(value, true);
-  }
+    if (!url) checkAll(value, mayBeName);
+  });
 }
 
 // .git and .lstk, as entries or directories, at any depth, under every name a file system
@@ -157,6 +166,8 @@ const PROTECTED_DIRS = ["[Gg][Ii][Tt]", "[Ll][Ss\u017f][Tt][Kk\u212a]"]
  * - They walk a local directory and follow its symlinks by default, so a link inside the
  *   workdir would upload, or delete, files outside it. They get --no-follow-symlinks, last,
  *   because the last of the two flags wins; --follow-symlinks is refused in any abbreviation.
+ * - Their progress line (`Completed 17 Bytes/17 Bytes … remaining`, redrawn with \r) would
+ *   mix into the tool's result: --no-progress.
  * - A recursive download writes a key `.git/config` to .git/config, and sync --delete removes
  *   files missing from the bucket. Filters exclude .git and .lstk; they come last, because the
  *   last filter that matches wins, and no other argument may hold a glob character.
@@ -201,7 +212,7 @@ export function confineTransfers(args: string[], cwd: string): string[] {
       );
     }
   });
-  return [...args, "--no-follow-symlinks", ...PROTECTED_DIRS];
+  return [...args, "--no-progress", "--no-follow-symlinks", ...PROTECTED_DIRS];
 }
 
 /** The first variable reference in `value` that os.path.expandvars could replace. */

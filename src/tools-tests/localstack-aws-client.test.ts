@@ -68,6 +68,36 @@ describe("localstack-aws-client", () => {
     expect(text(result).trim()).toBe(`{"QueueUrls": []}`);
   });
 
+  test("returns stderr after the output when the command succeeds", async () => {
+    fakeCli({
+      stdout: "2026-11-19 my-bucket\n",
+      stderr: "warning: ```x``` deprecated\n",
+      exitCode: 0,
+    });
+
+    const result = await localstackAwsClient({ command: "s3 ls --debug" });
+
+    expect(isError(result)).toBeFalsy();
+    expect(text(result)).toBe(
+      "2026-11-19 my-bucket\n\n**stderr:**\n\n````\nwarning: ```x``` deprecated\n````"
+    );
+  });
+
+  test("returns a long stderr with many backtick runs", async () => {
+    fakeCli({ stdout: "ok\n", stderr: "`a".repeat(200_000), exitCode: 0 });
+
+    const result = await localstackAwsClient({ command: "s3 ls --debug" });
+
+    expect(isError(result)).toBeFalsy();
+    expect(text(result)).toContain("ok\n\n**stderr:**\n\n```\n`a`a");
+  });
+
+  test("returns only the output when the command writes nothing to stderr", async () => {
+    fakeCli(ok("out\n"));
+
+    expect(text(await localstackAwsClient({ command: "--version" }))).toBe("out\n");
+  });
+
   test("refuses a command that would leave LocalStack, without running anything", async () => {
     fakeCli(ok());
 

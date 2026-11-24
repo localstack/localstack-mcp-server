@@ -27,6 +27,15 @@ export const metadata: ToolMetadata = {
   },
 };
 
+/** `text` as a code block, fenced with more backticks than it holds in a row. */
+function fence(text: string): string {
+  // A loop, not Math.max(...runs): a long --debug log holds more runs than a call takes arguments.
+  let longest = 2;
+  for (const [run] of text.matchAll(/`+/g)) longest = Math.max(longest, run.length);
+  const ticks = "`".repeat(longest + 1);
+  return `${ticks}\n${text}\n${ticks}`;
+}
+
 export default async function localstackAwsClient({ command }: InferSchema<typeof schema>) {
   return withToolAnalytics("localstack-aws-client", { command }, async () => {
     const preflightError = await runPreflights([requireAuthToken(), requireLocalStackRunning()]);
@@ -41,7 +50,13 @@ export default async function localstackAwsClient({ command }: InferSchema<typeo
       const result = await runLstkAws(args, { checkLocalPaths: true });
 
       if (result.exitCode === 0 && result.blocked.length === 0) {
-        return ResponseBuilder.markdown(result.stdout || "");
+        // Warnings (and --debug's log) go to stderr, also when the command succeeds.
+        const stderr = result.stderr.trim();
+        return ResponseBuilder.markdown(
+          stderr
+            ? `${result.stdout.trimEnd()}\n\n**stderr:**\n\n${fence(stderr)}`.trim()
+            : result.stdout
+        );
       }
 
       // Coverage / unimplemented service hints

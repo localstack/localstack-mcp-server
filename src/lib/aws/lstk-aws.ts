@@ -1,9 +1,11 @@
+import fs from "fs";
+import path from "path";
 import { runCommand, type CommandResult } from "../../core/command-runner";
 import { localstackEndpointUrl } from "../../core/localstack-env";
 import { startEgressGuard } from "../azure/egress-guard";
 import { LSTK_INSTALL_MESSAGE } from "../deployment/deployment-utils";
 import { assertTargetsLocalStack } from "./aws-cli-sanitizer";
-import { buildAwsChildEnv, privateDirs } from "./child-env";
+import { baseChildEnv, buildAwsChildEnv, privateDirs, safePath, writableDirs } from "./child-env";
 import { assertLocalPathsAllowed, awsWorkdir, confineTransfers } from "./local-paths";
 
 const AWS_CLI_INSTALL_MESSAGE = `❌ The AWS CLI is not installed or not available in PATH.
@@ -20,6 +22,28 @@ const NO_PROFILE_NOTE = /^> Note: No AWS profile found, run 'lstk setup aws'\r?\
 
 let dependenciesFound = false;
 
+/**
+ * The program to spawn for `name`, given the child's `env`, whose PATH holds no directory the AWS
+ * client writes to (child-env.ts). On Windows, a bare name is looked up in the child's working
+ * directory before PATH, where the AWS client can write lstk.exe: it gets the full path from
+ * PATH, or null when there is none. Elsewhere only PATH is searched.
+ */
+export function programPath(
+  name: string,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform
+): string | null {
+  if (platform !== "win32") return name;
+  const key = Object.keys(env).find((k) => k.toUpperCase() === "PATH");
+  for (const dir of safePath((key && env[key]) || "", platform).split(";")) {
+    for (const ext of [".exe", ".com"]) {
+      const candidate = path.win32.join(dir, name + ext);
+      if (fs.statSync(candidate, { throwIfNoEntry: false })?.isFile()) return candidate;
+    }
+  }
+  return null;
+}
+
 /** Tests: forget that the CLIs were found. */
 export function resetLstkAwsDependencyCheck(): void {
   dependenciesFound = false;
@@ -28,9 +52,19 @@ export function resetLstkAwsDependencyCheck(): void {
 /** Returns an install hint when lstk or the AWS CLI is missing, otherwise null. */
 export async function checkLstkAwsDependencies(): Promise<string | null> {
   if (dependenciesFound) return null;
+  // The server's own directory may be the workdir: the same lookup as for `lstk aws`.
+  const env = baseChildEnv(
+    process.env,
+    process.platform,
+    writableDirs(awsWorkdir().workdir, privateDirs())
+  );
+  const lstkProgram = programPath("lstk", env);
+  const awsProgram = programPath("aws", env);
+  if (!lstkProgram) return LSTK_INSTALL_MESSAGE;
+  if (!awsProgram) return AWS_CLI_INSTALL_MESSAGE;
   const [lstk, aws] = await Promise.all([
-    runCommand("lstk", ["--version"], { timeout: 10000 }),
-    runCommand("aws", ["--version"], { timeout: 10000 }),
+    runCommand(lstkProgram, ["--version"], { timeout: 10000, env }),
+    runCommand(awsProgram, ["--version"], { timeout: 10000, env }),
   ]);
   if (lstk.error) return LSTK_INSTALL_MESSAGE;
   if (aws.error) return AWS_CLI_INSTALL_MESSAGE;
@@ -96,7 +130,7 @@ export async function runLstkAws(
   const dirs = privateDirs();
   const { endpointUrl, dial } = lstkAwsRoute();
   const childEnv = (proxyUrl: string) =>
-    buildAwsChildEnv(process.env, process.platform, { ...dirs, endpointUrl, proxyUrl });
+    buildAwsChildEnv(process.env, process.platform, { ...dirs, workdir, endpointUrl, proxyUrl });
   if (options.checkLocalPaths) {
     assertLocalPathsAllowed(args, workdir, { cwd: dirs.tmpDir, privateHome: dirs.homeDir });
     args = confineTransfers(args, workdir ?? dirs.tmpDir);
@@ -115,8 +149,11 @@ export async function runLstkAws(
   try {
     // No stdin: lstk hands it on to aws, and a command reading it (`s3 cp - …`) would otherwise
     // wait for input that never comes until the timeout.
-    const result = await runCommand("lstk", ["aws", ...args], {
-      env: childEnv(guard.env.HTTP_PROXY),
+    const env = childEnv(guard.env.HTTP_PROXY);
+    const lstk = programPath("lstk", env);
+    if (!lstk) throw new Error(LSTK_INSTALL_MESSAGE);
+    const result = await runCommand(lstk, ["aws", ...args], {
+      env,
       cwd: workdir ?? dirs.tmpDir,
       stdio: ["ignore", "pipe", "pipe"],
     });

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 import os from "os";
 import path from "path";
 
@@ -37,6 +37,14 @@ export function privateDirs(): AwsChildDirs {
     const root = mkdtempSync(path.join(os.tmpdir(), `${PREFIX}${process.pid}-`));
     dirs = { homeDir: path.join(root, "home"), tmpDir: path.join(root, "tmp") };
     for (const dir of Object.values(dirs)) mkdirSync(dir, { recursive: true, mode: 0o700 });
+    // `--payload '{"a":1}'` and other blobs as raw text, as awslocal (CLI v1) took them; CLI v2
+    // reads them as base64 by default.
+    mkdirSync(path.join(dirs.homeDir, ".aws"), { mode: 0o700 });
+    writeFileSync(
+      path.join(dirs.homeDir, ".aws", "config"),
+      "[default]\ncli_binary_format = raw-in-base64-out\n",
+      { mode: 0o600 }
+    );
     process.once("exit", () => rmSync(root, { recursive: true, force: true }));
   }
   return dirs;
@@ -65,12 +73,38 @@ function isRunning(pid: number): boolean {
   }
 }
 
+/** The directories the AWS client may write to: its workdir and its private dirs. */
+export function writableDirs(workdir: string | null, dirs: AwsChildDirs): string[] {
+  return [workdir, dirs.homeDir, dirs.tmpDir].filter((d): d is string => !!d);
+}
+
+/** The real path of `p`, following symlinks in the part of it that exists. */
+function realpathOfLongestExisting(p: string): string {
+  const rest: string[] = [];
+  let existing = path.resolve(p);
+  for (;;) {
+    try {
+      return path.join(realpathSync(existing), ...rest);
+    } catch {
+      const parent = path.dirname(existing);
+      if (parent === existing) return path.resolve(p);
+      rest.unshift(path.basename(existing));
+      existing = parent;
+    }
+  }
+}
+
 const REGION = /^[a-z]{2}(?:-[a-z]+)+-\d+$/;
 
-export function buildAwsChildEnv(
+/**
+ * The part of the environment every lstk or aws process gets, the `--version` probes included:
+ * the allow-listed system variables, and PATH without entries a command could write to
+ * (`writable`, see safePath).
+ */
+export function baseChildEnv(
   parent: NodeJS.ProcessEnv,
-  platform: NodeJS.Platform,
-  options: AwsChildDirs & { endpointUrl: string; proxyUrl: string }
+  platform: NodeJS.Platform = process.platform,
+  writable: string[] = []
 ): Record<string, string> {
   const env: Record<string, string> = {};
   const win = platform === "win32";
@@ -83,6 +117,19 @@ export function buildAwsChildEnv(
     if (/^LC_[A-Z]+$/.test(name) && value !== undefined) env[name] = value;
   }
 
+  if (env.PATH !== undefined) env.PATH = safePath(env.PATH, platform, writable);
+  // cmd.exe (the CLI's help pager runs `more` through it) looks in the current directory first.
+  if (win) env.NoDefaultCurrentDirectoryInExePath = "1";
+  return env;
+}
+
+export function buildAwsChildEnv(
+  parent: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+  options: AwsChildDirs & { endpointUrl: string; proxyUrl: string; workdir?: string | null }
+): Record<string, string> {
+  const env = baseChildEnv(parent, platform, writableDirs(options.workdir ?? null, options));
+  const win = platform === "win32";
   env.HOME = options.homeDir;
   env.USERPROFILE = options.homeDir;
   env.TEMP = options.tmpDir;
@@ -118,4 +165,31 @@ export function buildAwsChildEnv(
   // lstk's own analytics would only meet the guard's 403.
   env.LOCALSTACK_DISABLE_EVENTS = "1";
   return env;
+}
+
+/**
+ * `value` (a PATH) without the entries a command could put a program in: relative ones ("", ".",
+ * "bin") resolve in the working directory, and an absolute one may lie inside a directory the
+ * AWS client writes to (`writable`): npx puts <project>/node_modules/.bin first on PATH, and
+ * that project is the default workdir. Windows runs a file there without an execute bit.
+ */
+export function safePath(
+  value: string,
+  platform: NodeJS.Platform = process.platform,
+  writable: string[] = []
+): string {
+  const p = platform === "win32" ? path.win32 : path.posix;
+  const fold = (dir: string) =>
+    platform === "win32" ? p.resolve(dir).toLowerCase() : p.resolve(dir);
+  const inside = (dir: string, root: string) =>
+    dir === root || dir.startsWith(root.endsWith(p.sep) ? root : root + p.sep);
+  // Lexically, and (on this machine's own paths) after following symlinks.
+  const forms = (dir: string) =>
+    platform === process.platform ? [fold(dir), fold(realpathOfLongestExisting(dir))] : [fold(dir)];
+  const roots = writable.flatMap(forms);
+  return value
+    .split(p.delimiter)
+    .filter((dir) => p.isAbsolute(dir) && !(platform === "win32" && /^[\\/](?![\\/])/.test(dir)))
+    .filter((dir) => !forms(dir).some((form) => roots.some((root) => inside(form, root))))
+    .join(p.delimiter);
 }

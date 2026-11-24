@@ -123,14 +123,18 @@ export function sanitizeAwsCliCommand(rawCommand: string): string {
   }
 
   if (/(^|[\\/\s])\.\.(?:[\\/\s]|$)/.test(command)) {
-    throw new Error("Command contains forbidden path traversal.");
+    throw new Error("Command contains forbidden path traversal: write the path without `..`.");
   }
 
   if (/^(?:aws|awslocal|lstk)(?:\s|$)/i.test(command)) {
     throw new Error("Command must not include the lstk, aws or awslocal executable.");
   }
 
-  if (!/^(?:[a-z][a-z0-9-]*(?:\s+|$)|help$|version$)/i.test(command) || command.startsWith("-")) {
+  // `--version` alone prints the CLI's version; any other leading option is refused.
+  if (
+    command !== "--version" &&
+    (!/^(?:[a-z][a-z0-9-]*(?:\s+|$)|help$|version$)/i.test(command) || command.startsWith("-"))
+  ) {
     throw new Error("Command must start with an AWS service or built-in command.");
   }
 
@@ -139,7 +143,7 @@ export function sanitizeAwsCliCommand(rawCommand: string): string {
   assertTargetsLocalStack(args);
   // On the parsed argv: a quote splits `..` in the raw string ('..'/x, ."."/x).
   if (args.some((arg) => /(?:^|[\\/=]|:\/\/)\.\.(?:[\\/]|$)/.test(arg))) {
-    throw new Error("Command contains forbidden path traversal.");
+    throw new Error("Command contains forbidden path traversal: write the path without `..`.");
   }
 
   // The service is always the first word. The CLI accepts global options (--region, --output,
