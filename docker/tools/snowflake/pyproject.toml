@@ -5,7 +5,7 @@ name = "image-tool-snowflake-cli"
 version = "0"
 # The image's python3 (Debian bookworm). `sam build` for Python functions also runs on it.
 requires-python = "==3.11.*"
-dependencies = ["snowflake-cli==3.33.0"]
+dependencies = ["snowflake-cli==3.34.0"]
 
 [tool.uv]
 package = false
