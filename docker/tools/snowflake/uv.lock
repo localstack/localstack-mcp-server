@@ -293,7 +293,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "snowflake-cli", specifier = "==3.33.0" }]
+requires-dist = [{ name = "snowflake-cli", specifier = "==3.34.0" }]
 
 [[package]]
 name = "importlib-metadata"
@@ -767,7 +767,7 @@ wheels = [
 
 [[package]]
 name = "snowflake-cli"
-version = "3.33.0"
+version = "3.34.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "certifi" },
@@ -798,9 +798,9 @@ dependencies = [
     { name = "urllib3" },
     { name = "websocket-client" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/31/cb/6564fde014eb4f8a9e1aefeb6a4c587fb95a46379ab84e72b0c6f4cd8558/snowflake_cli-3.33.0.tar.gz", hash = "sha256:512710fa3cfad55a116e1d180c7f19e0610232b2882213b320a3a83df2bda582", size = 3414934, upload-time = "2026-11-09T14:58:32.322Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f0/50/4af0a7dccf33a2367eff59427b53b73c41fb82adb9a7192988857f6b65bc/snowflake_cli-3.34.0.tar.gz", hash = "sha256:2d70e8e5e5be05f59fb95fd12753986e865ac7c37868a0a7c4d0123ab5830d0c", size = 3458296, upload-time = "2026-11-17T00:29:24.517Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/33/f2/f9b4bf8b3be54442782db6f6c8b2d5ebbf803c3c6015cdf32e85b5f187db/snowflake_cli-3.33.0-py3-none-any.whl", hash = "sha256:59a7c036a9b31402a55e6564ea278a1c57b0cf94affb3e84128efb4c35f18b8a", size = 1149831, upload-time = "2026-11-09T14:58:30.608Z" },
+    { url = "https://files.pythonhosted.org/packages/66/a8/347dc36945b143aa47a2b97303915e90d943d14bfa1ed3e43d61061eba42/snowflake_cli-3.34.0-py3-none-any.whl", hash = "sha256:d8fc006adc786f09ee23fc130aa64342107b6c3121dc1746c750a4116b5e4636", size = 1160194, upload-time = "2026-11-17T00:29:22.067Z" },
 ]
 
 [[package]]
