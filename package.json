@@ -39,7 +39,7 @@
     "jest": "^30.5.2",
     "jsonc-parser": "^3.3.1",
     "patch-package": "^8.0.1",
-    "posthog-node": "5.73.1",
+    "posthog-node": "5.74.0",
     "prettier": "^3.9.10",
     "swc-loader": "^0.2.6",
     "ts-jest": "^29.4.15",
