@@ -29,6 +29,8 @@ jobs:
   agentic-eval:
     runs-on: ubuntu-26.04
     timeout-minutes: 120
+    outputs:
+      summary: ${{ steps.summary.outputs.summary }}
     steps:
       # Fail loudly instead of looking tested: a scheduled run on a fork, or a missing secret or model.
       - name: Require the secrets and the model
@@ -116,11 +118,61 @@ jobs:
             fi
           done
 
+      # A table per run (pass rate, tools used, turns, time, cost, failed checks, versions) on the run page, and for
+      # the history issue. Only numbers and names: no transcript or agent text.
+      - name: Summarize the results
+        id: summary
+        if: always() && steps.secret-check.outcome == 'success'
+        run: |
+          shopt -s nullglob
+          files=(evals/agentic/results/*/results.json)
+          if [ ${#files[@]} -eq 0 ]; then
+            summary="### Agentic eval: no results (the run failed before the evaluation finished)"
+          else
+            summary=$(node evals/agentic/lib/summary.mjs "${files[@]}")
+          fi
+          echo "$summary" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "summary<<EVAL_SUMMARY_EOF"
+            echo "$summary"
+            echo "EVAL_SUMMARY_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Keep the results
         if: always() && steps.secret-check.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agentic-eval-results
           path: evals/agentic/results
-          retention-days: 14
+          retention-days: 30
           if-no-files-found: ignore
+
+  # The weekly history: one comment per scheduled run on the issue "Agentic eval history", created on the first run.
+  # A job of its own, so the token that may write issues never shares a job with the secrets or the agent.
+  history:
+    needs: agentic-eval
+    if: always() && github.event_name == 'schedule'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Comment the summary on the history issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SUMMARY: ${{ needs.agentic-eval.outputs.summary }}
+          RESULT: ${{ needs.agentic-eval.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Agentic eval history"
+          issue=$(gh issue list --state open --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title == \"$title\")) | .[0].number // empty")
+          if [ -z "$issue" ]; then
+            issue=$(gh issue create --title "$title" \
+              --body "One comment per weekly run of the agentic evaluation (.github/workflows/agentic-eval.yml): pass rate, tools used, turns, time, cost and versions per scenario. The full results are kept as the run's artifact for 30 days." \
+              | grep -oE '[0-9]+$')
+          fi
+          body="${SUMMARY:-### Agentic eval: no summary}"
+          printf '%s\n\nRun: %s (%s)\n' "$body" "$RUN_URL" "$RESULT" > "$RUNNER_TEMP/comment.md"
+          gh issue comment "$issue" --body-file "$RUNNER_TEMP/comment.md"

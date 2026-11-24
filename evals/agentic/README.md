@@ -101,7 +101,11 @@ Each run writes `evals/agentic/results/<timestamp>-<model>/` with:
 - `<scenario>-<attempt>.diff`: what the agent changed
 
 The process exits non-zero if any scenario fails. `.github/workflows/agentic-eval.yml` runs it on demand (every scenario unless one is given) and weekly (`02`, `05` and `06`–`08`),
-and uploads the results as an artifact.
+and uploads the results as an artifact, kept for 30 days. `lib/summary.mjs` turns a `results.json` into a markdown
+table (pass rate, tools used, turns, time, cost and failed checks per scenario, and the versions), which the workflow
+writes to the run's job summary. Each weekly run also comments that table on the issue "Agentic eval history", which
+the first run creates, so the results stay comparable after the artifacts expire. That comment comes from a job of its
+own that holds no secret and may only write issues. The table holds no transcript or agent text.
 
 ## Secrets
 
