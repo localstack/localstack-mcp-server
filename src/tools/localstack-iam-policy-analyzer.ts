@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { LocalStackLogRetriever, type LogEntry } from "../lib/logs/log-retriever";
-import { ProFeature } from "../lib/localstack/license-checker";
+import { ProFeature, checkProFeature } from "../lib/localstack/license-checker";
 import { httpClient, HttpError } from "../core/http-client";
 import { IAM_CONFIG_ENDPOINT } from "../core/config";
 import {
@@ -34,7 +34,7 @@ export const schema = {
 export const metadata: ToolMetadata = {
   name: "localstack-iam-policy-analyzer",
   description:
-    "Configures LocalStack's IAM enforcement and analyzes logs to generate missing IAM policies. For IAM, localstack-app-inspector is recommended instead (list-iam-denials, explain-iam, get-auto-derived-iam-policies, get-iam-mode, set-iam-mode): it reads LocalStack's structured IAM data and shows the policies that decided a request, including another account's, and LocalStack's suggested fix.",
+    "Configures LocalStack's IAM enforcement and analyzes logs to generate missing IAM policies. For IAM, localstack-iam is recommended instead (list-denials, explain-denial, get-derived-policies, get-enforcement) with localstack-iam-management (set-enforcement): it reads LocalStack's structured IAM data and shows the policies that decided a request, including another account's, and LocalStack's suggested fix.",
   annotations: {
     title: "LocalStack IAM Policy Analyzer",
     readOnlyHint: false,
@@ -54,17 +54,24 @@ export default async function localstackIamPolicyAnalyzer({
   action,
   mode,
 }: InferSchema<typeof schema>) {
-  return withToolAnalytics("localstack-iam-policy-analyzer", { action, mode }, async () =>
-    withRecommendation(action, await runAction(action, mode))
-  );
+  return withToolAnalytics("localstack-iam-policy-analyzer", { action, mode }, async () => {
+    const response = await runAction(action, mode);
+    // No pointer on errors, so an agent is never sent back and forth; the App Inspector-based actions only when licensed
+    if ((response as { isError?: boolean }).isError) return response;
+    if (action === "analyze-policies") {
+      const license = await checkProFeature(ProFeature.APP_INSPECTOR);
+      if (!license.isSupported) return response;
+    }
+    return withRecommendation(action, response);
+  });
 }
 
-/** The `localstack-app-inspector` action recommended for the job of each action */
+/** The IAM tool action recommended for the job of each action */
 export const RECOMMENDED_ALTERNATIVES: Record<string, string> = {
-  "get-status": "`localstack-app-inspector` with action `get-iam-mode`",
-  "set-mode": "`localstack-app-inspector` with action `set-iam-mode`",
+  "get-status": "`localstack-iam` with action `get-enforcement`",
+  "set-mode": "`localstack-iam-management` with action `set-enforcement`",
   "analyze-policies":
-    "`localstack-app-inspector` with actions `list-iam-denials` and `explain-iam` (why a request was denied and LocalStack's suggested fix), or `get-auto-derived-iam-policies` (least-privilege policies derived from a run)",
+    "`localstack-iam` with actions `list-denials` and `explain-denial` (why a request was denied and LocalStack's suggested fix), or `get-derived-policies` (least-privilege policies derived from a run)",
 };
 
 /**
@@ -75,7 +82,7 @@ export function withRecommendation<T extends { content: Array<{ type: string; te
   action: string,
   response: T
 ): T {
-  const alternative = RECOMMENDED_ALTERNATIVES[action] ?? "`localstack-app-inspector`";
+  const alternative = RECOMMENDED_ALTERNATIVES[action] ?? "`localstack-iam`";
   const notice = `\n\n---\n💡 **Recommended:** ${alternative}, which reads LocalStack's structured IAM data instead of its log.`;
   const [first, ...rest] = response.content;
   if (!first) return response;

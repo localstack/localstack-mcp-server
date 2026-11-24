@@ -1,8 +1,8 @@
-# Agentic evaluation: IAM with `localstack-app-inspector`
+# Agentic evaluation: IAM with `localstack-iam`
 
 A coding agent gets a small CloudFormation project that fails on an IAM problem, with this MCP server attached. It may
-use the IAM tools (`localstack-app-inspector`, and `localstack-iam-policy-analyzer`, which it recommends instead, to see
-whether the agent still picks it) and the two it reaches for first to see why something failed, `localstack-aws-client` and
+use the IAM tools (`localstack-iam`, `localstack-iam-management`, `localstack-app-inspector`, and
+`localstack-iam-policy-analyzer`, which recommends `localstack-iam` instead, to see whether the agent still picks it) and the two it reaches for first to see why something failed, `localstack-aws-client` and
 `localstack-logs-analysis`. Changes made through the AWS CLI don't count: the grade comes from a clean redeploy.
 The grade comes from the final state, not from reading the transcript, and no LLM judges the result:
 
@@ -39,7 +39,8 @@ the others with `--scenario` when the tool descriptions or the server's instruct
 | `08-cross-account-bucket`   | The platform's bucket, in the platform account, lets the project's account write only under `teams/${aws:PrincipalTag/team}/`, and the role has no `team` tag; the error says only that an explicit deny in a resource-based policy denied the write, and the project's account can't read the bucket policy                  | The workflow writes under `teams/analytics/` without denials, the role was not widened, and the project adds no bucket policy: the fix is the role's tag.                                                                                                                                                         |
 
 Every scenario also fails if the agent timed out, the project no longer deploys, or it edited `deploy.sh` or
-`trigger.sh`. Whether it called `localstack-iam-policy-analyzer` is reported. The scripts find their resources by name, not
+`trigger.sh`. Whether it called `localstack-iam-policy-analyzer` is reported, and in 06–08 whether it checked its fix
+with `list-denials` `newer_than`. The scripts find their resources by name, not
 from the stack outputs, so the workload always exercises the role and resources the scenario is about.
 
 ## Run it
@@ -58,10 +59,10 @@ yarn eval:agentic --endpoint http://localhost:4700   # use an emulator you start
 
 Options for comparing setups:
 
-- `--hint` appends a sentence naming `localstack-app-inspector` to the prompt, to measure whether the agent uses the
+- `--hint` appends a sentence naming `localstack-iam` to the prompt, to measure whether the agent uses the
   tool well once it knows to, rather than whether it finds it.
-- `--without-app-inspector` runs the comparison arm: the agent gets neither IAM tool (`localstack-app-inspector`,
-  `localstack-iam-policy-analyzer`), only the AWS CLI, the logs and the project's files, and the server's instructions, which name
+- `--without-iam-tools` (formerly `--without-app-inspector`) runs the comparison arm: the agent gets none of the IAM
+  tools (`localstack-iam`, `localstack-iam-management`, `localstack-app-inspector`, `localstack-iam-policy-analyzer`), only the AWS CLI, the logs and the project's files, and the server's instructions, which name
   the IAM tools, are removed from a copy of the build. Compare its pass rate, turns and cost with a normal run of the
   same model to see what the IAM tools add.
 - `--without-mcp` runs the baseline: no MCP server at all, only the AWS CLI, `localstack-logs` and the project's

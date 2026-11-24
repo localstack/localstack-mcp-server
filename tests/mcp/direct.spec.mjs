@@ -21,6 +21,8 @@ const EXPECTED_TOOLS = [
   "localstack-aws-replicator",
   "localstack-docs",
   "localstack-app-inspector",
+  "localstack-iam",
+  "localstack-iam-management",
 ];
 
 const EXPECTED_PROMPT = "infrastructure-tester";
@@ -44,15 +46,15 @@ test("exposes all expected LocalStack MCP tools", async ({ mcp }) => {
 
 // Clients that load tools on demand choose them by name; the server instructions stay in the agent's context
 // and are what led agents to the IAM actions in the agentic evaluation.
-test("server instructions point to the IAM actions of localstack-app-inspector", async ({
-  mcp,
-}) => {
+test("server instructions point to the IAM tools", async ({ mcp }) => {
   const instructions = mcp.client.getInstructions() ?? "";
   for (const expected of [
-    "localstack-app-inspector",
-    "list-iam-denials",
-    "explain-iam",
-    "get-auto-derived-iam-policies",
+    "IAM in LocalStack:",
+    "localstack-iam",
+    "list-denials",
+    "explain-denial",
+    "newer_than",
+    "get-derived-policies",
   ]) {
     expect(instructions).toContain(expected);
   }

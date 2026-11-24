@@ -141,12 +141,20 @@ See "IAM policies" in AGENTS.md.
   or reports a different verdict on whether the changes fix the request. What the agent applies must be what LocalStack verified.
 - **BLOCKER:** the tool computes a diff between suggested and deployed policies itself, instead of presenting one
   that LocalStack returned.
-- **SHOULD-FIX:** an auto-derived policy is presented as verified or complete, instead of as a suggestion from the
+- **BLOCKER:** an IAM action that changes LocalStack is added to `localstack-iam`, or a read to
+  `localstack-iam-management`: the read-only annotation is what lets users allow diagnosis without allowing changes.
+- **BLOCKER:** `list-denials` filters, cuts or reorders LocalStack's results itself, or offers a cursor that points
+  back into older denials as `newer_than`.
+- **SHOULD-FIX:** the suggested statements are not fenced exactly as sent, or `detail` `full` no longer appends the
+  payload as sent.
+- **SHOULD-FIX:** a derived policy is presented as verified or complete, instead of as a suggestion from the
   requests seen so far; or "unused permissions" is not qualified as unused in this run.
-- **SHOULD-FIX:** an auto-derived policy is reshaped, for example by splitting a role's trust statement from its
+- **SHOULD-FIX:** a derived policy is reshaped, for example by splitting a role's trust statement from its
   permissions.
 - **SHOULD-FIX:** a missing license feature (a 404 from the policy summary, or App Inspector unavailable) returns a
   bare failure or an empty result instead of an `isError` response that names the feature and how to get it.
+- **SHOULD-FIX:** `set-enforcement` does not report the previous mode and the call that restores it, or a response
+  suggests lowering the IAM mode or disabling App Inspector to make a denial go away.
 
 ## 7. Tool contract
 

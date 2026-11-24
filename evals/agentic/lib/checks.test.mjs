@@ -1,10 +1,10 @@
 // node --test evals/agentic/lib/checks.test.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { APP_INSPECTOR_TOOL, ANALYZER_TOOL, parseTranscript } from "./agent.mjs";
+import { IAM_TOOL, ANALYZER_TOOL, parseTranscript } from "./agent.mjs";
 import { runCheck } from "./checks.mjs";
 
-const inspector = (action) => ({ name: APP_INSPECTOR_TOOL, input: { action } });
+const inspector = (action, input = {}) => ({ name: IAM_TOOL, input: { action, ...input } });
 
 function context(overrides = {}) {
   return {
@@ -19,16 +19,16 @@ function context(overrides = {}) {
 test("tool_sequence accepts the actions in order with others between", () => {
   const ctx = context({
     agent: {
-      toolCalls: [inspector("get-status"), inspector("list-iam-denials"), inspector("explain-iam")],
+      toolCalls: [inspector("get-status"), inspector("list-denials"), inspector("explain-denial")],
       finalMessage: "",
     },
   });
   assert.equal(
-    runCheck({ type: "tool_sequence", actions: ["list-iam-denials", "explain-iam"] }, ctx).pass,
+    runCheck({ type: "tool_sequence", actions: ["list-denials", "explain-denial"] }, ctx).pass,
     true
   );
   assert.equal(
-    runCheck({ type: "tool_sequence", actions: ["explain-iam", "list-iam-denials"] }, ctx).pass,
+    runCheck({ type: "tool_sequence", actions: ["explain-denial", "list-denials"] }, ctx).pass,
     false
   );
 });
@@ -74,7 +74,7 @@ test("parseTranscript collects tool calls in order and the final result", () => 
       message: {
         content: [
           { type: "text" },
-          { type: "tool_use", name: APP_INSPECTOR_TOOL, input: { action: "list-iam-denials" } },
+          { type: "tool_use", name: IAM_TOOL, input: { action: "list-denials" } },
         ],
       },
     },
@@ -83,7 +83,7 @@ test("parseTranscript collects tool calls in order and the final result", () => 
   const parsed = parseTranscript(lines.join("\n"));
   assert.deepEqual(
     parsed.toolCalls.map((call) => call.name),
-    ["Read", APP_INSPECTOR_TOOL]
+    ["Read", IAM_TOOL]
   );
   assert.equal(parsed.finalMessage, "done");
   assert.equal(parsed.turns, 3);
@@ -255,17 +255,17 @@ test("denied_by_policy finds an explicit deny by the named policy only", () => {
 
 test("tool checks ignore calls that returned an error", () => {
   const ctx = context({
-    agent: { toolCalls: [{ ...inspector("explain-iam"), isError: true }], finalMessage: "" },
+    agent: { toolCalls: [{ ...inspector("explain-denial"), isError: true }], finalMessage: "" },
   });
-  assert.equal(runCheck({ type: "tool_called", action: "explain-iam" }, ctx).pass, false);
+  assert.equal(runCheck({ type: "tool_called", action: "explain-denial" }, ctx).pass, false);
 });
 
 test("tool_called with a list passes when any of the actions was called", () => {
-  const check = { type: "tool_called", action: ["list-iam-denials", "explain-iam"] };
+  const check = { type: "tool_called", action: ["list-denials", "explain-denial"] };
   const called = (...names) =>
     context({ agent: { toolCalls: names.map((name) => inspector(name)), finalMessage: "" } });
-  assert.equal(runCheck(check, called("list-iam-denials")).pass, true);
-  assert.equal(runCheck(check, called("explain-iam")).pass, true);
+  assert.equal(runCheck(check, called("list-denials")).pass, true);
+  assert.equal(runCheck(check, called("explain-denial")).pass, true);
   assert.equal(runCheck(check, called("get-status", "list-spans")).pass, false);
   assert.equal(runCheck(check, called()).pass, false);
 });
@@ -274,7 +274,7 @@ test("parseTranscript marks a call whose result is an error", () => {
   const lines = [
     {
       type: "assistant",
-      message: { content: [{ type: "tool_use", id: "t1", name: APP_INSPECTOR_TOOL, input: {} }] },
+      message: { content: [{ type: "tool_use", id: "t1", name: IAM_TOOL, input: {} }] },
     },
     {
       type: "user",
@@ -675,4 +675,19 @@ test("any_of passes when every check of one option passes, and names the option"
   const failed = runCheck(check, gaveUp);
   assert.equal(failed.pass, false);
   assert.match(failed.detail, /fixed: .* \| asked: /);
+});
+
+test("newer_than_used counts a successful list-denials with newer_than", () => {
+  const used = runCheck(
+    { type: "newer_than_used" },
+    context({
+      agent: { toolCalls: [inspector("list-denials", { newer_than: "C" })], finalMessage: "" },
+    })
+  );
+  assert.equal(used.pass, true);
+  const unused = runCheck(
+    { type: "newer_than_used" },
+    context({ agent: { toolCalls: [inspector("list-denials")], finalMessage: "" } })
+  );
+  assert.equal(unused.pass, false);
 });

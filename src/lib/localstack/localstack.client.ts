@@ -448,7 +448,7 @@ export class AppInspectorApiClient {
   }
 }
 
-export type IamEnforcementMode = "ENFORCED" | "SOFT_MODE" | "DISABLED";
+export type IamEnforcementMode = "ENFORCED" | "SOFT_MODE" | "ENGINE_ONLY" | "DISABLED";
 
 export interface IamConfigResponse {
   state: string;

@@ -10,10 +10,12 @@ const response = (text: string, isError?: boolean) => ({
   ...(isError ? { isError } : {}),
 });
 
-describe("localstack-iam-policy-analyzer recommends localstack-app-inspector", () => {
-  test("the description recommends app-inspector without deprecating the tool", () => {
+describe("localstack-iam-policy-analyzer recommends the IAM tools", () => {
+  test("the description recommends the IAM tools without deprecating this one", () => {
     expect(metadata.description).toMatch(/^Configures LocalStack's IAM enforcement/);
-    expect(metadata.description).toContain("localstack-app-inspector is recommended instead");
+    expect(metadata.description).toContain("localstack-iam is recommended instead");
+    expect(metadata.description).toContain("localstack-iam-management");
+    expect(metadata.description).not.toMatch(/list-iam-denials|explain-iam|set-iam-mode/);
     expect(metadata.description).not.toMatch(/deprecat|removed/i);
   });
 
@@ -33,14 +35,15 @@ describe("localstack-iam-policy-analyzer recommends localstack-app-inspector", (
     expect(Object.keys(RECOMMENDED_ALTERNATIVES).sort()).toEqual([...schema.action.options].sort());
   });
 
-  test("an error keeps isError and gets the recommendation too", () => {
-    const result = withRecommendation("set-mode", response("❌ **Failed**", true));
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("set-iam-mode");
+  test("get-status points to the read-only get-enforcement, set-mode to set-enforcement", () => {
+    expect(RECOMMENDED_ALTERNATIVES["get-status"]).toContain(
+      "`localstack-iam` with action `get-enforcement`"
+    );
+    expect(RECOMMENDED_ALTERNATIVES["set-mode"]).toContain("`localstack-iam-management`");
   });
 });
 
-test("the handler appends the recommendation, also to a preflight error", async () => {
+test("the handler adds no recommendation to an error", async () => {
   process.env.MCP_ANALYTICS_DISABLED = "1";
   delete process.env.LOCALSTACK_AUTH_TOKEN;
   // nothing may reach a real LocalStack
@@ -50,5 +53,5 @@ test("the handler appends the recommendation, also to a preflight error", async 
   const result = await localstackIamPolicyAnalyzer({ action: "set-mode", mode: "SOFT_MODE" });
   expect((result as { isError?: boolean }).isError).toBe(true);
   expect(result.content[0].text).toContain("Auth Token Required");
-  expect(result.content[0].text).toContain("`set-iam-mode`");
+  expect(result.content[0].text).not.toContain("Recommended");
 });

@@ -12,6 +12,8 @@ import { pickEnv, redact } from "./secrets.mjs";
 
 const MCP_SERVER_NAME = "localstack";
 export const APP_INSPECTOR_TOOL = `mcp__${MCP_SERVER_NAME}__localstack-app-inspector`;
+export const IAM_TOOL = `mcp__${MCP_SERVER_NAME}__localstack-iam`;
+export const IAM_MANAGEMENT_TOOL = `mcp__${MCP_SERVER_NAME}__localstack-iam-management`;
 export const ANALYZER_TOOL = `mcp__${MCP_SERVER_NAME}__localstack-iam-policy-analyzer`;
 const AWS_CLIENT_TOOL = `mcp__${MCP_SERVER_NAME}__localstack-aws-client`;
 const LOGS_TOOL = `mcp__${MCP_SERVER_NAME}__localstack-logs-analysis`;
@@ -128,9 +130,9 @@ export function runAgent({
   // the AWS CLI against the emulator, and LocalStack's log through `localstack-logs`, a wrapper on PATH that reads
   // only the eval's container
   const binDir = writeLogsCommand(containerName);
-  // The comparison arm (--without-app-inspector): neither IAM tool, so the agent has only what it would have without
+  // The comparison arm (--without-iam-tools): none of the IAM tools, so the agent has only what it would have without
   // them, the AWS CLI, the logs and the project's files
-  const iamTools = [APP_INSPECTOR_TOOL, ANALYZER_TOOL];
+  const iamTools = [IAM_TOOL, IAM_MANAGEMENT_TOOL, APP_INSPECTOR_TOOL, ANALYZER_TOOL];
   const args = [
     "-p",
     `${prompt} ${AWS_CLI_NOTE}`,
@@ -159,7 +161,7 @@ export function runAgent({
     "Bash(localstack-logs)",
     // The IAM tools, and the two an agent reaches for first to see why something failed: the AWS CLI (execution
     // history) and the logs. The analyzer stays allowed so the eval sees whether the agent picks it over
-    // the recommended app-inspector actions. Changes the agent makes through the AWS CLI don't count: the grade comes from a clean redeploy of the
+    // the recommended localstack-iam actions. Changes the agent makes through the AWS CLI don't count: the grade comes from a clean redeploy of the
     // template. State, chaos and the other tools stay off.
     ...(withMcp ? [...(withoutIamTools ? [] : iamTools), AWS_CLIENT_TOOL, LOGS_TOOL] : []),
   ];

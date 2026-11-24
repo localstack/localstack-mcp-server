@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// End-to-end agentic evaluation of the IAM features of `localstack-app-inspector`.
+// End-to-end agentic evaluation of the IAM tools (`localstack-iam`, `localstack-iam-management`).
 //
 // For each scenario: deploy a small CloudFormation project that fails on an IAM problem, give a coding agent (Claude
 // Code headless) this MCP server, the AWS CLI, LocalStack's log and the project (with --without-mcp, all but the
@@ -51,7 +51,7 @@ const GLOBAL_CHECKS = [
 // --hint: point the agent to the tool, to measure whether it can use it once it knows it should (not whether it finds
 // it on its own)
 const HINT =
-  "Use the LocalStack MCP server's App Inspector tool (localstack-app-inspector) for IAM: it lists denied requests, explains why each was denied with LocalStack's suggested fix, and derives the policies a run needs.";
+  "Use the LocalStack MCP server's IAM tool (localstack-iam) for IAM: it lists denied requests, explains why each was denied with LocalStack's suggested fix, and derives the policies a run needs.";
 
 function parseArgs(argv) {
   const options = {
@@ -85,7 +85,8 @@ function parseArgs(argv) {
         options.hint = true;
         break;
       // the comparison arm: the agent gets neither IAM tool, and the server's instructions don't point to them
-      case "--without-app-inspector":
+      case "--without-iam-tools":
+      case "--without-app-inspector": // the earlier name
         options.withoutAppInspector = true;
         break;
       // the baseline: no MCP server at all, only what an agent has without it (the AWS CLI and LocalStack's logs in
@@ -338,6 +339,8 @@ async function runScenario(
     usedExpectedTools: checks
       .filter((check) => TOOL_CHECKS.has(check.type))
       .every((check) => check.pass),
+    // Whether the agent checked its fix with list-denials newer_than (undefined where the scenario doesn't ask)
+    checkedFix: checks.find((check) => check.type === "newer_than_used")?.pass,
     leakedSecrets: agent.leakedSecrets,
     checks,
     durationSeconds: Math.round((Date.now() - started) / 1000),
@@ -356,7 +359,7 @@ async function runScenario(
 const TOOL_CHECKS = new Set(["tool_called", "tool_sequence"]);
 
 /**
- * A copy of the server build whose instructions don't mention the IAM tools, for --without-app-inspector: the
+ * A copy of the server build whose instructions don't mention the IAM tools, for --without-iam-tools: the
  * instructions stay in the agent's context and would point it to tools it doesn't have. The copy lives in the results
  * directory, inside the repository, so it resolves the server's external modules.
  */
@@ -393,7 +396,7 @@ async function main() {
       ? process.env.OPENROUTER_MODEL
       : process.env.EVAL_CLAUDE_MODEL) || "default";
   const label =
-    `${stamp}-${model}${options.withoutAppInspector ? "-without-app-inspector" : ""}${options.withoutMcp ? "-without-mcp" : ""}`.replace(
+    `${stamp}-${model}${options.withoutAppInspector ? "-without-iam-tools" : ""}${options.withoutMcp ? "-without-mcp" : ""}`.replace(
       /[^A-Za-z0-9._-]/g,
       "_"
     );
@@ -465,7 +468,10 @@ async function main() {
     const runs = results.filter((r) => r.scenario === scenario.name);
     const passed = runs.filter((r) => r.pass).length;
     const usedTools = runs.filter((r) => r.usedExpectedTools).length;
-    return { scenario: scenario.name, passed, usedTools, runs: runs.length };
+    const checkedFix = runs.some((r) => r.checkedFix !== undefined)
+      ? runs.filter((r) => r.checkedFix).length
+      : undefined;
+    return { scenario: scenario.name, passed, usedTools, checkedFix, runs: runs.length };
   });
   const report = {
     provider: describeProvider(),
@@ -497,7 +503,10 @@ async function main() {
     console.log(
       options.reproduceOnly
         ? `  ${row.scenario}: ${row.passed}/${row.runs} reproduce`
-        : `  ${row.scenario}: ${row.passed}/${row.runs} passed, ${row.usedTools}/${row.runs} used the expected tools`
+        : `  ${row.scenario}: ${row.passed}/${row.runs} passed, ${row.usedTools}/${row.runs} used the expected tools` +
+            (row.checkedFix === undefined
+              ? ""
+              : `, ${row.checkedFix}/${row.runs} checked the fix with newer_than`)
     );
   }
   console.log(`Report: ${join(resultsDir, "results.json")}`);

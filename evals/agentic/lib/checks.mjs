@@ -6,12 +6,12 @@
 // unusual form doesn't slip past a regex.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { APP_INSPECTOR_TOOL, ANALYZER_TOOL } from "./agent.mjs";
+import { IAM_TOOL, ANALYZER_TOOL } from "./agent.mjs";
 
-/** The app-inspector actions the agent called and that did not return an error */
+/** The localstack-iam actions the agent called and that did not return an error */
 function appInspectorActions(toolCalls) {
   return toolCalls
-    .filter((call) => call.name === APP_INSPECTOR_TOOL && call.isError !== true)
+    .filter((call) => call.name === IAM_TOOL && call.isError !== true)
     .map((call) => call.input?.action);
 }
 
@@ -483,13 +483,29 @@ function evaluate(check, context) {
     case "tool_sequence":
       return {
         pass: isSubsequence(check.actions, actions),
-        detail: `successful app-inspector actions: ${actions.join(" → ") || "none"}`,
+        detail: `successful localstack-iam actions: ${actions.join(" → ") || "none"}`,
       };
+    case "newer_than_used": {
+      // Reported, not graded: did the agent check its fix with LocalStack's cursor for new denials?
+      const checks = context.agent.toolCalls.filter(
+        (call) =>
+          call.name === IAM_TOOL &&
+          call.isError !== true &&
+          call.input?.action === "list-denials" &&
+          Boolean(call.input?.newer_than)
+      );
+      return {
+        pass: checks.length > 0,
+        detail: checks.length
+          ? `list-denials with newer_than ${checks.length}×`
+          : "no list-denials with newer_than",
+      };
+    }
     case "tool_called":
       // `action` may list several actions: any of them counts, e.g. when the denial table alone is enough to fix it
       return {
         pass: asList(check.action).some((action) => actions.includes(action)),
-        detail: `successful app-inspector actions: ${actions.join(" → ") || "none"}`,
+        detail: `successful localstack-iam actions: ${actions.join(" → ") || "none"}`,
       };
     case "analyzer_not_used": {
       const used = context.agent.toolCalls.filter((call) => call.name === ANALYZER_TOOL);

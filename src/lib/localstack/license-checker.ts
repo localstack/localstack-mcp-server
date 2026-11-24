@@ -6,6 +6,7 @@
 export enum ProFeature {
   APP_INSPECTOR = "localstack.platform.plugin/appinspector",
   IAM_ENFORCEMENT = "localstack.platform.plugin/iam-enforcement",
+  IAM_STREAM = "localstack.platform.plugin/iam-stream",
   CLOUD_PODS = "localstack.platform.plugin/pods",
   CHAOS_ENGINEERING = "localstack.platform.plugin/chaos",
   EXTENSIONS = "localstack.platform.plugin/extensions",

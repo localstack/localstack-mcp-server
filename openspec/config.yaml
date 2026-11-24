@@ -1,0 +1,6 @@
+schema: spec-driven
+
+context: |
+  TypeScript MCP server for LocalStack, built with xmcp. Tools live in src/tools/, one file per tool.
+  Design rules: AGENTS.md (compute in LocalStack, render in the server; public LocalStack APIs only).
+  Review checks: REVIEW.md. Tool interface guidance: https://arcade.dev/patterns/llm.txt

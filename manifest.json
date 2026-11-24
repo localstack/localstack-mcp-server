@@ -33,7 +33,7 @@
     },
     {
       "name": "localstack-iam-policy-analyzer",
-      "description": "Configures LocalStack's IAM enforcement and analyzes logs to generate missing IAM policies (localstack-app-inspector is recommended for IAM)"
+      "description": "Configures LocalStack's IAM enforcement and analyzes logs to generate missing IAM policies (localstack-iam is recommended for IAM)"
     },
     {
       "name": "localstack-deployer",
@@ -81,7 +81,15 @@
     },
     {
       "name": "localstack-app-inspector",
-      "description": "Inspect LocalStack application traces, spans, events and IAM evaluations: why a request was denied, LocalStack's suggested fix, least-privilege policies derived from a run, and the IAM enforcement mode"
+      "description": "Inspect LocalStack application traces, spans and events recorded by App Inspector"
+    },
+    {
+      "name": "localstack-iam",
+      "description": "Why LocalStack denied a request, which policies decided it, LocalStack's suggested least-privilege fix, the policies derived from a run, and the IAM mode (read-only)"
+    },
+    {
+      "name": "localstack-iam-management",
+      "description": "Set LocalStack's IAM enforcement mode or reset the derived IAM policies"
     }
   ],
   "prompts": [

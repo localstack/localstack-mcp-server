@@ -60,7 +60,7 @@
     },
     {
       "type": "tool_called",
-      "action": ["list-iam-denials", "explain-iam"],
+      "action": ["list-denials", "explain-denial"],
       "report": true
     }
   ]

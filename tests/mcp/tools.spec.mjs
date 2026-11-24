@@ -111,36 +111,60 @@ test.describe("tools against a running LocalStack", () => {
     expect(traces).toMatch(/^\| [0-9a-f]{32} \|/m);
   });
 
-  // ENFORCED, then SOFT_MODE: a set-iam-mode that changes nothing fails one of the two read-backs.
-  test("app-inspector: switches the IAM enforcement mode", async ({ mcp }) => {
-    const tool = "localstack-app-inspector";
+  // ENFORCED, then SOFT_MODE: a set-enforcement that changes nothing fails one of the two read-backs.
+  test("iam-management: switches the IAM enforcement mode and reports the old one", async ({
+    mcp,
+  }) => {
     try {
+      let previous = (await call(mcp, "localstack-iam", { action: "get-enforcement" })).match(
+        /\*\*Mode:\*\* `(\w+)`/
+      )?.[1];
       for (const mode of ["ENFORCED", "SOFT_MODE"]) {
-        await call(mcp, tool, { action: "set-iam-mode", mode });
-        expect(await call(mcp, tool, { action: "get-iam-mode" })).toContain(
+        const changed = await call(mcp, "localstack-iam-management", {
+          action: "set-enforcement",
+          mode,
+        });
+        if (previous === mode) expect(changed).toContain("Unchanged");
+        else expect(changed).toContain(`\`${previous}\` → \`${mode}\``);
+        expect(await call(mcp, "localstack-iam", { action: "get-enforcement" })).toContain(
           `**Mode:** \`${mode}\``
         );
+        previous = mode;
       }
     } finally {
-      await callRaw(mcp, tool, { action: "set-iam-mode", mode: "DISABLED" });
+      await callRaw(mcp, "localstack-iam-management", {
+        action: "set-enforcement",
+        mode: "DISABLED",
+      });
     }
+  });
+
+  // xmcp drops parameters a tool does not declare; one declared for another action is rejected by the handler.
+  test("iam: rejects a parameter of another action over stdio", async ({ mcp }) => {
+    const result = await callRaw(mcp, "localstack-iam", {
+      action: "list-denials",
+      policy_key: "p1",
+    });
+    expect(result.isError, result.text).toBe(true);
+    expect(result.text).toContain("`get-event-policy`");
   });
 
   // A user without policies lists queues. App Inspector (enabled above) records the denial in SOFT_MODE, without blocking it, so
   // the IAM actions have something to list, explain and derive a policy from.
-  test("app-inspector: lists, explains and derives a policy from an IAM denial", async ({
-    mcp,
-  }) => {
-    const tool = "localstack-app-inspector";
+  test("iam: lists, explains, checks for new denials and derives a policy", async ({ mcp }) => {
+    const tool = "localstack-iam";
     const user = `${PREFIX}-iam-${process.env.GITHUB_RUN_ID ?? Date.now()}`;
     let accessKeyId;
     try {
       // DISABLED (the mode the previous test leaves) turns the IAM engine off, so nothing would be recorded.
       // SOFT_MODE records denials without blocking any request.
-      await call(mcp, tool, { action: "set-iam-mode", mode: "SOFT_MODE" });
-      await call(mcp, tool, { action: "reset-auto-derived-iam-policies" });
-      expect(await call(mcp, tool, { action: "get-auto-derived-iam-policies" })).toContain(
-        "No policies recorded yet"
+      await call(mcp, "localstack-iam-management", {
+        action: "set-enforcement",
+        mode: "SOFT_MODE",
+      });
+      await call(mcp, "localstack-iam-management", { action: "reset-derived-policies" });
+      expect(await call(mcp, tool, { action: "get-derived-policies" })).toContain(
+        "No policies derived yet"
       );
 
       await call(mcp, "localstack-aws-client", { command: `iam create-user --user-name ${user}` });
@@ -156,7 +180,7 @@ test.describe("tools against a running LocalStack", () => {
       await expect
         .poll(
           async () => {
-            denials = await call(mcp, tool, { action: "list-iam-denials" });
+            denials = await call(mcp, tool, { action: "list-denials" });
             return denials;
           },
           { timeout: 30_000 }
@@ -165,26 +189,44 @@ test.describe("tools against a running LocalStack", () => {
       const row = denials.split("\n").find((line) => line.includes(user));
       const eventId = row.match(/^\| (\w+) \|/)?.[1];
       expect(eventId, row).toBeTruthy();
+      const newerThan = denials.match(/keep `newer_than` `([^`]+)`/)?.[1];
+      expect(newerThan, denials).toBeTruthy();
 
-      const explanation = await call(mcp, tool, { action: "explain-iam", event_id: eventId });
+      const explanation = await call(mcp, tool, { action: "explain-denial", event_id: eventId });
       expect(explanation).toContain("sqs:ListQueues");
       expect(explanation).toContain(`user/${user}`);
-      expect(explanation).toContain("Event payload (as LocalStack sent it)");
+      expect(explanation).not.toContain("Event payload (as LocalStack sent it)");
+      const full = await call(mcp, tool, {
+        action: "explain-denial",
+        event_id: eventId,
+        detail: "full",
+      });
+      expect(full).toContain("Event payload (as LocalStack sent it)");
 
       // A key the event does not have reaches the policy route and comes back as its documented error.
       const policy = await callRaw(mcp, tool, {
-        action: "get-iam-policy",
+        action: "get-event-policy",
         event_id: eventId,
         policy_key: "p999",
       });
       expect(policy.isError, policy.text).toBe(true);
       expect(policy.text).toContain("policy_not_in_event");
 
+      // Nothing denied since: LocalStack's backward cursor returns no rows, and the cursor is kept.
+      const none = await call(mcp, tool, { action: "list-denials", newer_than: newerThan });
+      expect(none).toContain("No denials since the previous call.");
+      expect(none).toContain(`keep \`newer_than\` \`${newerThan}\``);
+      // A new denial is returned under the same cursor.
+      await listQueuesAs(accessKeyId);
       await expect
-        .poll(async () => call(mcp, tool, { action: "get-auto-derived-iam-policies" }), {
+        .poll(async () => call(mcp, tool, { action: "list-denials", newer_than: newerThan }), {
           timeout: 30_000,
         })
-        .toContain("sqs:ListQueues");
+        .toContain("## New IAM Denials (1)");
+
+      await expect
+        .poll(async () => call(mcp, tool, { action: "get-derived-policies" }), { timeout: 30_000 })
+        .toContain(user);
     } finally {
       if (accessKeyId) {
         await callRaw(mcp, "localstack-aws-client", {
@@ -194,7 +236,10 @@ test.describe("tools against a running LocalStack", () => {
       await callRaw(mcp, "localstack-aws-client", {
         command: `iam delete-user --user-name ${user}`,
       });
-      await callRaw(mcp, tool, { action: "set-iam-mode", mode: "DISABLED" });
+      await callRaw(mcp, "localstack-iam-management", {
+        action: "set-enforcement",
+        mode: "DISABLED",
+      });
     }
   });
 
@@ -216,10 +261,8 @@ test.describe("tools against a running LocalStack", () => {
         await call(mcp, tool, { action: "set-mode", mode });
         const status = await call(mcp, tool, { action: "get-status" });
         expect(status).toContain(`**Current Mode:** \`${mode}\``);
-        // every response recommends the app-inspector action for the same job
-        expect(status).toContain(
-          "**Recommended:** `localstack-app-inspector` with action `get-iam-mode`"
-        );
+        // every successful response recommends the IAM tool action for the same job
+        expect(status).toContain("**Recommended:** `localstack-iam` with action `get-enforcement`");
       }
     } finally {
       await callRaw(mcp, tool, { action: "set-mode", mode: "DISABLED" });
