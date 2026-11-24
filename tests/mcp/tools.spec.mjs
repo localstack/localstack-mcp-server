@@ -111,6 +111,16 @@ test.describe("tools against a running LocalStack", () => {
     expect(traces).toMatch(/^\| [0-9a-f]{32} \|/m);
   });
 
+  // xmcp drops parameters a tool does not declare; one declared for another action is rejected by the handler.
+  test("app-inspector: rejects a trace filter on an IAM action over stdio", async ({ mcp }) => {
+    const result = await callRaw(mcp, "localstack-app-inspector", {
+      action: "list-iam-denials",
+      trace_id: "t1",
+    });
+    expect(result.isError, result.text).toBe(true);
+    expect(result.text).toContain("not a parameter of list-iam-denials");
+  });
+
   // ENFORCED, then SOFT_MODE: a set-iam-mode that changes nothing fails one of the two read-backs.
   test("app-inspector: switches the IAM enforcement mode", async ({ mcp }) => {
     const tool = "localstack-app-inspector";
@@ -140,7 +150,7 @@ test.describe("tools against a running LocalStack", () => {
       await call(mcp, tool, { action: "set-iam-mode", mode: "SOFT_MODE" });
       await call(mcp, tool, { action: "reset-auto-derived-iam-policies" });
       expect(await call(mcp, tool, { action: "get-auto-derived-iam-policies" })).toContain(
-        "No policies recorded yet"
+        "No policies derived yet"
       );
 
       await call(mcp, "localstack-aws-client", { command: `iam create-user --user-name ${user}` });
@@ -165,11 +175,19 @@ test.describe("tools against a running LocalStack", () => {
       const row = denials.split("\n").find((line) => line.includes(user));
       const eventId = row.match(/^\| (\w+) \|/)?.[1];
       expect(eventId, row).toBeTruthy();
+      const newerThan = denials.match(/keep `newer_than` `([^`]+)`/)?.[1];
+      expect(newerThan, denials).toBeTruthy();
 
       const explanation = await call(mcp, tool, { action: "explain-iam", event_id: eventId });
       expect(explanation).toContain("sqs:ListQueues");
       expect(explanation).toContain(`user/${user}`);
-      expect(explanation).toContain("Event payload (as LocalStack sent it)");
+      expect(explanation).not.toContain("Event payload (as LocalStack sent it)");
+      const full = await call(mcp, tool, {
+        action: "explain-iam",
+        event_id: eventId,
+        detail: "full",
+      });
+      expect(full).toContain("Event payload (as LocalStack sent it)");
 
       // A key the event does not have reaches the policy route and comes back as its documented error.
       const policy = await callRaw(mcp, tool, {
@@ -180,11 +198,23 @@ test.describe("tools against a running LocalStack", () => {
       expect(policy.isError, policy.text).toBe(true);
       expect(policy.text).toContain("policy_not_in_event");
 
+      // Nothing denied since: LocalStack's backward cursor returns no rows, and the cursor is kept.
+      const none = await call(mcp, tool, { action: "list-iam-denials", newer_than: newerThan });
+      expect(none).toContain("No denials since the previous call.");
+      expect(none).toContain(`keep \`newer_than\` \`${newerThan}\``);
+      // A new denial is returned under the same cursor.
+      await listQueuesAs(accessKeyId);
+      await expect
+        .poll(async () => call(mcp, tool, { action: "list-iam-denials", newer_than: newerThan }), {
+          timeout: 30_000,
+        })
+        .toContain("## New IAM Denials (1)");
+
       await expect
         .poll(async () => call(mcp, tool, { action: "get-auto-derived-iam-policies" }), {
           timeout: 30_000,
         })
-        .toContain("sqs:ListQueues");
+        .toContain(user);
     } finally {
       if (accessKeyId) {
         await callRaw(mcp, "localstack-aws-client", {

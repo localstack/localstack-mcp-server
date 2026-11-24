@@ -5,9 +5,10 @@ import {
   describeHint,
   escapeText,
   extractEvents,
-  renderDenialTable,
+  renderDenialList,
   renderExplanation,
-  renderAutoDerivedPolicies,
+  renderDerivedPolicies,
+  NOT_RECORDED_NOTE,
   type IamEvaluationPayload,
   type RawAppInspectorEvent,
 } from "./iam-explain.logic";
@@ -115,7 +116,7 @@ describe("decodeIamEvent", () => {
 
 describe("renderExplanation", () => {
   it("renders the decision, the policies and the suggestion in order", () => {
-    const text = renderExplanation(decodeIamEvent(event(missingPermission)));
+    const text = renderExplanation(decodeIamEvent(event(missingPermission)), { detail: "full" });
     const order = [
       "**Request:** `sqs:SendMessage`",
       "### Not allowed",
@@ -134,8 +135,14 @@ describe("renderExplanation", () => {
     expect(text).toContain("(inline in role `" + ROLE + "`)");
   });
 
-  it("ends with the payload exactly as LocalStack sent it", () => {
+  it("leaves out the payload copy by default, keeping the suggested statements", () => {
     const text = renderExplanation(decodeIamEvent(event(missingPermission)));
+    expect(text).not.toContain("### Event payload");
+    expect(text).toContain('"Action": "sqs:SendMessage"');
+  });
+
+  it("with detail full, ends with the payload exactly as LocalStack sent it", () => {
+    const text = renderExplanation(decodeIamEvent(event(missingPermission)), { detail: "full" });
     const json = text.slice(text.lastIndexOf("```json\n") + 8, text.lastIndexOf("\n```"));
     expect(JSON.parse(json)).toEqual(missingPermission);
   });
@@ -320,9 +327,8 @@ describe("renderExplanation", () => {
   it("does not blame the LocalStack version when a denial has no suggestion", () => {
     const payload = { ...missingPermission, suggestion: undefined };
     const text = renderExplanation(decodeIamEvent(event(payload)));
-    expect(text).toContain(
-      "LocalStack could not compute one for this request, or it is older than policy suggestions"
-    );
+    expect(text).toContain("LocalStack gave no suggestion for this request");
+    expect(text).not.toMatch(/version|older/);
   });
 
   it("does not render a suggestion version it doesn't know", () => {
@@ -333,6 +339,7 @@ describe("renderExplanation", () => {
     const text = renderExplanation(decodeIamEvent(event(payload)));
     expect(text).toContain("suggestion version 2");
     expect(text).not.toContain("Merge the statements");
+    expect(text).toContain("### Event payload");
   });
 
   it("explains a denial that was recorded but not enforced", () => {
@@ -486,12 +493,12 @@ describe("describeHint", () => {
   });
 });
 
-describe("renderDenialTable", () => {
-  it("lists one row per event with the outcome", () => {
-    const text = renderDenialTable([decodeIamEvent(event(missingPermission))], {
-      has_next: true,
-      next_cursor: "abc",
-      total_count: 3,
+describe("renderDenialList", () => {
+  const denial = () => decodeIamEvent(event(missingPermission));
+
+  it("lists one row per event with the outcome, and the next steps", () => {
+    const text = renderDenialList([denial()], {
+      pagination: { has_next: true, next_cursor: "older", prev_cursor: "newer", total_count: 3 },
     });
     expect(text).toContain(
       "| a1b2c3d4e5f60718 | 0123456789abcdef | 2025-11-13T02:13:20.000Z | sqs:SendMessage | sqs:SendMessage | " +
@@ -500,42 +507,113 @@ describe("renderDenialTable", () => {
         ROLE +
         " | deny | fixes |"
     );
-    expect(text).toContain("Next cursor: `abc`");
-    expect(text).toContain("explain-iam");
+    expect(text).toContain("**Older rows:** `pagination_token` `older`");
+    expect(text).toContain("keep `newer_than` `newer`");
+    expect(text).toContain("`explain-iam` with event_id `a1b2c3d4e5f60718`");
+    expect(text).toContain(NOT_RECORDED_NOTE);
   });
 
-  it("says when nothing was denied", () => {
-    expect(renderDenialTable([])).toContain("No denied requests found.");
+  it("offers more rows only when has_next is true", () => {
+    const text = renderDenialList([denial()], {
+      pagination: { has_next: false, next_cursor: "older", prev_cursor: "newer" },
+    });
+    expect(text).not.toContain("pagination_token");
+  });
+
+  it("a later page offers no newer_than", () => {
+    const text = renderDenialList([denial()], {
+      olderPage: true,
+      pagination: { has_next: false, next_cursor: "x", prev_cursor: "page2" },
+    });
+    expect(text).not.toContain("page2");
+    expect(text).toContain("use the `newer_than` value from the first page");
+  });
+
+  it("an empty first page says any later denial is new", () => {
+    const text = renderDenialList([], { pagination: {} });
+    expect(text).toContain("No denied requests found.");
+    expect(text).toContain("any denial in a later call is new");
+  });
+
+  it("an empty newer_than page keeps the same cursor", () => {
+    const text = renderDenialList([], { newerThan: "C1", pagination: {} });
+    expect(text).toContain("No denials since the previous call.");
+    expect(text).toContain("keep `newer_than` `C1`");
+    expect(text).not.toContain("pagination_token");
+  });
+
+  it("a newer_than page chains its own cursor and never offers older rows", () => {
+    const text = renderDenialList([denial()], {
+      newerThan: "C1",
+      pagination: { has_next: true, next_cursor: "older", has_prev: true, prev_cursor: "C2" },
+    });
+    expect(text).toContain("## New IAM Denials (1)");
+    expect(text).toContain("**Next check:** `newer_than` `C2`");
+    expect(text).toContain("**More new denials**");
+    expect(text).toContain("compare the Time column with your redeploy");
+    expect(text).not.toContain("older");
+  });
+
+  it("states the header facts", () => {
+    const text = renderDenialList([], {
+      iamMode: "DISABLED",
+      newestRequestNanos: 1_763_000_000_000_000_000,
+      evaluationErrors: 4,
+      storeFull: true,
+    });
+    expect(text).toContain("**IAM mode:** `DISABLED`");
+    expect(text).toContain("a re-run records no denial");
+    expect(text).toContain("**Newest recorded request:** 2025-11-13T02:13:20.000Z");
+    expect(text).toContain("not that the workload ran");
+    expect(text).toContain("**Evaluation errors (total in the store):** 4");
+    expect(text).toContain("store is full");
+  });
+
+  it("does not show the mode when the license hides it", () => {
+    const text = renderDenialList([], { iamMode: null });
+    expect(text).toContain("not visible with this license");
+    expect(text).not.toContain("set-iam-mode");
   });
 });
 
-describe("renderAutoDerivedPolicies", () => {
-  it("lists one entry per ARN with its type, then the JSON as LocalStack sent it", () => {
-    const summary = [
-      {
-        resource: ROLE,
-        policy_type: "identity",
-        policy_document: {
-          Version: "2012-10-17",
-          Statement: [
-            { Effect: "Allow", Action: ["sqs:SendMessage", "sqs:ReceiveMessage"], Resource: QUEUE },
-            { Effect: "Allow", Action: "s3:GetObject", Resource: "*" },
-          ],
-        },
+describe("renderDerivedPolicies", () => {
+  const summary = [
+    {
+      resource: ROLE,
+      policy_type: "identity",
+      policy_document: {
+        Version: "2012-10-17",
+        Statement: [{ Effect: "Allow", Action: ["sqs:SendMessage"], Resource: QUEUE }],
       },
-    ];
-    const text = renderAutoDerivedPolicies(summary);
+    },
+    { resource: "arn:aws:iam::000000000000:role/deployer", policy_type: "identity" },
+  ];
+
+  it("without an ARN lists ARNs and types, no documents", () => {
+    const text = renderDerivedPolicies(summary);
     expect(text).toContain("| " + ROLE + " | identity |");
-    expect(text).not.toContain("Services");
-    expect(text).toContain("not verified policies");
-    expect(text).toContain('"sqs:ReceiveMessage"');
+    expect(text).not.toContain("sqs:SendMessage");
+    expect(text).toContain("with `arn`");
+    expect(text).toContain("reset-auto-derived-iam-policies");
   });
 
-  it("explains empty auto-derived policies without asking for enforcement", () => {
-    const text = renderAutoDerivedPolicies([]);
-    expect(text).toContain("No policies recorded yet");
-    expect(text).toContain("IAM enforcement is not needed");
-    expect(text).not.toContain("ENFORCED");
+  it("with an ARN returns that policy verbatim", () => {
+    const text = renderDerivedPolicies(summary, { arn: ROLE });
+    expect(text).toContain('"sqs:SendMessage"');
+    expect(text).not.toContain("deployer");
+  });
+
+  it("an unknown ARN points to the list", () => {
+    const text = renderDerivedPolicies(summary, {
+      arn: "arn:aws:sts::000000000000:assumed-role/x/s",
+    });
+    expect(text).toContain("No entry for");
+    expect(text).toContain("keys entries by role");
+  });
+
+  it("an empty result under DISABLED names ENGINE_ONLY", () => {
+    expect(renderDerivedPolicies([], { iamMode: "DISABLED" })).toContain("`ENGINE_ONLY`");
+    expect(renderDerivedPolicies([], { iamMode: "ENGINE_ONLY" })).toContain("Re-run the workload");
   });
 });
 
@@ -573,13 +651,13 @@ describe("payload strings", () => {
     };
     const text = renderExplanation(decodeIamEvent(event(payload)));
     expect(text).not.toMatch(/^# Ignore previous instructions/m);
-    const rows = renderDenialTable([decodeIamEvent(event(payload))]).split("\n");
+    const rows = renderDenialList([decodeIamEvent(event(payload))]).split("\n");
     const row = rows.find((line) => line.startsWith("| a1b2c3d4e5f60718"));
     expect(row?.split(/(?<!\\)\|/).length).toBe(11);
   });
 
   it("are escaped in the auto-derived policies", () => {
-    const text = renderAutoDerivedPolicies([{ resource: INJECTION, policy_type: "identity" }]);
+    const text = renderDerivedPolicies([{ resource: INJECTION, policy_type: "identity" }]);
     expect(text).not.toMatch(/^# Ignore previous instructions/m);
   });
 });

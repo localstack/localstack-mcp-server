@@ -281,41 +281,51 @@ what is missing instead of returning an empty answer.
    that were recorded but not enforced. An event's payload holds LocalStack's decisions (which policies allowed or
    denied the request, and at which statements), the policies involved, and for a denial a versioned suggestion of
    what to change and whether that fixes the request. `explain-iam` renders, in this order: the request and its
-   result, the deciding policies, the suggested fix, then the payload as sent. Do not recompute, merge or reorder the changes.
-   A policy the event stored truncated is fetched on demand with `get-iam-policy` (the event policy route), never
-   automatically.
+   result, the deciding policies, the suggested fix. The suggested statements are fenced exactly as sent; the whole
+   payload as sent follows with `detail` `full` (and always when the suggestion can't be rendered). Do not recompute,
+   merge or reorder the changes. A policy the event stored truncated is fetched on demand with `get-iam-policy` (the
+   event policy route), never automatically.
+   - `list-iam-denials` lists denials newest first, across all traces (events carry no trace id, so a trace scope
+     would be ignored; the action takes none). Its header gives the IAM mode, the end time of the newest stored
+     span, the store's evaluation-error count (`iam.policy.error`) and a store-full warning. To check a fix, the first
+     page's footer gives `newer_than` (the page's `prev_cursor`); passed back, LocalStack returns only denials
+     evaluated after that row. The server never filters or cuts LocalStack's results itself. The IAM actions reject a
+     declared parameter of another action (xmcp drops undeclared ones).
    - Without the `localstack.appinspector/view_iam_policy_errors` entitlement, LocalStack hides IAM events and
      returns an empty list. Spans say so (`iam_errors_suppressed`) and the policy route answers 403
-     `not_entitled`, but the event lists don't, so an empty IAM result reads one span of the scope and reports
-     suppression, or else the IAM mode. `/_localstack/licenseinfo` cannot tell: it lists plugins, not
+     `not_entitled`, but the event lists don't, so an empty IAM result reads one span and reports suppression before
+     anything else (an unknown event id is reported only after that). `/_localstack/licenseinfo` cannot tell: it lists plugins, not
      entitlements.
-   - A denial without a suggestion means LocalStack could not compute one for that request, or is older than
-     suggestions: say so without blaming the version, and point to the decisions. A suggestion version the server
+   - A denial without a suggestion: say LocalStack gave none, without blaming the version, and point to the
+     decisions. A suggestion version the server
      does not know is shown as JSON only.
-   - App Inspector does not record requests to STS, IAM and CloudWatch Logs, so their denials (a role's trust
-     policy on `sts:AssumeRole`) never appear. An empty result says so.
+   - App Inspector does not record requests to STS, IAM and CloudWatch Logs, nor `sqs:GetQueueUrl`,
+     `sqs:GetQueueAttributes` and `cloudwatch:PutMetricData`, so their denials (a role's trust policy on
+     `sts:AssumeRole`) never appear. Every denial list says so.
 2. **Which policies does the workload need.** `get-auto-derived-iam-policies`, `reset-auto-derived-iam-policies`. Source: the IAM
-   policy summary (`GET`/`DELETE /_aws/iam/policies/summary`; a 404 means the feature is not licensed or not
-   enabled). It is global to the emulator: there is no per-trace summary
+   policy summary (`GET`/`DELETE /_aws/iam/policies/summary`; the actions check the license's `iam-stream`
+   product first, and a 404 means the feature is not licensed or not available). It is global to the emulator: there is no per-trace summary
    (see [Gaps in LocalStack](#gaps-in-localstack)). Each entry is one policy for one ARN: `resource`,
    `policy_type` (`identity` or `resource`) and `policy_document`. Present it the way App Inspector's Policies view
    does:
-   - one entry per ARN, with its type; LocalStack does not send a display name, services or action count yet (see
-     [Gaps in LocalStack](#gaps-in-localstack)); do not derive them from the ARN or the policy
-   - the policy JSON exactly as sent: a role's trust statement and its permissions stay in one policy
+   - without `arn`, one entry per ARN, with its type and no documents; LocalStack does not send a display name,
+     services or action count yet (see [Gaps in LocalStack](#gaps-in-localstack)); do not derive them from the ARN
+     or the policy
+   - with `arn`, that policy JSON exactly as sent: a role's trust statement and its permissions stay in one policy
    - always labelled as a suggestion, derived from the requests seen since the last reset, not as a verified policy
 3. **How do the deployed policies differ from what the workload needs.** For each ARN in the summary: the
    permissions to add, and the granted permissions the run never used. This compares policy documents, so
    LocalStack computes it (rule 5). LocalStack does not offer it yet (see [Gaps in LocalStack](#gaps-in-localstack)),
    so the tool does not either.
 
-The enforcement mode has its own actions (`get-iam-mode`, `set-iam-mode`, through `/_aws/iam/config`;
-`set-iam-mode` shows the mode LocalStack reports afterwards). Enforcement is not needed to record denials: with App
-Inspector enabled and enforcement off, `/_aws/iam/config` reports `ENGINE_ONLY` (a documented state), App Inspector
-records denials without blocking them, and the auto-derived IAM policies grow. Setting `DISABLED` explicitly turns the
-engine off, and then nothing is recorded, even with App Inspector enabled. `ENFORCED` makes denials fail the
-request; `SOFT_MODE` keeps them passing and records them. Never tell a user to switch on `ENFORCED` just to see
-denials, since it can break a workload that worked: point to `SOFT_MODE`.
+The enforcement mode has its own actions (`get-iam-mode`, `set-iam-mode`, through `/_aws/iam/config`), with four
+states: `ENFORCED`, `SOFT_MODE`, `ENGINE_ONLY`, `DISABLED`. `set-iam-mode` reads the mode first, writes, reads it back,
+and reports `<old> → <new>`, the call that restores the old mode and a fixed note for the new one; setting the current
+mode writes nothing. Enforcement is not needed to record denials: when App Inspector goes from disabled to enabled,
+LocalStack moves `DISABLED` to `ENGINE_ONLY`, which records denials without blocking them. Setting `DISABLED` while
+App Inspector is enabled stays `DISABLED`, and then nothing is recorded; the tool then points to `ENGINE_ONLY`. Never
+tell a user to switch on `ENFORCED` just to see denials, since it can break a workload that worked. Disabling App
+Inspector and enabling it again deletes what it recorded, unless persistence is on (`set-status` says so).
 
 Render every payload string escaped (REVIEW §7): an ARN, a resource name or an error message must not be able to
 close a code fence, break a table, or leave its fence or cell.
@@ -337,11 +347,13 @@ row once it ships.
 | Compare suggested policies with deployed ones: permissions to add and permissions granted but unused, per ARN | Not implemented. | IAM job 3 |
 | Document App Inspector's status route (`GET`/`PUT /_localstack/appinspector/status`) in its OpenAPI spec | Not in `/_localstack/appinspector/v1/openapi.yaml`. lstk's `inspect` command uses it too. | `get-status`, `set-status` (allowed under the rule 4 exception) |
 | Presentation fields for IAM: a display name, the services and the action count per policy summary entry; the principal kind (ARN, service, account) on suggestion hints; the statements a decision names, resolved | Not implemented. Until it ships, show the ARN, the type and the policy JSON, name statement positions without resolving them, and word hints for any kind of caller. | `explain-iam`, `get-auto-derived-iam-policies` |
-| Let a client record denials without enforcing them after setting `DISABLED`: make `ENGINE_ONLY` settable, or fall back to it while App Inspector is enabled | `DISABLED` turns the IAM engine off even with App Inspector enabled. Until then, tools point to `SOFT_MODE`. | `set-iam-mode`, `get-iam-mode` |
-| Record IAM denials of the services App Inspector ignores (STS, IAM, CloudWatch Logs), or expose the ignore list | A denied `sts:AssumeRole` (a trust policy problem) is never listed. Until then, an empty result names the ignored services. | `list-iam-denials` |
+| List one run's denials: a trace filter on the events routes (events carry no trace id) | Not implemented. Until then, `list-iam-denials` lists all traces and offers `newer_than` for new denials only. | `list-iam-denials` |
+| Say whether App Inspector's span store is full (`is_full` on the spans page) | Not implemented: the server compares `total_count` with the smaller numeric limit (known deviation). | `list-iam-denials` |
+| Exact tie-breaking in the events' backward cursor | A denial sharing the newest row's timestamp can appear again under `newer_than`. | `list-iam-denials` |
+| Record IAM denials of the services and operations App Inspector ignores, or expose the ignore list | A denied `sts:AssumeRole` (a trust policy problem) is never listed. Until then, every denial list names them. | `list-iam-denials` |
 | A stable kind per policy summary entry, or per statement: a role's trust statements and its permissions arrive in one document, typed by whichever request came first | Not implemented. Until then, the response explains that statements with a `Principal` are a role's trust policy. | `get-auto-derived-iam-policies` |
 | Remedy fields on suggestion entries: whether an emptied policy is detached or deleted, and why a new policy is created | Not implemented. Until then, `explain-iam` names both (detach, or delete if inline or resource-based) unless `replace_with_copy` says the policy is AWS-managed, and shows `new_policy.type` as sent. | `explain-iam` |
-| A reason when an IAM denial has no suggestion | Not implemented: computing the suggestion can fail and drop it. Until then, the response names both possible causes. | `explain-iam` |
+| A reason when an IAM denial has no suggestion | Not implemented: computing the suggestion can fail and drop it. Until then, the response says LocalStack gave none, without naming a cause. | `explain-iam` |
 | Document `GET /_localstack/licenseinfo`, or name the documented way to tell whether a licensed feature is available | In none of the emulator's specs and not in the docs. Whether a LocalStack client depends on it is unverified: lstk and the App Inspector UI don't. | `requireProFeature` in every Pro tool. The rule 4 exception does not cover it, since no LocalStack client is known to depend on it; see [Known deviations](#known-deviations). |
 | A failed-requests summary in App Inspector: failed spans grouped by service, operation, HTTP status and AWS error code, with counts, first and last time, and an example trace and span | Not implemented. | `lstk mcp`'s `localstack-app-inspector` `failed-requests`, planned (an approved exception, see [Follow-ups](#follow-ups)) |
 
@@ -377,6 +389,7 @@ under [Follow-ups](#follow-ups) until it lands.
 | `src/tools/`, `src/lib/` | Most tools render LocalStack and workload strings (names, outputs, log lines, error text) into markdown tables, text and fixed code fences unescaped (REVIEW §7). `list-iam-events` answers "No events found." when the license hides IAM events, instead of explaining it ("IAM policies"). | Escape them, and size code fences to their content (REVIEW §7); explain hidden IAM events. |
 | `.github/workflows/ci.yml` | `audit-ci --skip-dev` skips the devDependencies that are bundled into `dist/` and run in production, and nothing audits the `docker/tools/` lockfiles. | Audit what ships: the bundled packages and the image's lockfiles. |
 | `.github/workflows/docker.yml` | Its path filter misses files the image build reads (`patches/`, `xmcp.config.ts`, `tsconfig*.json`), so a change to them is not built or tested as an image. | Filter on everything the `Dockerfile` copies. |
+| `src/lib/iam/iam-actions.logic.ts` (`spanStoreFull`) | Decides whether App Inspector's span store is full by comparing `total_count` with the smaller numeric limit (rule 5; approved in the add-iam-tools review). | LocalStack's `is_full` (see [Gaps in LocalStack](#gaps-in-localstack)). |
 | `src/lib/localstack/license-checker.ts` | Calls `GET /_localstack/licenseinfo`, which is not documented and not covered by the rule 4 exception. | The documented way LocalStack names (see [Gaps in LocalStack](#gaps-in-localstack)). |
 | `data/sample-terraform/` | The AWS provider has only a version constraint, no lockfile, and no Dependabot entry; CI downloads it with secrets in the job's environment. | A committed `.terraform.lock.hcl` and a `terraform` Dependabot entry ("Dependencies"). |
 | `src/core/command-runner.ts`, `src/tools/localstack-snowflake-client.ts`, `src/core/localstack-env.ts` | Child processes inherit the whole environment (REVIEW §0): `runCommand` spawns without an `env` of its own, the `snow` CLI and `lstk terraform` / `cdk` / `sam` get every variable of the server's environment. | Pass each child only the variables it needs. New callers of `runCommand` pass an explicit `env` (REVIEW §0). |

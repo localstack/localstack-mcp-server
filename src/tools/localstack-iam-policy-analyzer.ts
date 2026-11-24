@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { LocalStackLogRetriever, type LogEntry } from "../lib/logs/log-retriever";
-import { ProFeature } from "../lib/localstack/license-checker";
+import { ProFeature, checkProFeature } from "../lib/localstack/license-checker";
 import { httpClient, HttpError } from "../core/http-client";
 import { IAM_CONFIG_ENDPOINT } from "../core/config";
 import {
@@ -54,12 +54,19 @@ export default async function localstackIamPolicyAnalyzer({
   action,
   mode,
 }: InferSchema<typeof schema>) {
-  return withToolAnalytics("localstack-iam-policy-analyzer", { action, mode }, async () =>
-    withRecommendation(action, await runAction(action, mode))
-  );
+  return withToolAnalytics("localstack-iam-policy-analyzer", { action, mode }, async () => {
+    const response = await runAction(action, mode);
+    // No pointer on errors, so an agent is never sent back and forth; the App Inspector-based actions only when licensed
+    if ((response as { isError?: boolean }).isError) return response;
+    if (action === "analyze-policies") {
+      const license = await checkProFeature(ProFeature.APP_INSPECTOR);
+      if (!license.isSupported) return response;
+    }
+    return withRecommendation(action, response);
+  });
 }
 
-/** The `localstack-app-inspector` action recommended for the job of each action */
+/** The IAM tool action recommended for the job of each action */
 export const RECOMMENDED_ALTERNATIVES: Record<string, string> = {
   "get-status": "`localstack-app-inspector` with action `get-iam-mode`",
   "set-mode": "`localstack-app-inspector` with action `set-iam-mode`",

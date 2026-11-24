@@ -121,7 +121,7 @@ Use the LocalStack MCP tools instead of guessing:
 - \`localstack-app-inspector\` for traces, spans, events, and IAM evaluation evidence.
 - \`localstack-logs-analysis\` for container errors around deploy or test windows.
 - \`localstack-docs\` for service coverage and LocalStack-specific limitations.
-- \`localstack-app-inspector\` IAM actions for AccessDenied: \`list-iam-denials\`, then \`explain-iam\` for the deciding policies and LocalStack's suggested fix; \`get-auto-derived-iam-policies\` for least-privilege policies derived from a run; \`get-iam-mode\` / \`set-iam-mode\` for enforcement. Prefer them over \`localstack-iam-policy-analyzer\`, which parses LocalStack's log.
+- \`localstack-app-inspector\` IAM actions for AccessDenied: \`list-iam-denials\`, then \`explain-iam\` for the deciding policies and LocalStack's suggested fix; after a fix, \`list-iam-denials\` with \`newer_than\`; \`get-auto-derived-iam-policies\` for least-privilege policies derived from a run; \`get-iam-mode\` / \`set-iam-mode\` for enforcement. Prefer them over \`localstack-iam-policy-analyzer\`, which parses LocalStack's log.
 
 ## Phase 0: Preflight
 

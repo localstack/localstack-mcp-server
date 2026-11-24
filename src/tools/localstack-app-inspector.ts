@@ -1,14 +1,9 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
-import {
-  runPreflights,
-  requireAuthToken,
-  requireLocalStackRunning,
-  requireProFeature,
-} from "../core/preflight";
+import { runPreflights, requireAuthToken, requireLocalStackRunning } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { withToolAnalytics } from "../core/analytics";
-import { ProFeature } from "../lib/localstack/license-checker";
+import { ProFeature, checkProFeature } from "../lib/localstack/license-checker";
 import {
   AppInspectorApiClient,
   IamApiClient,
@@ -16,26 +11,38 @@ import {
   type AppInspectorQuery,
 } from "../lib/localstack/localstack.client";
 import {
+  DATA_NOTE,
+  codeSpan,
   decodeIamEvent,
   extractEvents,
-  renderDenialTable,
+  renderDenialList,
+  renderDerivedPolicies,
   renderExplanation,
-  renderAutoDerivedPolicies,
-  codeSpan,
 } from "../lib/iam/iam-explain.logic";
 import {
+  APP_INSPECTOR_NOT_LICENSED,
   DEFAULT_DENIALS_LIMIT,
-  IAM_CONFIG_UNAVAILABLE,
+  DEFAULT_SPAN_EVALUATIONS_LIMIT,
+  DERIVED_POLICIES_UNAVAILABLE,
   IAM_DENIED_EVENT_NAME,
-  AUTO_DERIVED_POLICIES_UNAVAILABLE,
+  IAM_ERROR_EVENT_NAME,
+  IAM_MODES,
+  LICENSE_HIDES_IAM,
+  MAX_DENIALS_LIMIT,
+  MAX_SPAN_EVALUATIONS_LIMIT,
+  NOTHING_RECORDED,
   eventPolicyError,
   iamErrorsSuppressed,
-  renderEmptyIamNote,
+  newestSpanEnd,
+  renderEnforcementChange,
+  renderEnforcementUnchanged,
   renderErrorBody,
   renderEventPolicy,
   renderIamMode,
   renderNoIamEvaluation,
+  spanStoreFull,
 } from "../lib/iam/iam-actions.logic";
+import { formatEventsError, formatIamConfigError } from "../lib/iam/iam-errors";
 
 export const schema = {
   action: z
@@ -61,8 +68,8 @@ export const schema = {
     ])
     .describe(
       "The App Inspector action to perform. Debugging flow: get-status, set-status to enabled if needed, run the AWS workload, list-traces, list-spans for a trace, then list-events for a span. " +
-        "IAM flow (AccessDenied, permission errors): with App Inspector enabled (get-status, set-status), run the workload, then list-iam-denials, then explain-iam with an event_id for the policies that decided and LocalStack's suggested fix; get-iam-policy fetches a policy the event stored truncated. LocalStack records denials while App Inspector is enabled, unless the IAM mode is DISABLED (get-iam-mode; SOFT_MODE records without blocking); set-iam-mode ENFORCED only makes denials fail the request as on AWS. " +
-        "Least-privilege policies: reset-auto-derived-iam-policies, run the workload, then get-auto-derived-iam-policies for the policies LocalStack derived from the requests it saw."
+        "IAM flow (AccessDenied, permission errors, a request into another account): list-iam-denials, then explain-iam with an event_id for the policies that decided and LocalStack's suggested fix; fix the project's IaC, redeploy, re-run the workload, then list-iam-denials with newer_than (from the first call's footer) for new denials only. get-iam-policy fetches a policy an event stored truncated. get-iam-mode / set-iam-mode read and set the IAM mode (set-iam-mode reports the previous mode and how to restore it). " +
+        "Least-privilege policies: reset-auto-derived-iam-policies, run the workload, then get-auto-derived-iam-policies (without arn: the ARNs; with arn: that policy)."
     ),
   status: z
     .enum(["enabled", "disabled"])
@@ -75,14 +82,14 @@ export const schema = {
     .trim()
     .optional()
     .describe(
-      "Trace ID. Required for get-trace, list-spans, get-span, delete-spans, list-events, get-event, and list-iam-events. For list-spans/list-events/list-iam-events, use '*' to query across all traces. Optional for list-iam-denials (default '*') and explain-iam (with span_id, instead of event_id)."
+      "Trace ID. Required for get-trace, list-spans, get-span, delete-spans, list-events, get-event, and list-iam-events. For list-spans/list-events/list-iam-events, use '*' to query across all traces. Not used by the IAM actions: list-iam-denials has no trace or time filter (use newer_than)."
     ),
   span_id: z
     .string()
     .trim()
     .optional()
     .describe(
-      "Span ID. Required for get-span, list-events, get-event, and list-iam-events. For list-events/list-iam-events, use '*' to query across all spans. Optional for list-iam-denials (default '*'); with trace_id, explain-iam explains every IAM evaluation of the span."
+      "Span ID. Required for get-span, list-events, get-event, and list-iam-events. For list-events/list-iam-events, use '*' to query across all spans. For explain-iam, instead of event_id: every IAM evaluation of the span."
     ),
   event_id: z
     .string()
@@ -99,10 +106,22 @@ export const schema = {
       "Key of a policy in an IAM event's `policies` (e.g. p2), as explain-iam names it. Required for get-iam-policy."
     ),
   mode: z
-    .enum(["ENFORCED", "SOFT_MODE", "DISABLED"])
+    .enum(IAM_MODES)
     .optional()
     .describe(
-      "IAM enforcement mode, required for set-iam-mode. ENFORCED blocks unauthorized requests and records them as denials; SOFT_MODE lets them through and records them; DISABLED turns the IAM engine off, so nothing is evaluated or recorded, even with App Inspector enabled. To see denials without blocking anything, use SOFT_MODE."
+      "IAM enforcement mode, required for set-iam-mode. ENFORCED: denied requests fail, as on AWS. SOFT_MODE: they are allowed and logged. ENGINE_ONLY: evaluated without rejecting or logging; App Inspector still records denials. DISABLED: nothing is evaluated or recorded. Lowering the mode fixes no policy."
+    ),
+  detail: z
+    .enum(["summary", "full"])
+    .optional()
+    .describe(
+      "explain-iam only. summary (default): the deciding policies and LocalStack's suggested statements verbatim. full: also the whole event payload as LocalStack sent it."
+    ),
+  newer_than: z
+    .string()
+    .optional()
+    .describe(
+      "list-iam-denials only: the newer_than token from a first page's footer; returns only denials recorded after that call. Not a time and not a pagination_token."
     ),
   trace_ids: z
     .array(z.string())
@@ -118,7 +137,9 @@ export const schema = {
     .min(1)
     .max(1000)
     .optional()
-    .describe("Maximum number of results to return (1-1000)"),
+    .describe(
+      `Maximum number of results to return (1-1000). list-iam-denials: default ${DEFAULT_DENIALS_LIMIT}, max ${MAX_DENIALS_LIMIT}. explain-iam with span_id: default ${DEFAULT_SPAN_EVALUATIONS_LIMIT}, max ${MAX_SPAN_EVALUATIONS_LIMIT}.`
+    ),
   pagination_token: z.string().optional().describe("Pagination cursor from a previous response"),
   service_name: z
     .string()
@@ -135,7 +156,7 @@ export const schema = {
     .string()
     .optional()
     .describe(
-      "Filter traces or spans by resource ARN. For get-auto-derived-iam-policies, show only the entry of exactly this ARN. This value is not sent to analytics."
+      "Filter traces or spans by resource ARN. For get-auto-derived-iam-policies, return the policy of exactly this ARN (as listed without arn). This value is not sent to analytics."
     ),
   parent_span_id: z.string().optional().describe("Filter traces or spans by parent span ID."),
   status_code: z
@@ -189,12 +210,20 @@ export default async function localstackAppInspector(params: AppInspectorArgs) {
     "localstack-app-inspector",
     buildAppInspectorAnalyticsArgs(params),
     async () => {
-      const preflightError = await runPreflights([
-        requireAuthToken(),
-        requireLocalStackRunning(),
-        requireProFeature(requiredFeature(action)),
-      ]);
+      const invalid = validateIamParams(params);
+      if (invalid) return invalid;
+      const preflightError = await runPreflights([requireAuthToken(), requireLocalStackRunning()]);
       if (preflightError) return preflightError;
+      const feature = requiredFeature(action);
+      const license = await checkProFeature(feature);
+      if (!license.isSupported) {
+        return ResponseBuilder.error(
+          "Feature Not Available",
+          feature === ProFeature.APP_INSPECTOR && IAM_ACTIONS.has(action)
+            ? APP_INSPECTOR_NOT_LICENSED
+            : (license.errorMessage ?? "Not licensed.")
+        );
+      }
 
       const client = new AppInspectorApiClient();
 
@@ -222,19 +251,19 @@ export default async function localstackAppInspector(params: AppInspectorArgs) {
         case "list-iam-events":
           return await handleListIamEvents(client, params);
         case "list-iam-denials":
-          return await handleListIamDenials(client, params);
+          return await handleListDenials(client, params);
         case "explain-iam":
-          return await handleExplainIam(client, params);
+          return await handleExplainDenial(client, params);
         case "get-iam-policy":
-          return await handleGetIamPolicy(client, params);
+          return await handleGetEventPolicy(client, params);
         case "get-auto-derived-iam-policies":
-          return await handleGetAutoDerivedIamPolicies(params);
+          return await handleGetDerivedPolicies(params);
         case "reset-auto-derived-iam-policies":
-          return await handleResetAutoDerivedIamPolicies();
+          return await handleResetDerivedPolicies();
         case "get-iam-mode":
-          return await handleGetIamMode();
+          return await handleGetEnforcement();
         case "set-iam-mode":
-          return await handleSetIamMode(params);
+          return await handleSetEnforcement(params);
         default:
           return ResponseBuilder.error("Unknown action", `Unknown action: ${action}`);
       }
@@ -242,19 +271,107 @@ export default async function localstackAppInspector(params: AppInspectorArgs) {
   );
 }
 
-/**
- * The IAM mode and the auto-derived IAM policies (LocalStack's policy summary) are IAM features (`/_aws/iam`), not App Inspector ones: a license with IAM
- * enforcement but without App Inspector can use them, as it could through the analyzer.
- */
-const IAM_ONLY_ACTIONS = new Set([
-  "get-iam-mode",
-  "set-iam-mode",
-  "get-auto-derived-iam-policies",
-  "reset-auto-derived-iam-policies",
-]);
+/** The IAM actions and the parameters each takes. A declared parameter of another action is rejected (xmcp drops undeclared ones). */
+const IAM_ACTION_PARAMS: Record<string, Array<keyof AppInspectorArgs>> = {
+  "list-iam-denials": ["limit", "pagination_token", "newer_than"],
+  "explain-iam": ["event_id", "span_id", "detail", "limit", "pagination_token"],
+  "get-iam-policy": ["event_id", "policy_key"],
+  "get-auto-derived-iam-policies": ["arn"],
+  "reset-auto-derived-iam-policies": [],
+  "get-iam-mode": [],
+  "set-iam-mode": ["mode"],
+};
+const IAM_ACTIONS = new Set(Object.keys(IAM_ACTION_PARAMS));
 
+/**
+ * The IAM mode is an IAM enforcement feature and the auto-derived policies an IAM Policy Stream one (`/_aws/iam`), not
+ * App Inspector ones: a license without App Inspector can use them, as it could through the analyzer.
+ */
 function requiredFeature(action: AppInspectorArgs["action"]): ProFeature {
-  return IAM_ONLY_ACTIONS.has(action) ? ProFeature.IAM_ENFORCEMENT : ProFeature.APP_INSPECTOR;
+  switch (action) {
+    case "get-iam-mode":
+    case "set-iam-mode":
+      return ProFeature.IAM_ENFORCEMENT;
+    case "get-auto-derived-iam-policies":
+    case "reset-auto-derived-iam-policies":
+      return ProFeature.IAM_STREAM;
+    default:
+      return ProFeature.APP_INSPECTOR;
+  }
+}
+
+export function validateIamParams(params: AppInspectorArgs) {
+  const allowed = IAM_ACTION_PARAMS[params.action];
+  if (!allowed) return null;
+  for (const key of Object.keys(params) as Array<keyof AppInspectorArgs>) {
+    if (key === "action" || params[key] === undefined || allowed.includes(key)) continue;
+    const owners = Object.entries(IAM_ACTION_PARAMS)
+      .filter(([, keys]) => keys.includes(key))
+      .map(([name]) => `\`${name}\``);
+    return ResponseBuilder.error(
+      "Invalid Parameter",
+      `\`${key}\` is not a parameter of ${params.action}${owners.length ? `; it belongs to ${owners.join(", ")}` : ""}.`
+    );
+  }
+  switch (params.action) {
+    case "list-iam-denials":
+      if (params.pagination_token && params.newer_than) {
+        return ResponseBuilder.error(
+          "Invalid Parameters",
+          "Pass `pagination_token` (older rows) or `newer_than` (new denials), not both."
+        );
+      }
+      if (params.limit !== undefined && params.limit > MAX_DENIALS_LIMIT) {
+        return ResponseBuilder.error(
+          "Invalid Parameter",
+          `\`limit\` for list-iam-denials is at most ${MAX_DENIALS_LIMIT}.`
+        );
+      }
+      break;
+    case "explain-iam":
+      if (params.event_id && params.span_id) {
+        return ResponseBuilder.error(
+          "Invalid Parameters",
+          "explain-iam takes `event_id` or `span_id`, not both."
+        );
+      }
+      if (!params.event_id && !params.span_id) {
+        return ResponseBuilder.error(
+          "Missing Parameter",
+          "explain-iam needs `event_id` (from list-iam-denials) or `span_id`."
+        );
+      }
+      if (params.event_id && (params.limit !== undefined || params.pagination_token)) {
+        return ResponseBuilder.error(
+          "Invalid Parameters",
+          "`limit` and `pagination_token` apply to explain-iam with `span_id` only."
+        );
+      }
+      if (params.limit !== undefined && params.limit > MAX_SPAN_EVALUATIONS_LIMIT) {
+        return ResponseBuilder.error(
+          "Invalid Parameter",
+          `\`limit\` for explain-iam is at most ${MAX_SPAN_EVALUATIONS_LIMIT}.`
+        );
+      }
+      break;
+    case "get-iam-policy":
+      if (!params.event_id || !params.policy_key) {
+        return ResponseBuilder.error(
+          "Missing Parameter",
+          "`event_id` and `policy_key` are required for get-iam-policy (explain-iam names both)."
+        );
+      }
+      break;
+    case "set-iam-mode":
+      if (!params.mode) {
+        return ResponseBuilder.error(
+          "Missing Parameter",
+          `\`mode\` is required for set-iam-mode (${IAM_MODES.join(", ")}).`
+        );
+      }
+      break;
+  }
+  return null;
 }
 
 // ─── Status ──────────────────────────────────────────────────────────────────
@@ -406,75 +523,139 @@ async function handleListIamEvents(client: AppInspectorApiClient, params: AppIns
 
 // ─── IAM ─────────────────────────────────────────────────────────────────────
 
-async function handleListIamDenials(client: AppInspectorApiClient, params: AppInspectorArgs) {
-  const traceId = params.trace_id || "*";
-  const spanId = params.span_id || "*";
-  const result = await client.listIamEvents(traceId, spanId, {
+// IAM probes ──────────────────────────────────────────────────────────────────
+
+interface SpanProbe {
+  suppressed: boolean;
+  recorded: boolean;
+  newest?: number | string;
+  storeFull: boolean;
+}
+
+/** One span from the store: licence suppression, whether anything is recorded, the newest request, store fill */
+async function probeSpans(client: AppInspectorApiClient): Promise<SpanProbe | undefined> {
+  const spans = await client.listSpans("*", { limit: 1 });
+  if (!spans.success) return undefined;
+  const list = (spans.data?.spans ?? []) as unknown[];
+  return {
+    suppressed: iamErrorsSuppressed(spans.data),
+    recorded: list.length > 0,
+    newest: newestSpanEnd(spans.data),
+    storeFull: spanStoreFull(spans.data),
+  };
+}
+
+/** The IAM mode, or null when the license does not show it (`/_aws/iam/config` needs IAM enforcement) */
+async function readIamMode(): Promise<string | null | undefined> {
+  const license = await checkProFeature(ProFeature.IAM_ENFORCEMENT);
+  if (!license.isSupported) return null;
+  const config = await new IamApiClient().getConfig();
+  return config.success ? (config.data?.state ?? undefined) : undefined;
+}
+
+async function countEvaluationErrors(client: AppInspectorApiClient): Promise<number | undefined> {
+  const result = await client.listIamEvents("*", "*", { limit: 1, name: IAM_ERROR_EVENT_NAME });
+  if (!result.success) return undefined;
+  const total = result.data?.pagination?.total_count;
+  return typeof total === "number" ? total : undefined;
+}
+
+// ─── Actions ─────────────────────────────────────────────────────────────────
+
+async function handleListDenials(client: AppInspectorApiClient, params: AppInspectorArgs) {
+  const result = await client.listIamEvents("*", "*", {
     limit: params.limit ?? DEFAULT_DENIALS_LIMIT,
-    pagination_token: params.pagination_token,
+    pagination_token: params.newer_than ?? params.pagination_token,
     name: IAM_DENIED_EVENT_NAME,
   });
-  if (!result.success) return formatAppInspectorApiError(result);
+  if (!result.success) return formatEventsError(result);
   const events = extractEvents(result.data).map(decodeIamEvent);
-  let response = renderDenialTable(events, result.data?.pagination);
-  if (events.length === 0) response += await explainEmptyIamResult(client, traceId);
+  const [probe, iamMode, evaluationErrors] = await Promise.all([
+    probeSpans(client),
+    readIamMode(),
+    countEvaluationErrors(client),
+  ]);
+  let response = renderDenialList(events, {
+    pagination: result.data?.pagination,
+    newerThan: params.newer_than,
+    olderPage: Boolean(params.pagination_token),
+    iamMode,
+    newestRequestNanos: probe?.newest,
+    evaluationErrors,
+    storeFull: probe?.storeFull,
+  });
+  if (events.length === 0 && probe?.suppressed) response += `\n\n${LICENSE_HIDES_IAM}`;
+  else if (events.length === 0 && probe && !probe.recorded) response += `\n\n${NOTHING_RECORDED}`;
   return ResponseBuilder.markdown(response);
 }
 
-async function handleExplainIam(client: AppInspectorApiClient, params: AppInspectorArgs) {
-  let query: AppInspectorQuery;
-  let traceId = "*";
-  let spanId = "*";
-  if (params.event_id) {
-    query = { event_id: params.event_id };
-  } else if (params.trace_id && params.span_id) {
-    traceId = params.trace_id;
-    spanId = params.span_id;
-    query = { limit: params.limit ?? 20, pagination_token: params.pagination_token };
-  } else {
-    return ResponseBuilder.error(
-      "Missing Parameter",
-      "explain-iam needs `event_id` (from list-iam-denials), or `trace_id` and `span_id`."
-    );
-  }
-  const result = await client.listIamEvents(traceId, spanId, query);
-  if (!result.success) return formatAppInspectorApiError(result);
+async function handleExplainDenial(client: AppInspectorApiClient, params: AppInspectorArgs) {
+  const spanId = params.span_id ?? "*";
+  const query = params.event_id
+    ? { event_id: params.event_id }
+    : {
+        limit: params.limit ?? DEFAULT_SPAN_EVALUATIONS_LIMIT,
+        pagination_token: params.pagination_token,
+      };
+  const result = await client.listIamEvents("*", spanId, query);
+  if (!result.success) return formatEventsError(result);
   const events = extractEvents(result.data).map(decodeIamEvent);
   if (events.length === 0) {
-    return ResponseBuilder.markdown(
-      renderNoIamEvaluation({ eventId: params.event_id, spanId }) +
-        (await explainEmptyIamResult(client, traceId))
-    );
+    // Licence suppression and an empty store come before "unknown event"
+    const probe = await probeSpans(client);
+    if (probe?.suppressed)
+      return ResponseBuilder.markdown(`## IAM Evaluation\n\n${LICENSE_HIDES_IAM}`);
+    if (probe && !probe.recorded) {
+      return ResponseBuilder.markdown(`## IAM Evaluation\n\n${NOTHING_RECORDED}`);
+    }
+    const message = renderNoIamEvaluation({ eventId: params.event_id, spanId: params.span_id });
+    return params.event_id
+      ? ResponseBuilder.error("IAM Event Not Found", message.replace(/^## IAM Evaluation\n\n/, ""))
+      : ResponseBuilder.markdown(message);
   }
+  const detail = params.detail ?? "summary";
   const compactPayload = events.length > 1;
   let response = events
-    .map((event) => renderExplanation(event, { compactPayload }))
+    .map((event) => renderExplanation(event, { compactPayload, detail }))
     .join("\n\n---\n\n");
   const pagination = result.data?.pagination;
-  const next = pagination?.next_cursor;
-  if (!params.event_id && pagination?.has_next === true && next) {
-    response += `\n\n**More IAM evaluations in this span:** call \`explain-iam\` again with \`pagination_token\` ${codeSpan(next)}.`;
+  if (params.span_id && pagination?.has_next === true && pagination.next_cursor) {
+    response += `\n\n**More IAM evaluations in this span** (${events.length} shown): call \`explain-iam\` again with \`pagination_token\` ${codeSpan(pagination.next_cursor)}.`;
   }
+  if (detail === "summary") {
+    response +=
+      "\n\nFor the whole event payload as LocalStack sent it, call again with `detail` `full`.";
+  }
+  response += `\n\n${DATA_NOTE}`;
   return ResponseBuilder.markdown(response);
 }
 
-async function handleGetIamPolicy(client: AppInspectorApiClient, params: AppInspectorArgs) {
-  if (!params.event_id || !params.policy_key) {
-    return ResponseBuilder.error(
-      "Missing Parameter",
-      "`event_id` and `policy_key` are required for get-iam-policy (explain-iam names both)."
-    );
+async function handleGetEventPolicy(client: AppInspectorApiClient, params: AppInspectorArgs) {
+  const result = await client.getEventPolicy(params.event_id!, params.policy_key!);
+  if (!result.success) {
+    const known = eventPolicyError(result.message);
+    if (known) return ResponseBuilder.error(`Policy Not Available (${known.code})`, known.message);
+    return formatEventsError(result);
   }
-  const result = await client.getEventPolicy(params.event_id, params.policy_key);
-  if (!result.success) return formatEventPolicyError(result);
   return ResponseBuilder.markdown(
-    renderEventPolicy(params.event_id, params.policy_key, result.data?.documents)
+    renderEventPolicy(params.event_id!, params.policy_key!, result.data?.documents)
   );
 }
 
-async function handleGetAutoDerivedIamPolicies(params: AppInspectorArgs) {
+async function handleGetDerivedPolicies(params: AppInspectorArgs) {
   const result = await new IamApiClient().getPolicySummary();
-  if (!result.success) return formatAutoDerivedPoliciesError(result);
+  if (!result.success) {
+    if (result.statusCode === 404) {
+      return ResponseBuilder.error(
+        "Auto-derived IAM Policies Not Available",
+        DERIVED_POLICIES_UNAVAILABLE
+      );
+    }
+    return ResponseBuilder.error(
+      result.statusCode ? `HTTP ${result.statusCode}` : "IAM API Error",
+      renderErrorBody(result.message)
+    );
+  }
   let data: unknown = result.data;
   if (typeof data === "string") {
     try {
@@ -486,91 +667,64 @@ async function handleGetAutoDerivedIamPolicies(params: AppInspectorArgs) {
       );
     }
   }
-  return ResponseBuilder.markdown(renderAutoDerivedPolicies(data, params.arn));
+  const iamMode = Array.isArray(data) && data.length === 0 ? await readIamMode() : undefined;
+  return ResponseBuilder.markdown(renderDerivedPolicies(data, { arn: params.arn, iamMode }));
 }
 
-async function handleResetAutoDerivedIamPolicies() {
-  const result = await new IamApiClient().resetPolicySummary();
-  if (!result.success) return formatAutoDerivedPoliciesError(result);
-  return ResponseBuilder.markdown(
-    "## Auto-derived IAM Policies Reset\n\nCleared the auto-derived policies. Run the workload, then use `get-auto-derived-iam-policies`."
-  );
-}
-
-async function handleGetIamMode() {
+async function handleGetEnforcement() {
   const result = await new IamApiClient().getConfig();
   if (!result.success) return formatIamConfigError(result);
   return ResponseBuilder.markdown(renderIamMode(result.data?.state ?? "UNKNOWN"));
 }
 
-async function handleSetIamMode(params: AppInspectorArgs) {
-  if (!params.mode) {
+async function handleSetEnforcement(params: AppInspectorArgs) {
+  if (!params.mode!) {
     return ResponseBuilder.error(
       "Missing Parameter",
-      "`mode` is required for set-iam-mode (ENFORCED, SOFT_MODE or DISABLED)."
+      `\`mode\` is required for set-iam-mode (${IAM_MODES.join(", ")}).`
     );
   }
   const client = new IamApiClient();
-  const result = await client.setMode(params.mode);
+  const before = await client.getConfig();
+  if (!before.success) return formatIamConfigError(before);
+  const old = before.data?.state ?? "UNKNOWN";
+  if (old.toUpperCase() === params.mode!) {
+    return ResponseBuilder.markdown(renderEnforcementUnchanged(old));
+  }
+  const result = await client.setMode(params.mode!);
   if (!result.success) return formatIamConfigError(result);
-  // Show the mode LocalStack reports now, not the one requested
-  const config = await client.getConfig();
-  if (!config.success) {
+  // Report the mode LocalStack reports now, not the one requested
+  const after = await client.getConfig();
+  if (!after.success) {
     return ResponseBuilder.markdown(
-      `## IAM Enforcement Updated\n\nLocalStack accepted mode ${codeSpan(params.mode)}, but reading it back failed. Use \`get-iam-mode\` to check.`
+      `## IAM Enforcement Updated\n\nLocalStack accepted mode \`${params.mode}\`, but reading it back failed. Use \`localstack-app-inspector\` \`get-iam-mode\` to check. To restore: \`set-iam-mode\` with mode \`${old}\`.`
     );
   }
-  return ResponseBuilder.markdown(renderIamMode(config.data?.state ?? "UNKNOWN", true));
-}
-
-/**
- * Why an IAM query came back empty. A license without IAM error visibility hides IAM events without saying so; only
- * spans carry `iam_errors_suppressed`, so one span of the scope tells. Otherwise the IAM mode may be off.
- */
-async function explainEmptyIamResult(
-  client: AppInspectorApiClient,
-  traceId: string
-): Promise<string> {
-  const spans = await client.listSpans(traceId, { limit: 1 });
-  if (spans.success && iamErrorsSuppressed(spans.data)) {
-    return renderEmptyIamNote({ suppressed: true });
-  }
-  const config = await new IamApiClient().getConfig();
-  return renderEmptyIamNote({
-    suppressed: false,
-    iamMode: config.success ? (config.data?.state ?? "UNKNOWN") : undefined,
-  });
-}
-
-function formatEventPolicyError(result: ApiResult<unknown>) {
-  if (result.success) return ResponseBuilder.error("Unexpected App Inspector Result");
-  const known = eventPolicyError(result.message);
-  if (known) return ResponseBuilder.error(`Policy Not Available (${known.code})`, known.message);
-  return formatAppInspectorApiError(result);
-}
-
-function formatAutoDerivedPoliciesError(result: ApiResult<unknown>) {
-  if (result.success) return ResponseBuilder.error("Unexpected Result");
-  if (result.statusCode === 404) {
-    return ResponseBuilder.error(
-      "Auto-derived IAM Policies Not Available",
-      AUTO_DERIVED_POLICIES_UNAVAILABLE
-    );
-  }
-  return ResponseBuilder.error(
-    result.statusCode ? `HTTP ${result.statusCode}` : "IAM API Error",
-    renderErrorBody(result.message)
+  return ResponseBuilder.markdown(
+    renderEnforcementChange({
+      before: old,
+      requested: params.mode,
+      after: after.data?.state ?? "UNKNOWN",
+    })
   );
 }
 
-function formatIamConfigError(result: ApiResult<unknown>) {
-  if (result.success) return ResponseBuilder.error("Unexpected Result");
-  if (result.statusCode === 404) {
-    return ResponseBuilder.error("IAM Enforcement Not Available", IAM_CONFIG_UNAVAILABLE);
+async function handleResetDerivedPolicies() {
+  const result = await new IamApiClient().resetPolicySummary();
+  if (!result.success) {
+    if (result.statusCode === 404) {
+      return ResponseBuilder.error(
+        "Auto-derived IAM Policies Not Available",
+        DERIVED_POLICIES_UNAVAILABLE
+      );
+    }
+    return ResponseBuilder.error(
+      result.statusCode ? `HTTP ${result.statusCode}` : "IAM API Error",
+      renderErrorBody(result.message)
+    );
   }
-  return ResponseBuilder.error(
-    result.statusCode ? `HTTP ${result.statusCode}` : "IAM API Error",
-    renderErrorBody(result.message)
+  return ResponseBuilder.markdown(
+    "## Auto-derived IAM Policies Reset\n\nCleared the auto-derived policies of every principal in this LocalStack. This cannot be undone; they come back only by re-running the workload.\n\n**Next step:** re-run the workload, then `get-auto-derived-iam-policies`."
   );
 }
 
@@ -589,6 +743,8 @@ export function buildAppInspectorAnalyticsArgs(params: AppInspectorArgs) {
     has_event_id: Boolean(params.event_id),
     has_policy_key: Boolean(params.policy_key),
     mode: params.action === "set-iam-mode" ? params.mode : undefined,
+    detail: params.detail,
+    has_newer_than: Boolean(params.newer_than),
     trace_ids_count: params.trace_ids?.length,
     span_ids_count: params.span_ids?.length,
     limit: params.limit,

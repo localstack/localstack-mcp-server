@@ -44,6 +44,8 @@ describe("localstack-app-inspector", () => {
         has_event_id: true,
         has_policy_key: false,
         mode: undefined,
+        detail: undefined,
+        has_newer_than: false,
         trace_ids_count: undefined,
         span_ids_count: undefined,
         limit: 25,
