@@ -215,6 +215,12 @@ describe("assertLocalPathsAllowed", () => {
     // What a case-insensitive file system takes for .lstk: ſ is s, the Kelvin sign is k.
     ".l\u017ftk/config.toml",
     ".lst\u212a/config.toml",
+    // What Windows opens as .git: trailing dots and spaces, a stream, the 8.3 short name.
+    ".git./config",
+    ".git /config",
+    ".git:stream/config",
+    "git~1/config",
+    "LSTK~1/config.toml",
   ])("refuses paths into .git and .lstk: %s", (p) => {
     expect(() => allowed(`s3api get-object --bucket b --key k ${p}`)).toThrow(
       "files in .git and .lstk configure programs"
@@ -222,6 +228,41 @@ describe("assertLocalPathsAllowed", () => {
     expect(() => allowed(`ssm put-parameter --name p --value file://${p}`)).toThrow(
       "files in .git and .lstk"
     );
+  });
+
+  test.each([".github/workflows/ci.yml", ".gitignore", "git~x", ".git-blame-ignore-revs"])(
+    "allows names that only look like .git: %s",
+    (p) => {
+      expect(() => allowed(`s3api get-object --bucket b --key k ${p}`)).not.toThrow();
+    }
+  );
+
+  test("a path inside the home whose parent is missing is no name: a command may create it", () => {
+    const realHome = outside;
+    const target = path.join(realHome, ".no-such-agent", "skills");
+    const check = (p: string) =>
+      assertLocalPathsAllowed(["agent-registry", "x", "--target-directory", p], workdir, {
+        home: realHome,
+        privateHome: path.join(os.tmpdir(), "no-such-private-home"),
+        platform: "linux",
+      });
+    expect(() => check(target)).toThrow(/outside the AWS client's working directory/);
+    // Outside a home, it still is one.
+    expect(() => check("/tmp/no-such-dir-x/app")).not.toThrow();
+  });
+
+  test.each(["//server/share/new/f", "//server/share"])(
+    "refuses a network share before touching it: %s",
+    (p) => {
+      expect(() => allowed(`s3api get-object --bucket b --key k ${p}`)).toThrow(
+        /outside the AWS client's working directory/
+      );
+    }
+  );
+
+  test("to s3 transfers, only s3:// is a URL", () => {
+    expect(() => allowed("s3 cp s3://b/k zz://x/.git/config")).toThrow("files in .git and .lstk");
+    expect(() => allowed("s3 cp s3://b/k https://x/$HOME")).toThrow("the AWS CLI would replace");
   });
 
   test("the private home stays off limits inside a broad workdir", () => {
@@ -233,12 +274,10 @@ describe("assertLocalPathsAllowed", () => {
     ).toThrow(/outside the AWS client's working directory/);
   });
 
-  const PROTECTED = ["[Gg][Ii][Tt]", "[Ll][Ss\u017f][Tt][Kk\u212a]"].flatMap((name) =>
-    [`[.]${name}`, `*/[.]${name}`, `[.]${name}/*`, `*/[.]${name}/*`].flatMap((p) => [
-      "--exclude",
-      p,
-    ])
-  );
+  const PROTECTED = ["[Gg][Ii][Tt]", "[Ll][Ss\u017f][Tt][Kk\u212a]"]
+    .flatMap((name) => [`[.]${name}`, `[.]${name}[. :]*`, `${name}~[0-9]*`])
+    .flatMap((alias) => [alias, `*/${alias}`, `${alias}/*`, `*/${alias}/*`])
+    .flatMap((p) => ["--exclude", p]);
 
   test.each(["s3://b/.git", "s3://b/p/.lstk/", "s3://b/.l\u017ftk"])(
     "refuses a transfer of a .git or .lstk object: %s",

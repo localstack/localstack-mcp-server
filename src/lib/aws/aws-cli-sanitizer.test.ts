@@ -109,6 +109,10 @@ describe("sanitizeAwsCliCommand", () => {
     "gamelift upload-build --name b --build-version 1 --build-root app",
     "lambda-web deploy --code app",
     "gamelift get-game-session-log --game-session-id g --save-as log.zip",
+    "agent-registry install-skill --registry-id r --record-id x --target-directory d",
+    "agent-registry uninstall-skill --name s",
+    "agent-registry list-skills",
+    "agent-registry sign-out",
   ])("refuses commands that act on this machine: %s", (command) => {
     expect(() => sanitizeAwsCliCommand(command)).toThrow(/not allowed|always target LocalStack/);
   });
@@ -118,6 +122,7 @@ describe("sanitizeAwsCliCommand", () => {
     "ssm get-parameter --name p",
     "eks list-clusters",
     "gamelift get-game-session-log-url --game-session-id g",
+    "agent-registry list-registries",
   ])("allows the API commands of those services: %s", (command) => {
     expect(sanitizeAwsCliCommand(command)).toBe(command);
   });

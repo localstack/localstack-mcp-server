@@ -89,7 +89,14 @@ export const DENIED: Array<{ match: string[]; reason: string }> = [
     "start-live-tail",
   ]),
   ...deny("this needs a person to answer its prompts", ["wizard"]),
-  ...deny("this manages agent skills on this machine", ["agent-toolkit"]),
+  ...deny(
+    "this manages agent skills on this machine",
+    ["agent-toolkit"],
+    ["agent-registry", "install-skill"],
+    ["agent-registry", "uninstall-skill"],
+    ["agent-registry", "list-skills"],
+    ["agent-registry", "sign-out"]
+  ),
   ...deny("this is the CLI's developer tooling", ["cli-dev"]),
   ...deny("this runs lightsailctl and Docker on this machine", [
     "lightsail",

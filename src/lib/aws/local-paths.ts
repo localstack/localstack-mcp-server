@@ -82,11 +82,24 @@ export function assertLocalPathsAllowed(
     if (mayBeName && value === "/" && !transfer) return;
     const isAbsolute = path.isAbsolute(value) || value.startsWith("~");
     if (!isAbsolute && base === undefined) return;
+    // A network share (//server/share, \\server\share): reaching it, even to check that it
+    // exists, connects to that server, outside the egress guard.
+    if (isAbsolute && /^[\\/]{2}/.test(value)) throw outside(written, workdir);
     const target = isAbsolute
       ? path.resolve(expandHome(value, home))
       : path.resolve(base as string, value);
-    // `~user/x` is another user's home to the CLI: never a name.
-    if (isAbsolute && mayBeName && !value.startsWith("~") && isName(target, transfer)) return;
+    // `~user/x` is another user's home to the CLI, and AWS names start with a single /, never
+    // with a drive (D:\\x): neither is a name.
+    const homes = [deps.home ?? os.homedir(), deps.privateHome].filter((h): h is string => !!h);
+    if (
+      isAbsolute &&
+      mayBeName &&
+      !value.startsWith("~") &&
+      !/^[a-z]:/i.test(value) &&
+      isName(target, transfer, homes)
+    ) {
+      return;
+    }
     const root = isAbsolute ? workdir : (base as string);
     const real = realpathOfLongestExisting(target);
     if (root === null || /^~[^\\/]/.test(value) || !isInside(real, realpath(root))) {
@@ -126,19 +139,18 @@ export function assertLocalPathsAllowed(
     for (const m of value.matchAll(/fileb?:\/\/([^,\]}"'\s]*)/gi)) checkAll(m[1], false);
     // Everything but a URL (s3://, https://; an arn: has no //) may be read as a path. The CLI
     // knows s3:// in lower case only, and a one-letter scheme is a Windows drive: it reads
-    // `C://Users/x` as C:\Users\x.
-    if (!/^[a-z][a-z0-9+.-]+:\/\//.test(value)) checkAll(value, true);
+    // `C://Users/x` as C:\Users\x. To s3 cp, mv and sync, anything but s3:// is a local path.
+    const url = transfer ? value.startsWith("s3://") : /^[a-z][a-z0-9+.-]+:\/\//.test(value);
+    if (!url) checkAll(value, true);
   }
 }
 
-// .git and .lstk, as entries or directories, at any depth, as a case-insensitive file system
-// sees them (see isProtectedName), for s3 filters.
-const PROTECTED_DIRS = ["[Gg][Ii][Tt]", "[Ll][Ss\u017f][Tt][Kk\u212a]"].flatMap((name) =>
-  [`[.]${name}`, `*/[.]${name}`, `[.]${name}/*`, `*/[.]${name}/*`].flatMap((pattern) => [
-    "--exclude",
-    pattern,
-  ])
-);
+// .git and .lstk, as entries or directories, at any depth, under every name a file system
+// opens them by (see isProtectedName), for s3 filters: `.git`, `.git.`, `.git::$DATA`, `GIT~1`.
+const PROTECTED_DIRS = ["[Gg][Ii][Tt]", "[Ll][Ss\u017f][Tt][Kk\u212a]"]
+  .flatMap((name) => [`[.]${name}`, `[.]${name}[. :]*`, `${name}~[0-9]*`])
+  .flatMap((alias) => [alias, `*/${alias}`, `${alias}/*`, `*/${alias}/*`])
+  .flatMap((pattern) => ["--exclude", pattern]);
 
 /**
  * Confines s3 cp, mv and sync, which take their local paths from the bucket's keys as well:
@@ -206,12 +218,19 @@ function variableReference(
 }
 
 /**
- * `.git` or `.lstk`, as a case-insensitive file system sees it: in any case, and with the
- * letters that fold to s and k (ſ U+017F, K U+212A).
+ * `.git` or `.lstk`, under any name a file system opens it by: in any case, with the letters
+ * that fold to s and k (ſ U+017F, K U+212A), and on Windows with trailing dots or spaces, a
+ * stream suffix (`.git::$INDEX_ALLOCATION`) or as the 8.3 short name `GIT~1`, as git's own
+ * is_ntfs_dotgit sees it.
  */
 function isProtectedName(name: string): boolean {
-  const folded = name.normalize("NFC").toUpperCase().toLowerCase();
-  return folded === ".git" || folded === ".lstk";
+  const folded = name
+    .normalize("NFC")
+    .toUpperCase()
+    .toLowerCase()
+    .replace(/:.*$/, "")
+    .replace(/[. ]+$/, "");
+  return folded === ".git" || folded === ".lstk" || /^(git|lstk)~\d+$/.test(folded);
 }
 
 const isInside = (p: string, dir: string) => p === dir || p.startsWith(dir + path.sep);
@@ -230,13 +249,19 @@ function expandHome(value: string, home = os.homedir()): string {
 
 /**
  * Whether an absolute path is a name the CLI cannot read or write. An outfile is written into an
- * existing directory, and only s3 cp, mv and sync create the directories above their target.
+ * existing directory, and of the commands not denied, only s3 cp, mv and sync create the
+ * directories above their target. Inside a home directory, where a new directory can be enough
+ * for a program to pick it up (~/.codex/skills), only a path whose first directory is missing
+ * counts: the CLI may gain commands that create directories.
  */
-function isName(p: string, transfer: boolean): boolean {
+function isName(p: string, transfer: boolean, homes: string[]): boolean {
   const { root } = path.parse(p);
   const first = p.slice(root.length).split(/[\\/]/)[0];
   if (first !== "" && !fs.existsSync(path.join(root, first))) return true;
-  return !transfer && !fs.existsSync(p) && !fs.existsSync(path.dirname(p));
+  if (transfer) return false;
+  const real = realpathOfLongestExisting(p);
+  if (homes.some((home) => isInside(real, realpath(home)))) return false;
+  return !fs.existsSync(p) && !fs.existsSync(path.dirname(p));
 }
 
 function isDirectory(p: string): boolean {
