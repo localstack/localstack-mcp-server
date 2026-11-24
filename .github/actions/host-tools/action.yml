@@ -20,11 +20,15 @@ runs:
         echo "$RUNNER_TEMP/host-tools" >> "$GITHUB_PATH"
         echo "$RUNNER_TEMP/host-tools/aws-cli/bin" >> "$GITHUB_PATH"
 
+    # Outside the checkout: the MCP server runs in it, so it is the AWS client's working
+    # directory, and the client runs no program from a PATH entry inside it.
     - name: Install lstk
       shell: bash
       run: |
-        npm ci --prefix docker/tools/npm --omit=dev --ignore-scripts --no-audit --no-fund
-        echo "$GITHUB_WORKSPACE/docker/tools/npm/node_modules/.bin" >> "$GITHUB_PATH"
+        mkdir -p "$RUNNER_TEMP/npm-tools"
+        cp docker/tools/npm/package.json docker/tools/npm/package-lock.json "$RUNNER_TEMP/npm-tools/"
+        npm ci --prefix "$RUNNER_TEMP/npm-tools" --omit=dev --ignore-scripts --no-audit --no-fund
+        echo "$RUNNER_TEMP/npm-tools/node_modules/.bin" >> "$GITHUB_PATH"
 
     - name: Install the Snowflake CLI
       if: inputs.snowflake == 'true'

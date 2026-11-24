@@ -44,6 +44,20 @@ export function programPath(
   return null;
 }
 
+/** The first directory on the server's PATH, left out of `childPath`, that holds `name`. */
+function skippedDirWith(name: string, childPath: string): string | undefined {
+  const kept = new Set(childPath.split(path.delimiter));
+  const key = Object.keys(process.env).find((k) => k.toUpperCase() === "PATH");
+  const names =
+    process.platform === "win32" ? [`${name}.exe`, `${name}.com`, `${name}.cmd`] : [name];
+  return ((key && process.env[key]) || "")
+    .split(path.delimiter)
+    .filter((dir) => dir && !kept.has(dir))
+    .find((dir) =>
+      names.some((n) => fs.statSync(path.join(dir, n), { throwIfNoEntry: false })?.isFile())
+    );
+}
+
 /** Tests: forget that the CLIs were found. */
 export function resetLstkAwsDependencyCheck(): void {
   dependenciesFound = false;
@@ -58,16 +72,22 @@ export async function checkLstkAwsDependencies(): Promise<string | null> {
     process.platform,
     writableDirs(awsWorkdir().workdir, privateDirs())
   );
+  const missing = (name: string, message: string) => {
+    const dir = skippedDirWith(name, env.PATH ?? "");
+    return dir
+      ? `❌ ${name} was found only in ${dir}, inside a directory the AWS client writes to, so it is not run: a command could replace it. Install ${name} elsewhere on the PATH (globally), or set LOCALSTACK_AWS_WORKDIR to a directory that does not contain it.`
+      : message;
+  };
   const lstkProgram = programPath("lstk", env);
   const awsProgram = programPath("aws", env);
-  if (!lstkProgram) return LSTK_INSTALL_MESSAGE;
-  if (!awsProgram) return AWS_CLI_INSTALL_MESSAGE;
+  if (!lstkProgram) return missing("lstk", LSTK_INSTALL_MESSAGE);
+  if (!awsProgram) return missing("aws", AWS_CLI_INSTALL_MESSAGE);
   const [lstk, aws] = await Promise.all([
     runCommand(lstkProgram, ["--version"], { timeout: 10000, env }),
     runCommand(awsProgram, ["--version"], { timeout: 10000, env }),
   ]);
-  if (lstk.error) return LSTK_INSTALL_MESSAGE;
-  if (aws.error) return AWS_CLI_INSTALL_MESSAGE;
+  if (lstk.error) return missing("lstk", LSTK_INSTALL_MESSAGE);
+  if (aws.error) return missing("aws", AWS_CLI_INSTALL_MESSAGE);
   // 2.37.7 is the first release whose downloads honor --no-follow-symlinks.
   const version = aws.stdout
     .match(/aws-cli\/(\d+)\.(\d+)\.(\d+)/)

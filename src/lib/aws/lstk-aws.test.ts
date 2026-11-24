@@ -2,7 +2,12 @@ import fs from "fs";
 import http from "http";
 import os from "os";
 import path from "path";
-import { lstkAwsRoute, runLstkAws } from "./lstk-aws";
+import {
+  checkLstkAwsDependencies,
+  lstkAwsRoute,
+  resetLstkAwsDependencyCheck,
+  runLstkAws,
+} from "./lstk-aws";
 
 // A stand-in `lstk` on the PATH. Like `lstk aws s3 cp - …` it reads stdin to the end first. It
 // then sends one request through the proxy it was given (to the URL in ./target, since its
@@ -172,5 +177,25 @@ describe("lstkAwsRoute", () => {
       endpointUrl: "http://ls.internal:4566",
       dial: { host: "ls.internal", port: 4566 },
     });
+  });
+});
+
+describe("checkLstkAwsDependencies", () => {
+  test("names the workdir folder that holds the only lstk, instead of 'not installed'", async () => {
+    const saved = { ...process.env };
+    const workdir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "aws-deps-")));
+    const bin = path.join(workdir, "node_modules", ".bin");
+    fs.mkdirSync(bin, { recursive: true });
+    fs.writeFileSync(path.join(bin, "lstk"), "#!/bin/sh\necho lstk 1.5.0\n", { mode: 0o755 });
+    try {
+      process.env.LOCALSTACK_AWS_WORKDIR = workdir;
+      process.env.PATH = `${bin}${path.delimiter}/usr/bin${path.delimiter}/bin`;
+      resetLstkAwsDependencyCheck();
+      expect(await checkLstkAwsDependencies()).toContain(`lstk was found only in ${bin}`);
+    } finally {
+      process.env = saved;
+      resetLstkAwsDependencyCheck();
+      fs.rmSync(workdir, { recursive: true, force: true });
+    }
   });
 });
