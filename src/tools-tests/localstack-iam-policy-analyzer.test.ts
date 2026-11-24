@@ -53,3 +53,21 @@ test("the handler adds no recommendation to an error", async () => {
   expect(result.content[0].text).toContain("Auth Token Required");
   expect(result.content[0].text).not.toContain("Recommended");
 });
+
+test("the handler adds no recommendation to a markdown failure", async () => {
+  process.env.MCP_ANALYTICS_DISABLED = "1";
+  process.env.LOCALSTACK_AUTH_TOKEN = "ls-FAKE";
+  global.fetch = jest.fn(async (input: string | URL | Request) => {
+    const path = new URL(String(input)).pathname;
+    if (path === "/_localstack/health") return new Response(JSON.stringify({ services: {} }));
+    if (path === "/_localstack/licenseinfo") {
+      return new Response(
+        JSON.stringify({ available_plugins: ["localstack.platform.plugin/iam-enforcement"] })
+      );
+    }
+    return new Response("nope", { status: 404 });
+  }) as typeof fetch;
+  const result = await localstackIamPolicyAnalyzer({ action: "get-status", mode: undefined });
+  expect(result.content[0].text).toMatch(/^\s*(❌|⚠️)/u);
+  expect(result.content[0].text).not.toContain("Recommended");
+});

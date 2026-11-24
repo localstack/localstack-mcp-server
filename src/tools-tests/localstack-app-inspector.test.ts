@@ -340,7 +340,7 @@ describe("list-iam-denials", () => {
     expect(body).toContain("**IAM mode:** `ENFORCED`");
     expect(body).toContain("**Newest recorded request:**");
     expect(body).toContain("**Evaluation errors (total in the store):** 3");
-    expect(body).toContain("keep `newer_than` `NEWER`");
+    expect(body).toContain("keep `newer_than` `nt:NEWER`");
     expect(body).toContain("STS, IAM and CloudWatch Logs");
     expectNoSecrets(result);
   });
@@ -352,14 +352,32 @@ describe("list-iam-denials", () => {
         : undefined
     );
     headerRoutes();
-    const body = text(await call({ action: "list-iam-denials", newer_than: "C1" }));
+    const body = text(await call({ action: "list-iam-denials", newer_than: "nt:C1" }));
     expect(denialsCall().query).toEqual({
       limit: "20",
       pagination_token: "C1",
       name: "iam.policy.denied",
     });
     expect(body).toContain("No denials since the previous call.");
-    expect(body).toContain("keep `newer_than` `C1`");
+    expect(body).toContain("keep `newer_than` `nt:C1`");
+  });
+
+  test("a swapped cursor is rejected before reaching LocalStack", async () => {
+    const asNewer = await call({ action: "list-iam-denials", newer_than: "OLDER_ROWS" });
+    expect(asNewer.isError).toBe(true);
+    expect(text(asNewer)).toContain("Cursor Not Usable");
+    const asOlder = await call({ action: "list-iam-denials", pagination_token: "nt:C1" });
+    expect(asOlder.isError).toBe(true);
+    expect(text(asOlder)).toContain("pass it as `newer_than`");
+    expect(sent).toEqual([]);
+  });
+
+  test("an empty string counts as absent", async () => {
+    route("GET", IAM_EVENTS, (r) =>
+      r.query.name === "iam.policy.denied" ? { body: { events: [] } } : undefined
+    );
+    headerRoutes();
+    expect((await call({ action: "list-iam-denials", trace_id: "" })).isError).toBeUndefined();
   });
 
   test("a store reset since the earlier call is explained", async () => {
@@ -367,7 +385,7 @@ describe("list-iam-denials", () => {
       status: 400,
       body: { error: "Pagination token is from a previous session" },
     });
-    const result = await call({ action: "list-iam-denials", newer_than: "OLD" });
+    const result = await call({ action: "list-iam-denials", newer_than: "nt:OLD" });
     expect(result.isError).toBe(true);
     expect(text(result)).toContain("store was reset");
   });
@@ -679,4 +697,15 @@ test("analytics get no IDs, ARNs, cursors or policy keys", async () => {
   expect(payload).not.toContain("p7");
   expect(payload).not.toContain(ROLE);
   expect(payload).toContain('"has_policy_key":true');
+});
+
+test("analytics record detail and newer_than use, not the cursor", async () => {
+  route("GET", IAM_EVENTS, (r) =>
+    r.query.name === "iam.policy.denied" ? { body: { events: [] } } : undefined
+  );
+  headerRoutes();
+  await call({ action: "list-iam-denials", newer_than: "nt:SECRETCURSOR" });
+  const args = captured.find((e) => e.event === "mcp_tool_executed")?.properties.args;
+  expect(args).toMatchObject({ action: "list-iam-denials", has_newer_than: true });
+  expect(JSON.stringify(captured)).not.toContain("SECRETCURSOR");
 });

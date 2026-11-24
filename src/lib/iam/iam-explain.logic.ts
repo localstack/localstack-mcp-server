@@ -243,6 +243,12 @@ export function formatNanoTime(nanos: number | string | undefined): string {
   return new Date(ms).toISOString();
 }
 
+/** A lookup that ignores inherited keys, so a payload value like `constructor` is not resolved */
+const ownValue = (table: Record<string, string>, key: unknown): string | undefined =>
+  typeof key === "string" && Object.prototype.hasOwnProperty.call(table, key)
+    ? table[key]
+    : undefined;
+
 const cell = (value: unknown): string =>
   value === undefined || value === null || value === "" ? "-" : escapeText(value);
 
@@ -498,7 +504,7 @@ export function renderSuggestion(payload: IamEvaluationPayload): string {
   const entries = suggestion.entries ?? [];
   const hints = suggestion.hints ?? [];
   const sections: string[] = [
-    `**Outcome: ${codeSpan(suggestion.outcome)}.** ${OUTCOME_SENTENCES[suggestion.outcome] ?? ""}`.trim(),
+    `**Outcome: ${codeSpan(suggestion.outcome)}.** ${ownValue(OUTCOME_SENTENCES, suggestion.outcome) ?? ""}`.trim(),
   ];
   if (suggestion.outcome === "already_allowed") return `### How to fix\n\n${sections.join("\n\n")}`;
 
@@ -679,7 +685,7 @@ export function renderExplanation(
         : "unreported");
   const facts = [
     `**Request:** ${codeSpan(`${payload.service ?? "?"}:${payload.operation ?? "?"}`)} by ${codeSpan(payload.principal_arn ?? "unknown principal")}${payload.principal_account ? ` (account ${escapeText(payload.principal_account)})` : ""}`,
-    `**Result:** ${ENFORCEMENT_NOTES[enforcement] ?? escapeText(enforcement)}${payload.not_checked_reason ? ` (${escapeText(payload.not_checked_reason)})` : ""}`,
+    `**Result:** ${ownValue(ENFORCEMENT_NOTES, enforcement) ?? escapeText(enforcement)}${payload.not_checked_reason ? ` (${escapeText(payload.not_checked_reason)})` : ""}`,
   ];
   if (payload.evaluation_failed) {
     facts.push(
@@ -738,6 +744,13 @@ export function renderExplanation(
 
 // ─── Denial list ─────────────────────────────────────────────────────────────
 
+/**
+ * `newer_than` tokens carry this prefix, so a `pagination_token` (which points to older rows) can't be mistaken for one:
+ * LocalStack encodes the direction inside the cursor, and a swapped cursor would list older denials as new.
+ */
+export const NEWER_THAN_PREFIX = "nt:";
+export const toNewerThan = (cursor: string): string => `${NEWER_THAN_PREFIX}${cursor}`;
+
 export interface DenialListContext {
   /** LocalStack's page info */
   pagination?: {
@@ -747,7 +760,7 @@ export interface DenialListContext {
     has_prev?: boolean;
     total_count?: number | null;
   };
-  /** The `newer_than` cursor this page was requested with, if any */
+  /** The `newer_than` token (with its prefix) this page was requested with, if any */
   newerThan?: string;
   /** Whether this page was requested with `pagination_token` */
   olderPage?: boolean;
@@ -843,10 +856,10 @@ export function renderDenialList(
       );
     } else {
       if (p.prev_cursor) {
-        footer.push(`**Next check:** \`newer_than\` ${codeSpan(p.prev_cursor)}.`);
+        footer.push(`**Next check:** \`newer_than\` ${codeSpan(toNewerThan(p.prev_cursor))}.`);
         if (p.has_prev) {
           footer.push(
-            `**More new denials** than shown (these are the oldest of them): call \`list-iam-denials\` with \`newer_than\` ${codeSpan(p.prev_cursor)}.`
+            `**More new denials** than shown (these are the oldest of them): call \`list-iam-denials\` with \`newer_than\` ${codeSpan(toNewerThan(p.prev_cursor))}.`
           );
         }
       }
@@ -864,7 +877,7 @@ export function renderDenialList(
       );
     } else if (events.length > 0 && p.prev_cursor) {
       footer.push(
-        `**To check a fix later:** keep \`newer_than\` ${codeSpan(p.prev_cursor)} and the newest recorded request time above. After the fix, re-run the workload, then call \`list-iam-denials\` with \`newer_than\`.`
+        `**To check a fix later:** keep \`newer_than\` ${codeSpan(toNewerThan(p.prev_cursor))} and the newest recorded request time above. After the fix, re-run the workload, then call \`list-iam-denials\` with \`newer_than\`.`
       );
     } else if (events.length === 0) {
       footer.push("No `newer_than` value: any denial in a later call is new.");

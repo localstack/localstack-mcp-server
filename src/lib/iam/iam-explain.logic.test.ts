@@ -508,7 +508,7 @@ describe("renderDenialList", () => {
         " | deny | fixes |"
     );
     expect(text).toContain("**Older rows:** `pagination_token` `older`");
-    expect(text).toContain("keep `newer_than` `newer`");
+    expect(text).toContain("keep `newer_than` `nt:newer`");
     expect(text).toContain("`explain-iam` with event_id `a1b2c3d4e5f60718`");
     expect(text).toContain(NOT_RECORDED_NOTE);
   });
@@ -548,7 +548,7 @@ describe("renderDenialList", () => {
       pagination: { has_next: true, next_cursor: "older", has_prev: true, prev_cursor: "C2" },
     });
     expect(text).toContain("## New IAM Denials (1)");
-    expect(text).toContain("**Next check:** `newer_than` `C2`");
+    expect(text).toContain("**Next check:** `newer_than` `nt:C2`");
     expect(text).toContain("**More new denials**");
     expect(text).toContain("compare the Time column with your redeploy");
     expect(text).not.toContain("older");

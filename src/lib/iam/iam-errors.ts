@@ -1,4 +1,4 @@
-/** Tool responses for failed IAM and App Inspector API calls, shared by localstack-app-inspector and localstack-app-inspector */
+/** Tool responses for failed IAM and App Inspector API calls, shared by the IAM actions of localstack-app-inspector */
 import { ResponseBuilder } from "../../core/response-builder";
 import type { ApiResult } from "../localstack/localstack.client";
 import {

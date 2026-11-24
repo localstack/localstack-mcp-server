@@ -37,6 +37,8 @@ export const TOOL_ARG_ALLOWLIST: Record<string, string[]> = {
     "has_event_id",
     "has_policy_key",
     "mode",
+    "detail",
+    "has_newer_than",
     "trace_ids_count",
     "span_ids_count",
     "limit",

@@ -12,6 +12,7 @@ import {
 } from "../lib/localstack/localstack.client";
 import {
   DATA_NOTE,
+  NEWER_THAN_PREFIX,
   codeSpan,
   decodeIamEvent,
   extractEvents,
@@ -69,13 +70,14 @@ export const schema = {
     .describe(
       "The App Inspector action to perform. Debugging flow: get-status, set-status to enabled if needed, run the AWS workload, list-traces, list-spans for a trace, then list-events for a span. " +
         "IAM flow (AccessDenied, permission errors, a request into another account): list-iam-denials, then explain-iam with an event_id for the policies that decided and LocalStack's suggested fix; fix the project's IaC, redeploy, re-run the workload, then list-iam-denials with newer_than (from the first call's footer) for new denials only. get-iam-policy fetches a policy an event stored truncated. get-iam-mode / set-iam-mode read and set the IAM mode (set-iam-mode reports the previous mode and how to restore it). " +
-        "Least-privilege policies: reset-auto-derived-iam-policies, run the workload, then get-auto-derived-iam-policies (without arn: the ARNs; with arn: that policy)."
+        "Least-privilege policies: reset-auto-derived-iam-policies (clears the auto-derived policies of every principal in this LocalStack; cannot be undone), run the workload, then get-auto-derived-iam-policies (without arn: the ARNs; with arn: that policy). " +
+        "Actions that change LocalStack: set-status, delete-traces, delete-spans, set-iam-mode, reset-auto-derived-iam-policies; all others only read."
     ),
   status: z
     .enum(["enabled", "disabled"])
     .optional()
     .describe(
-      "Status to set. Required for set-status. Use enabled before running a workload you want to inspect."
+      "Status to set. Required for set-status. Use enabled before running a workload you want to inspect. Disabling App Inspector and enabling it again deletes the recorded traces and denials, unless LocalStack's persistence is on."
     ),
   trace_id: z
     .string()
@@ -304,7 +306,8 @@ export function validateIamParams(params: AppInspectorArgs) {
   const allowed = IAM_ACTION_PARAMS[params.action];
   if (!allowed) return null;
   for (const key of Object.keys(params) as Array<keyof AppInspectorArgs>) {
-    if (key === "action" || params[key] === undefined || allowed.includes(key)) continue;
+    const value = params[key];
+    if (key === "action" || value === undefined || value === "" || allowed.includes(key)) continue;
     const owners = Object.entries(IAM_ACTION_PARAMS)
       .filter(([, keys]) => keys.includes(key))
       .map(([name]) => `\`${name}\``);
@@ -319,6 +322,19 @@ export function validateIamParams(params: AppInspectorArgs) {
         return ResponseBuilder.error(
           "Invalid Parameters",
           "Pass `pagination_token` (older rows) or `newer_than` (new denials), not both."
+        );
+      }
+      // A swapped cursor would list older denials as new: LocalStack encodes the direction inside it
+      if (params.newer_than && !params.newer_than.startsWith(NEWER_THAN_PREFIX)) {
+        return ResponseBuilder.error(
+          "Cursor Not Usable",
+          `\`newer_than\` takes the value printed after "newer_than" in a first page's footer (it starts with \`${NEWER_THAN_PREFIX}\`), not a \`pagination_token\` or a time.`
+        );
+      }
+      if (params.pagination_token?.startsWith(NEWER_THAN_PREFIX)) {
+        return ResponseBuilder.error(
+          "Cursor Not Usable",
+          "This is a `newer_than` value: pass it as `newer_than`, not as `pagination_token`."
         );
       }
       if (params.limit !== undefined && params.limit > MAX_DENIALS_LIMIT) {
@@ -395,7 +411,11 @@ async function handleSetStatus(client: AppInspectorApiClient, params: AppInspect
   const result = await client.setStatus(params.status);
   if (!result.success) return formatAppInspectorApiError(result);
 
-  const changed = result.data.changed ? "Status changed." : "Status was already set.";
+  let changed = result.data.changed ? "Status changed." : "Status was already set.";
+  if (result.data.changed && params.status === "disabled") {
+    changed +=
+      " Enabling App Inspector again deletes what it recorded so far, unless LocalStack's persistence is on.";
+  }
   return ResponseBuilder.markdown(
     `## App Inspector Status Updated\n\n**Status:** ${result.data.status}\n\n${changed}`
   );
@@ -565,7 +585,9 @@ async function countEvaluationErrors(client: AppInspectorApiClient): Promise<num
 async function handleListDenials(client: AppInspectorApiClient, params: AppInspectorArgs) {
   const result = await client.listIamEvents("*", "*", {
     limit: params.limit ?? DEFAULT_DENIALS_LIMIT,
-    pagination_token: params.newer_than ?? params.pagination_token,
+    pagination_token: params.newer_than
+      ? params.newer_than.slice(NEWER_THAN_PREFIX.length)
+      : params.pagination_token,
     name: IAM_DENIED_EVENT_NAME,
   });
   if (!result.success) return formatEventsError(result);
@@ -678,12 +700,6 @@ async function handleGetEnforcement() {
 }
 
 async function handleSetEnforcement(params: AppInspectorArgs) {
-  if (!params.mode!) {
-    return ResponseBuilder.error(
-      "Missing Parameter",
-      `\`mode\` is required for set-iam-mode (${IAM_MODES.join(", ")}).`
-    );
-  }
   const client = new IamApiClient();
   const before = await client.getConfig();
   if (!before.success) return formatIamConfigError(before);
@@ -697,13 +713,13 @@ async function handleSetEnforcement(params: AppInspectorArgs) {
   const after = await client.getConfig();
   if (!after.success) {
     return ResponseBuilder.markdown(
-      `## IAM Enforcement Updated\n\nLocalStack accepted mode \`${params.mode}\`, but reading it back failed. Use \`localstack-app-inspector\` \`get-iam-mode\` to check. To restore: \`set-iam-mode\` with mode \`${old}\`.`
+      `## IAM Enforcement Updated\n\nLocalStack accepted mode ${codeSpan(params.mode)}, but reading it back failed. Use \`get-iam-mode\` to check. To restore: \`set-iam-mode\` with mode ${codeSpan(old)}.`
     );
   }
   return ResponseBuilder.markdown(
     renderEnforcementChange({
       before: old,
-      requested: params.mode,
+      requested: params.mode!,
       after: after.data?.state ?? "UNKNOWN",
     })
   );

@@ -1,5 +1,5 @@
 /**
- * Responses of the `localstack-app-inspector` and `localstack-app-inspector` actions other than the explanation itself: the IAM
+ * Responses of the IAM actions of `localstack-app-inspector` other than the explanation itself: the IAM
  * mode and its changes, a stored policy, and why a query came back empty. LocalStack decides every answer; this module
  * words it and escapes what LocalStack or the caller sent.
  */

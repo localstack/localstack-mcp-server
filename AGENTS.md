@@ -288,8 +288,8 @@ what is missing instead of returning an empty answer.
    - `list-iam-denials` lists denials newest first, across all traces (events carry no trace id, so a trace scope
      would be ignored; the action takes none). Its header gives the IAM mode, the end time of the newest stored
      span, the store's evaluation-error count (`iam.policy.error`) and a store-full warning. To check a fix, the first
-     page's footer gives `newer_than` (the page's `prev_cursor`); passed back, LocalStack returns only denials
-     evaluated after that row. The server never filters or cuts LocalStack's results itself. The IAM actions reject a
+     page's footer gives `newer_than` (the page's `prev_cursor`, prefixed `nt:` so a `pagination_token` can't be
+     passed in its place); passed back, LocalStack returns only denials evaluated after that row. The server never filters or cuts LocalStack's results itself. The IAM actions reject a
      declared parameter of another action (xmcp drops undeclared ones).
    - Without the `localstack.appinspector/view_iam_policy_errors` entitlement, LocalStack hides IAM events and
      returns an empty list. Spans say so (`iam_errors_suppressed`) and the policy route answers 403
