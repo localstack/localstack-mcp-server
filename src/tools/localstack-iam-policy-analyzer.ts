@@ -57,9 +57,11 @@ export default async function localstackIamPolicyAnalyzer({
   return withToolAnalytics("localstack-iam-policy-analyzer", { action, mode }, async () => {
     const response = await runAction(action, mode);
     // No pointer on errors, so an agent is never sent back and forth; the App Inspector-based actions only when licensed
-    // Some failures are markdown starting with ❌ or ⚠️ rather than isError
+    // Some failures are markdown with a failure title rather than isError; a status with an unknown state is not one
     const first = (response as { content?: Array<{ text?: string }> }).content?.[0]?.text ?? "";
-    if ((response as { isError?: boolean }).isError || /^\s*(❌|⚠️)/u.test(first)) return response;
+    const failure =
+      /^\s*(❌|⚠️) \*\*(Failed to|Policy Analysis Failed|LocalStack IAM Configuration Not Available)/u;
+    if ((response as { isError?: boolean }).isError || failure.test(first)) return response;
     if (action === "analyze-policies") {
       const license = await checkProFeature(ProFeature.APP_INSPECTOR);
       if (!license.isSupported) return response;

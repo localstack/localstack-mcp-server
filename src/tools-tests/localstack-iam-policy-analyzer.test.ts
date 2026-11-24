@@ -54,20 +54,37 @@ test("the handler adds no recommendation to an error", async () => {
   expect(result.content[0].text).not.toContain("Recommended");
 });
 
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
 test("the handler adds no recommendation to a markdown failure", async () => {
   process.env.MCP_ANALYTICS_DISABLED = "1";
   process.env.LOCALSTACK_AUTH_TOKEN = "ls-FAKE";
   global.fetch = jest.fn(async (input: string | URL | Request) => {
     const path = new URL(String(input)).pathname;
-    if (path === "/_localstack/health") return new Response(JSON.stringify({ services: {} }));
+    if (path === "/_localstack/health") return json({ services: { s3: "running" } });
     if (path === "/_localstack/licenseinfo") {
-      return new Response(
-        JSON.stringify({ available_plugins: ["localstack.platform.plugin/iam-enforcement"] })
-      );
+      return json({ available_plugins: ["localstack.platform.plugin/iam-enforcement"] });
     }
     return new Response("nope", { status: 404 });
   }) as typeof fetch;
   const result = await localstackIamPolicyAnalyzer({ action: "get-status", mode: undefined });
-  expect(result.content[0].text).toMatch(/^\s*(❌|⚠️)/u);
+  expect(result.content[0].text).toContain("IAM Configuration Not Available");
   expect(result.content[0].text).not.toContain("Recommended");
+});
+
+test("a status in a state the analyzer doesn't know keeps the recommendation", async () => {
+  process.env.MCP_ANALYTICS_DISABLED = "1";
+  process.env.LOCALSTACK_AUTH_TOKEN = "ls-FAKE";
+  global.fetch = jest.fn(async (input: string | URL | Request) => {
+    const path = new URL(String(input)).pathname;
+    if (path === "/_localstack/health") return json({ services: { s3: "running" } });
+    if (path === "/_localstack/licenseinfo") {
+      return json({ available_plugins: ["localstack.platform.plugin/iam-enforcement"] });
+    }
+    return json({ state: "ENGINE_ONLY" });
+  }) as typeof fetch;
+  const result = await localstackIamPolicyAnalyzer({ action: "get-status", mode: undefined });
+  expect(result.content[0].text).toContain("ENGINE_ONLY");
+  expect(result.content[0].text).toContain("**Recommended:**");
 });

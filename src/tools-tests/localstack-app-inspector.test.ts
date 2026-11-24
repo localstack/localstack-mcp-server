@@ -372,6 +372,33 @@ describe("list-iam-denials", () => {
     expect(sent).toEqual([]);
   });
 
+  test("an empty or prefix-only newer_than never lists old denials as new", async () => {
+    route("GET", IAM_EVENTS, (r) =>
+      r.query.name === "iam.policy.denied"
+        ? { body: { events: [iamEvent(missingPermission)], pagination: { prev_cursor: "P" } } }
+        : undefined
+    );
+    headerRoutes();
+    const empty = text(await call({ action: "list-iam-denials", newer_than: "" }));
+    expect(denialsCall().query).toEqual({ limit: "20", name: "iam.policy.denied" });
+    expect(empty).toContain("## IAM Denials (1)");
+    expect(empty).not.toContain("New IAM Denials");
+    const prefixOnly = await call({ action: "list-iam-denials", newer_than: "nt:" });
+    expect(prefixOnly.isError).toBe(true);
+    expect(text(prefixOnly)).toContain("Cursor Not Usable");
+  });
+
+  test("an empty list counts as absent, and explain-iam rejects a newer_than value", async () => {
+    route("GET", IAM_EVENTS, (r) =>
+      r.query.name === "iam.policy.denied" ? { body: { events: [] } } : undefined
+    );
+    headerRoutes();
+    expect((await call({ action: "list-iam-denials", trace_ids: [] })).isError).toBeUndefined();
+    const swapped = await call({ action: "explain-iam", span_id: "s", pagination_token: "nt:C" });
+    expect(swapped.isError).toBe(true);
+    expect(text(swapped)).toContain("Cursor Not Usable");
+  });
+
   test("an empty string counts as absent", async () => {
     route("GET", IAM_EVENTS, (r) =>
       r.query.name === "iam.policy.denied" ? { body: { events: [] } } : undefined

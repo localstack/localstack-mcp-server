@@ -206,8 +206,10 @@ export const metadata: ToolMetadata = {
   },
 };
 
-export default async function localstackAppInspector(params: AppInspectorArgs) {
-  const { action } = params;
+export default async function localstackAppInspector(raw: AppInspectorArgs) {
+  const { action } = raw;
+  // Empty strings and lists count as absent for the IAM actions, so every check, handler and analytics see one value
+  const params = IAM_ACTIONS.has(action) ? withoutEmptyValues(raw) : raw;
   return withToolAnalytics(
     "localstack-app-inspector",
     buildAppInspectorAnalyticsArgs(params),
@@ -302,12 +304,29 @@ function requiredFeature(action: AppInspectorArgs["action"]): ProFeature {
   }
 }
 
+/** The parameters without empty strings and empty lists, which some clients send for unset optional fields */
+export function withoutEmptyValues(params: AppInspectorArgs): AppInspectorArgs {
+  return Object.fromEntries(
+    Object.entries(params).filter(
+      ([, value]) => value !== "" && !(Array.isArray(value) && value.length === 0)
+    )
+  ) as AppInspectorArgs;
+}
+
 export function validateIamParams(params: AppInspectorArgs) {
   const allowed = IAM_ACTION_PARAMS[params.action];
   if (!allowed) return null;
   for (const key of Object.keys(params) as Array<keyof AppInspectorArgs>) {
     const value = params[key];
-    if (key === "action" || value === undefined || value === "" || allowed.includes(key)) continue;
+    // Empty values are also skipped here for direct callers; the handler has already removed them
+    if (
+      key === "action" ||
+      value === undefined ||
+      value === "" ||
+      (Array.isArray(value) && value.length === 0) ||
+      allowed.includes(key)
+    )
+      continue;
     const owners = Object.entries(IAM_ACTION_PARAMS)
       .filter(([, keys]) => keys.includes(key))
       .map(([name]) => `\`${name}\``);
@@ -325,7 +344,11 @@ export function validateIamParams(params: AppInspectorArgs) {
         );
       }
       // A swapped cursor would list older denials as new: LocalStack encodes the direction inside it
-      if (params.newer_than && !params.newer_than.startsWith(NEWER_THAN_PREFIX)) {
+      if (
+        params.newer_than !== undefined &&
+        (!params.newer_than.startsWith(NEWER_THAN_PREFIX) ||
+          params.newer_than.length === NEWER_THAN_PREFIX.length)
+      ) {
         return ResponseBuilder.error(
           "Cursor Not Usable",
           `\`newer_than\` takes the value printed after "newer_than" in a first page's footer (it starts with \`${NEWER_THAN_PREFIX}\`), not a \`pagination_token\` or a time.`
@@ -345,6 +368,12 @@ export function validateIamParams(params: AppInspectorArgs) {
       }
       break;
     case "explain-iam":
+      if (params.pagination_token?.startsWith(NEWER_THAN_PREFIX)) {
+        return ResponseBuilder.error(
+          "Cursor Not Usable",
+          "This is a `newer_than` value of list-iam-denials, not a `pagination_token` of explain-iam."
+        );
+      }
       if (params.event_id && params.span_id) {
         return ResponseBuilder.error(
           "Invalid Parameters",
@@ -585,9 +614,10 @@ async function countEvaluationErrors(client: AppInspectorApiClient): Promise<num
 async function handleListDenials(client: AppInspectorApiClient, params: AppInspectorArgs) {
   const result = await client.listIamEvents("*", "*", {
     limit: params.limit ?? DEFAULT_DENIALS_LIMIT,
-    pagination_token: params.newer_than
-      ? params.newer_than.slice(NEWER_THAN_PREFIX.length)
-      : params.pagination_token,
+    pagination_token:
+      params.newer_than !== undefined
+        ? params.newer_than.slice(NEWER_THAN_PREFIX.length)
+        : params.pagination_token,
     name: IAM_DENIED_EVENT_NAME,
   });
   if (!result.success) return formatEventsError(result);
