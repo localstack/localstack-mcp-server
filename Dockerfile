@@ -37,7 +37,7 @@ RUN cd /usr/local/aws-cli/v2/current \
  && rm -f dist/aws_completer bin/aws_completer
 
 # uv installs the Python CLIs below; it is mounted at build time and not part of the image.
-FROM ghcr.io/astral-sh/uv:0.13.9 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.10 AS uv
 
 # Terraform, uv and the AWS CLI for CI jobs that run on the host, at the image's versions
 # (.github/actions/host-tools): docker build --target host-tools --output type=local,dest=DIR .
