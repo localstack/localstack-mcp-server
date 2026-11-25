@@ -5,7 +5,7 @@ name = "image-tool-aws-sam-cli"
 version = "0"
 # The image's python3 (Debian bookworm). `sam build` for Python functions also runs on it.
 requires-python = "==3.11.*"
-dependencies = ["aws-sam-cli==1.172.1"]
+dependencies = ["aws-sam-cli==1.173.0"]
 
 [tool.uv]
 package = false
