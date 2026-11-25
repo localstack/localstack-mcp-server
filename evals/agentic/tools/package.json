@@ -3,6 +3,6 @@
   "private": true,
   "description": "The coding agent the agentic eval runs. Dependabot keeps it current.",
   "dependencies": {
-    "@anthropic-ai/claude-code": "2.1.322"
+    "@anthropic-ai/claude-code": "2.1.327"
   }
 }
