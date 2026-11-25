@@ -1420,7 +1420,7 @@
   dependencies:
     playwright "1.65.1"
 
-"@posthog/core@^1.68.0":
+"@posthog/core@^1.69.1":
   version "1.69.2"
   resolved "https://registry.yarnpkg.com/@posthog/core/-/core-1.69.2.tgz#3f65b803138e483cf472a9d1f236f7e99c330358"
   integrity sha512-toMfPKklwLW+a4ZY3/EzM3GNMVXmk2ylGb8NPJXRH4igXMoI8wgNL2jqXOiglWAXqFBLZGYFN1oQx6LVmUTxTg==
@@ -4675,12 +4675,12 @@ postcss-loader@^8.2.1:
     jiti "^2.5.1"
     semver "^7.6.2"
 
-posthog-node@5.74.0:
-  version "5.74.0"
-  resolved "https://registry.yarnpkg.com/posthog-node/-/posthog-node-5.74.0.tgz#b11722e1275eb7f532bea7f79863c13c09d0f3e8"
-  integrity sha512-lAnGzPVobruQ7rZe45kzcXKZAcCK3J+1dMNS3WOOdx9mnM4ECRc2WRxBdS1ncBO/h/vDtHIEmcuIr/LUxxze5w==
+posthog-node@6.0.3:
+  version "6.0.3"
+  resolved "https://registry.yarnpkg.com/posthog-node/-/posthog-node-6.0.3.tgz#a6b3d7c64f5892b9ce8974e2048cac1dd158ca2e"
+  integrity sha512-nRYHLGCHPya5srUmBETjtcg6rfopsTpCesjRsDKB1oXlbFNmn7z5n0Hu1x60czJr8kGkOysynaoNCogBZCXQhQ==
   dependencies:
-    "@posthog/core" "^1.68.0"
+    "@posthog/core" "^1.69.1"
 
 prettier@^3.9.10:
   version "3.10.1"
