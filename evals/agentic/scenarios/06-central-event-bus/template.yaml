@@ -1,0 +1,78 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Orders service. The place-order workflow stores the order in the orders table, then publishes an OrderPlaced event
+  to the company's central event bus, which the platform team runs in the platform account (111111111111). Shipping,
+  billing and analytics consume OrderPlaced from there.
+
+Resources:
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: orders
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: orderId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: orderId
+          KeyType: HASH
+
+  PlaceOrderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: place-order
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: place-order-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt OrdersTable.Arn
+              - Effect: Allow
+                Action: events:PutEvents
+                Resource: arn:aws:events:us-east-1:111111111111:event-bus/central-events
+
+  PlaceOrderWorkflow:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: place-order
+      RoleArn: !GetAtt PlaceOrderRole.Arn
+      DefinitionString: !Sub |
+        {
+          "StartAt": "StoreOrder",
+          "States": {
+            "StoreOrder": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:putItem",
+              "Parameters": {
+                "TableName": "${OrdersTable}",
+                "Item": { "orderId": { "S.$": "$.orderId" }, "total": { "N.$": "States.Format('{}', $.total)" } }
+              },
+              "ResultPath": null,
+              "Next": "PublishOrderPlaced"
+            },
+            "PublishOrderPlaced": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::events:putEvents",
+              "Parameters": {
+                "Entries": [
+                  {
+                    "EventBusName": "arn:aws:events:us-east-1:111111111111:event-bus/central-events",
+                    "Source": "orders-service",
+                    "DetailType": "OrderPlaced",
+                    "Detail": { "orderId.$": "$.orderId", "total.$": "$.total" }
+                  }
+                ]
+              },
+              "End": true
+            }
+          }
+        }

@@ -1,0 +1,178 @@
+name: Agentic eval
+
+# A coding agent (Claude Code headless, through OpenRouter) fixes common IAM failures with this MCP server, the AWS
+# CLI and LocalStack's log.
+# On demand (every scenario unless one is given) and weekly (02, 05 and 06-08): each run costs model tokens and takes
+# a few minutes per scenario.
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Scenario prefix to run (e.g. 01); empty runs all"
+        required: false
+        default: ""
+      repeat:
+        description: "Runs per scenario"
+        required: false
+        default: "1"
+      model:
+        description: "OpenRouter model slug (defaults to the repository variable EVAL_OPENROUTER_MODEL)"
+        required: false
+        default: ""
+  schedule:
+    - cron: "0 5 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  agentic-eval:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 120
+    outputs:
+      summary: ${{ steps.summary.outputs.summary }}
+    steps:
+      # Fail loudly instead of looking tested: a scheduled run on a fork, or a missing secret or model.
+      - name: Require the secrets and the model
+        env:
+          HAS_LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN != '' }}
+          HAS_OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY != '' }}
+          OPENROUTER_MODEL: ${{ inputs.model || vars.EVAL_OPENROUTER_MODEL }}
+        run: |
+          missing=()
+          [ "$HAS_LOCALSTACK_AUTH_TOKEN" = "true" ] || missing+=("secret LOCALSTACK_AUTH_TOKEN")
+          [ "$HAS_OPENROUTER_API_KEY" = "true" ] || missing+=("secret OPENROUTER_API_KEY")
+          [ -n "$OPENROUTER_MODEL" ] || missing+=("the model input or repository variable EVAL_OPENROUTER_MODEL")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # later steps run third-party code and the agent: no GitHub token in .git/config
+          persist-credentials: false
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.x
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      # The agent under test, at the version in evals/agentic/tools/package-lock.json (Dependabot).
+      - name: Install Claude Code
+        run: |
+          npm ci --prefix evals/agentic/tools --omit=dev --no-audit --no-fund
+          echo "$GITHUB_WORKSPACE/evals/agentic/tools/node_modules/.bin" >> "$GITHUB_PATH"
+
+      # The nightly image, the runner's default: the scenarios need the IAM event details on LocalStack's main branch,
+      # which a release has only later.
+      - name: Pull the LocalStack image
+        run: docker pull localstack/localstack-pro:dev
+
+      # The AWS CLI the scenarios' deploy and trigger scripts run, at the version pinned in
+      # evals/agentic/tools/Dockerfile, ahead of the runner image's own on the PATH.
+      # TODO: use the host-tools action's AWS CLI once https://github.com/localstack/localstack-mcp-server/pull/137 lands.
+      - name: Install the AWS CLI
+        run: |
+          docker build --output "type=local,dest=$RUNNER_TEMP/awscli" evals/agentic/tools
+          echo "$RUNNER_TEMP/awscli/aws-cli/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/awscli/aws-cli/bin/aws" --version
+
+      # Without secrets: the build runs code from node_modules.
+      - name: Build the MCP server
+        run: yarn build
+
+      # Secrets only for this step. The LocalStack token reaches only the container and the MCP server; the OpenRouter
+      # key is Claude Code's credential, so the processes Claude Code starts inherit it (evals/agentic/README.md).
+      - name: Run the agentic evaluation
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: ${{ inputs.model || vars.EVAL_OPENROUTER_MODEL }}
+          MCP_ANALYTICS_DISABLED: "1"
+          # Weekly: the no-harm checks that matter most (02 guardrail, 05 not IAM) and the cross-account scenarios.
+          SCENARIO: ${{ github.event_name == 'schedule' && '02,05,06,07,08' || inputs.scenario }}
+          REPEAT: ${{ inputs.repeat || '1' }}
+        run: |
+          args=(--repeat "$REPEAT")
+          if [ -n "$SCENARIO" ]; then args+=(--scenario "$SCENARIO"); fi
+          node evals/agentic/run.mjs "${args[@]}"
+
+      # The runner redacts secrets before it writes a result; this checks it did, since GitHub does not mask artifacts.
+      - name: Check the results hold no secret
+        id: secret-check
+        if: always()
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          [ -d evals/agentic/results ] || exit 0
+          for value in "$LOCALSTACK_AUTH_TOKEN" "$OPENROUTER_API_KEY"; do
+            if [ -n "$value" ] && grep -rqF -- "$value" evals/agentic/results; then
+              echo "::error::A secret is in the results. They are not uploaded; rotate the secret."
+              exit 1
+            fi
+          done
+
+      # A table per run (pass rate, tools used, turns, time, cost, failed checks, versions) on the run page, and for
+      # the history issue. Only numbers and names: no transcript or agent text.
+      - name: Summarize the results
+        id: summary
+        if: always() && steps.secret-check.outcome == 'success'
+        run: |
+          shopt -s nullglob
+          files=(evals/agentic/results/*/results.json)
+          if [ ${#files[@]} -eq 0 ]; then
+            summary="### Agentic eval: no results (the run failed before the evaluation finished)"
+          else
+            summary=$(node evals/agentic/lib/summary.mjs "${files[@]}")
+          fi
+          echo "$summary" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "summary<<EVAL_SUMMARY_EOF"
+            echo "$summary"
+            echo "EVAL_SUMMARY_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Keep the results
+        if: always() && steps.secret-check.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agentic-eval-results
+          path: evals/agentic/results
+          retention-days: 30
+          if-no-files-found: ignore
+
+  # The weekly history: one comment per scheduled run on the issue "Agentic eval history", created on the first run.
+  # A job of its own, so the token that may write issues never shares a job with the secrets or the agent.
+  history:
+    needs: agentic-eval
+    if: always() && github.event_name == 'schedule'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Comment the summary on the history issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SUMMARY: ${{ needs.agentic-eval.outputs.summary }}
+          RESULT: ${{ needs.agentic-eval.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Agentic eval history"
+          issue=$(gh issue list --state open --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title == \"$title\")) | .[0].number // empty")
+          if [ -z "$issue" ]; then
+            issue=$(gh issue create --title "$title" \
+              --body "One comment per weekly run of the agentic evaluation (.github/workflows/agentic-eval.yml): pass rate, tools used, turns, time, cost and versions per scenario. The full results are kept as the run's artifact for 30 days." \
+              | grep -oE '[0-9]+$')
+          fi
+          body="${SUMMARY:-### Agentic eval: no summary}"
+          printf '%s\n\nRun: %s (%s)\n' "$body" "$RUN_URL" "$RESULT" > "$RUNNER_TEMP/comment.md"
+          gh issue comment "$issue" --body-file "$RUNNER_TEMP/comment.md"

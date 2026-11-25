@@ -1,0 +1,33 @@
+{
+  "description": "Lambda resource-based policy, hidden: an EventBridge rule targets the award-points function, which has no AWS::Lambda::Permission, so EventBridge's invoke is denied and the event is dropped silently. The fix is a permission for events.amazonaws.com limited to the rule's ARN (SourceArn); Principal \"*\", no SourceArn or widening the function's role fail. The trigger shows only that no points were credited. Tool use is reported, not graded.",
+  "iam_mode": "ENFORCED",
+  "prompt": "Orders placed in the shop never earn loyalty points. This project runs against LocalStack: ./deploy.sh deploys template.yaml and ./trigger.sh places an order event and checks the points. Find out why, fix the project, deploy your fix and confirm it works.",
+  "initial_denial": {
+    "service": "lambda",
+    "operation": "Invoke"
+  },
+  "checks": [
+    {
+      "type": "trigger_succeeds"
+    },
+    {
+      "type": "no_denials_after_rerun"
+    },
+    {
+      "type": "lambda_policy",
+      "function": "award-points",
+      "rule": "order-placed"
+    },
+    {
+      "type": "role_policy",
+      "role": "award-points",
+      "actions": ["dynamodb:PutItem", "dynamodb:GetItem"],
+      "exact": true
+    },
+    {
+      "type": "tool_called",
+      "action": ["list-iam-denials", "explain-iam"],
+      "report": true
+    }
+  ]
+}

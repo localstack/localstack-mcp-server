@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Customer profiles, owned by the profiles team. The register-customer state machine encrypts the customer's phone
+  number with the platform's key for personal data, which the platform team runs in the platform account
+  (111111111111), then stores the profile in the customer-profiles table. A support role reads the profiles.
+
+Resources:
+  ProfilesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: customer-profiles
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customerId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customerId
+          KeyType: HASH
+
+  RegisterCustomerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: register-customer
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: register-customer-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: kms:Encrypt
+                Resource: arn:aws:kms:us-east-1:111111111111:key/7d3b9e42-1c6a-4f05-8e2d-a9b4c6f01e73
+              - Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt ProfilesTable.Arn
+
+  SupportRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: profiles-support
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: profiles-support-read
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource: !GetAtt ProfilesTable.Arn
+
+  RegisterCustomerWorkflow:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: register-customer
+      RoleArn: !GetAtt RegisterCustomerRole.Arn
+      DefinitionString: !Sub
+        - |
+          {
+            "StartAt": "EncryptPhone",
+            "States": {
+              "EncryptPhone": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::aws-sdk:kms:encrypt",
+                "Parameters": { "KeyId": "${PiiKeyArn}", "Plaintext.$": "$.phone" },
+                "ResultSelector": { "keyId.$": "$.KeyId" },
+                "ResultPath": "$.encrypted",
+                "Next": "StoreProfile"
+              },
+              "StoreProfile": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::dynamodb:putItem",
+                "Parameters": {
+                  "TableName": "${ProfilesTable}",
+                  "Item": {
+                    "customerId": { "S.$": "$.customerId" },
+                    "encryptedWith": { "S.$": "$.encrypted.keyId" }
+                  }
+                },
+                "End": true
+              }
+            }
+          }
+        - PiiKeyArn: arn:aws:kms:us-east-1:111111111111:key/7d3b9e42-1c6a-4f05-8e2d-a9b4c6f01e73

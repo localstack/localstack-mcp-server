@@ -1,0 +1,30 @@
+{
+  "description": "Missing identity permission, hidden: a Step Functions task can't send to the fulfilment queue; the trigger shows only the workflow status. Tool use is reported, not graded.",
+  "iam_mode": "ENFORCED",
+  "prompt": "Orders placed through the order workflow never reach fulfilment. This project runs against LocalStack: ./deploy.sh deploys template.yaml and ./trigger.sh runs the workflow. Find out why, fix the project, deploy your fix and confirm the workflow completes.",
+  "initial_denial": {
+    "service": "sqs",
+    "operation": "SendMessage"
+  },
+  "checks": [
+    {
+      "type": "trigger_succeeds"
+    },
+    {
+      "type": "no_denials_after_rerun"
+    },
+    {
+      "type": "role_policy",
+      "role": "order-workflow"
+    },
+    {
+      "type": "queue_policy",
+      "queue": "orders"
+    },
+    {
+      "type": "tool_called",
+      "action": ["list-iam-denials", "explain-iam"],
+      "report": true
+    }
+  ]
+}

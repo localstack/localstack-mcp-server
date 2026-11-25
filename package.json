@@ -15,8 +15,10 @@
     "prepare": "patch-package",
     "format": "prettier --write .",
     "test": "jest",
+    "test:evals": "node --test evals/agentic/lib/*.test.mjs",
     "test:mcp:direct": "yarn build && playwright test -c playwright.config.mjs tests/mcp/direct.spec.mjs tests/mcp/azure-offline.spec.mjs",
     "test:mcp:evals": "yarn build && playwright test -c playwright.config.mjs tests/mcp/evals.spec.mjs",
+    "eval:agentic": "yarn build && node evals/agentic/run.mjs",
     "test:mcp:tools": "yarn build && playwright test -c playwright.config.mjs --workers=1 tests/mcp/tools.spec.mjs tests/mcp/aws-client-ports.spec.mjs",
     "test:mcp": "yarn test:mcp:direct && yarn test:mcp:tools && yarn test:mcp:evals"
   },

@@ -1,0 +1,29 @@
+{
+  "description": "The cause is in another account: the platform team's key for personal data (account 111111111111, deployed separately, not in the agent's files) delegates to the project's account only for requests with the encryption context data-class=customer-pii, and the register-customer workflow encrypts without one. The role's own policy allows kms:Encrypt on the key, so the project looks right. The fix is to pass that encryption context in the Encrypt task, without IAM changes; widening the role, another key or skipping the encryption fail, and the key policy can't be changed from the project. The execution history and the logs say only that no resource-based policy allows kms:Encrypt on the key, and the agent's AWS CLI runs as the project's account, which can't read the key policy, as on AWS. App Inspector shows the key policy's TeamUse statement as a near miss failing on its condition. Tool use is reported, not graded.",
+  "iam_mode": "ENFORCED",
+  "platform_account": "111111111111",
+  "prompt": "New customers can't sign up: the customer registration workflow fails. This project runs against LocalStack: ./deploy.sh deploys template.yaml and ./trigger.sh registers a test customer. Find out why, fix the project, deploy your fix and confirm it works.",
+  "initial_denial": {
+    "service": "kms",
+    "operation": "Encrypt"
+  },
+  "checks": [
+    {
+      "type": "trigger_succeeds"
+    },
+    {
+      "type": "no_denials_after_rerun"
+    },
+    {
+      "type": "role_policy",
+      "role": "register-customer",
+      "actions": ["kms:Encrypt", "dynamodb:PutItem"],
+      "exact": true
+    },
+    {
+      "type": "tool_called",
+      "action": ["list-iam-denials", "explain-iam"],
+      "report": true
+    }
+  ]
+}

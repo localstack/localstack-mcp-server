@@ -21,6 +21,8 @@ yarn test               # Jest unit tests: *.test.ts next to the code, handler t
 yarn test:mcp:direct    # Playwright: calls the built server's tools directly, plus the Azure offline suite (needs Docker + LOCALSTACK_AUTH_TOKEN)
 yarn test:mcp:tools     # Playwright: each tool against a real LocalStack, no model (needs Docker + LOCALSTACK_AUTH_TOKEN)
 yarn test:mcp:evals     # Playwright: LLM evals through OpenRouter (needs OPENROUTER_API_KEY, LOCALSTACK_AUTH_TOKEN, and terraform, lstk and snow on PATH; EVAL_MODEL swaps the model)
+yarn test:evals         # node --test: unit tests of the agentic eval runner (evals/agentic/lib)
+yarn eval:agentic       # Claude Code fixes IAM failures with this server and the AWS CLI (needs Docker, the AWS CLI, Claude Code, LOCALSTACK_AUTH_TOKEN; see evals/agentic/README.md)
 yarn format             # Prettier
 ```
 
@@ -38,6 +40,7 @@ yarn format             # Prettier
 | `src/tools-tests/` | Handler tests, one file per tool. They live outside `src/tools/` because xmcp registers every file there as a tool. |
 | `tests/mcp/` | Playwright tests against the built server. |
 | `tests/docker/` | Validation of the Docker image. |
+| `evals/agentic/` | The agentic evaluation of the IAM actions: scenarios, runner, and the pinned tools it runs. |
 | `docs/` | Topic docs. |
 
 ## Writing a tool
@@ -67,6 +70,8 @@ the failing test first when fixing a bug in `src/`.
 | Tools | `tests/mcp/tools.spec.mjs` | every PR, with the auth token | Each tool over MCP stdio against a real emulator, without a model. |
 | Server | `tests/mcp/direct.spec.mjs` | every PR, with the auth token | The built server: tool list, prompts, setup wizard. |
 | Image | `tests/docker/validate-image.mjs` | `docker.yml`, with the auth token | Real calls through the Docker image. |
+| Evals | `data/evals/comprehensive.json` (`tests/mcp/evals.spec.mjs`) | after merges to `main`, weekly, on demand | Whether a model picks the right tool and action for a request. |
+| Agentic | `evals/agentic/` (`agentic-eval.yml`) | weekly, on demand | Whether a coding agent fixes a whole project with the tools, graded by its final state. |
 
 Rules for tool tests:
 
@@ -330,7 +335,12 @@ Inspector and enabling it again deletes what it recorded, unless persistence is 
 Render every payload string escaped (REVIEW §7): an ARN, a resource name or an error message must not be able to
 close a code fence, break a table, or leave its fence or cell.
 
-An agentic evaluation of these actions is a follow-up (see [Follow-ups](#follow-ups)).
+`evals/agentic/` checks the actions end to end: Claude Code, given this server's IAM tools, the AWS CLI and
+LocalStack's log, fixes small CloudFormation projects and is graded by the deployed state after a clean redeploy (see its README). Under REVIEW
+§0 it keeps the auth token in a private MCP config deleted after the run, runs its own scripts and git without
+secrets and outside the agent's reach, redacts the results and checks them before upload, and pins the tools it
+runs where Dependabot updates them. The model key is Claude Code's credential, so the processes Claude Code
+starts inherit it.
 
 ## Gaps in LocalStack
 
@@ -421,12 +431,6 @@ Decisions not settled yet. Ask the user before acting on one, and move the answe
 
 Planned work that is not on `main` yet. Ask the user before starting one.
 
-- **Agentic evaluation of the IAM actions.** A coding agent (Claude Code headless) fixes common IAM failures in small
-  projects using only this server, graded by deterministic checks, on demand and weekly. Before it lands it must
-  meet REVIEW §0 and "Dependencies": the agent and the scripts it runs get no secrets, the MCP config holding the
-  auth token is private and deleted after the run, the agent can read and edit only its project and cannot change
-  the scripts it may run, results are redacted and checked before upload, workflow inputs go through `env:`, and
-  Claude Code is pinned in a lockfile Dependabot updates.
 - **`lstk mcp`'s `failed-requests` action (lstk, unreleased).** It groups App Inspector's failed spans
   (`status_code=2`) by service, operation, HTTP status and AWS error code, with counts, first and last time and the
   latest example. That computation is an approved exception to rule 5: approved by the

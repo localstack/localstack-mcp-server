@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Owned by the platform team and deployed into the platform account, separately from the workload accounts. The
+  company's central event bus: workload accounts put their domain events here, each team under its registered event
+  source, and every event is copied to an audit queue that workload teams may read to confirm delivery.
+
+Resources:
+  CentralBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: central-events
+
+  OrdersTeamPuts:
+    Type: AWS::Events::EventBusPolicy
+    Properties:
+      EventBusName: !Ref CentralBus
+      StatementId: OrdersTeamPuts
+      Statement:
+        Effect: Allow
+        Principal:
+          AWS: arn:aws:iam::000000000000:root
+        Action: events:PutEvents
+        Resource: !GetAtt CentralBus.Arn
+        Condition:
+          StringEquals:
+            events:source: com.acme.orders
+
+  AuditQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: central-audit
+
+  AuditQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref AuditQueue]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: BusDelivers
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt AuditQueue.Arn
+          - Sid: WorkloadsConfirmDelivery
+            Effect: Allow
+            Principal:
+              AWS: arn:aws:iam::000000000000:root
+            Action:
+              - sqs:GetQueueUrl
+              - sqs:ReceiveMessage
+            Resource: !GetAtt AuditQueue.Arn
+
+  AuditRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: audit-everything
+      EventBusName: !Ref CentralBus
+      EventPattern:
+        account: [{ prefix: "" }]
+      Targets:
+        - Id: audit
+          Arn: !GetAtt AuditQueue.Arn
