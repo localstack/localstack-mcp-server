@@ -5,26 +5,56 @@ import { assertLocalPathsAllowed, awsWorkdir, confineTransfers } from "./local-p
 
 describe("awsWorkdir", () => {
   test("is LOCALSTACK_AWS_WORKDIR when it is a directory, else an error", () => {
-    const dir = fs.realpathSync(os.tmpdir());
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "aws-wd-")));
     expect(awsWorkdir({ LOCALSTACK_AWS_WORKDIR: dir })).toEqual({ workdir: dir });
     expect(awsWorkdir({ LOCALSTACK_AWS_WORKDIR: path.join(dir, "no-such-dir-x") })).toMatchObject({
       workdir: null,
       error: expect.stringContaining("not an existing directory"),
     });
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  test("refuses / and the home directory as LOCALSTACK_AWS_WORKDIR", () => {
+  test("refuses the temp directory and above it: the private home lies there", () => {
+    const tmp = fs.realpathSync(os.tmpdir());
+    for (const dir of [tmp, path.dirname(tmp)]) {
+      expect(awsWorkdir({ LOCALSTACK_AWS_WORKDIR: dir }).error).toContain("temp directory");
+      expect(awsWorkdir({}, { cwd: dir, inDocker: false })).toEqual({ workdir: null });
+    }
+  });
+
+  (fs.existsSync("/System/Volumes/Data/Users") ? test : test.skip)(
+    "refuses the home directory under another name (macOS firmlinks)",
+    () => {
+      const home = fs.realpathSync.native(os.homedir());
+      for (const dir of [
+        `/System/Volumes/Data${home}`,
+        "/System/Volumes/Data/Users",
+        "/System/Volumes",
+      ]) {
+        expect(awsWorkdir({ LOCALSTACK_AWS_WORKDIR: dir }).error).toContain("must not be /");
+      }
+    }
+  );
+
+  test("refuses /, the home directory and a directory above it as LOCALSTACK_AWS_WORKDIR", () => {
     expect(awsWorkdir({ LOCALSTACK_AWS_WORKDIR: "/" }).error).toContain("must not be /");
     expect(awsWorkdir({ LOCALSTACK_AWS_WORKDIR: os.homedir() }).error).toContain("must not be /");
+    expect(awsWorkdir({ LOCALSTACK_AWS_WORKDIR: path.dirname(os.homedir()) }).error).toContain(
+      "hold your home directory"
+    );
   });
 
   test("is the server's directory, but none in Docker, in / or in the home directory", () => {
-    const cwd = fs.realpathSync(os.tmpdir());
+    const cwd = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "aws-cwd-")));
     const home = fs.realpathSync(os.homedir());
     expect(awsWorkdir({}, { cwd, home, inDocker: false })).toEqual({ workdir: cwd });
     expect(awsWorkdir({}, { cwd, home, inDocker: true })).toEqual({ workdir: null });
     expect(awsWorkdir({}, { cwd: "/", home, inDocker: false })).toEqual({ workdir: null });
     expect(awsWorkdir({}, { cwd: home, home, inDocker: false })).toEqual({ workdir: null });
+    expect(awsWorkdir({}, { cwd: path.dirname(home), home, inDocker: false })).toEqual({
+      workdir: null,
+    });
+    fs.rmSync(cwd, { recursive: true, force: true });
   });
 });
 
@@ -39,6 +69,25 @@ describe("assertLocalPathsAllowed", () => {
     fs.writeFileSync(path.join(workdir, "in.txt"), "x");
     fs.writeFileSync(path.join(outside, "key.pem"), "secret");
     fs.symlinkSync(outside, path.join(workdir, "escape"));
+    fs.symlinkSync(path.join(outside, "new-file"), path.join(workdir, "dangle"));
+    fs.symlinkSync(path.join(outside, "new-dir", "f"), path.join(outside, "dangle-out"));
+  });
+
+  test("judges a path that cannot be read as a path, without a file-system error", () => {
+    expect(() => allowed("ssm get-parameter --name /etc/hosts/x")).toThrow(/outside/);
+    // Inside the workdir: the CLI itself fails on it.
+    expect(() => allowed("s3api get-object --bucket b --key k in.txt/x")).not.toThrow();
+  });
+
+  test("refuses a path through a symlink whose target is missing", () => {
+    for (const cmd of [
+      "s3api get-object --bucket b --key k dangle",
+      `s3api get-object --bucket b --key k ${workdir}/dangle`,
+      "s3 cp s3://b/k dangle",
+      `ssm get-parameter --name ${outside}/dangle-out`,
+    ]) {
+      expect(() => allowed(cmd)).toThrow(/symlink whose target does not exist|outside/);
+    }
   });
   afterAll(() => {
     fs.rmSync(workdir, { recursive: true, force: true });

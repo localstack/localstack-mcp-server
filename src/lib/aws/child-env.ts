@@ -84,7 +84,8 @@ function realpathOfLongestExisting(p: string): string {
   let existing = path.resolve(p);
   for (;;) {
     try {
-      return path.join(realpathSync(existing), ...rest);
+      // native: the spelling the file system stores (case on macOS, long names on Windows).
+      return path.join(realpathSync.native(existing), ...rest);
     } catch {
       const parent = path.dirname(existing);
       if (parent === existing) return path.resolve(p);
@@ -179,8 +180,11 @@ export function safePath(
   writable: string[] = []
 ): string {
   const p = platform === "win32" ? path.win32 : path.posix;
+  // On Windows, `\\?\C:\x` and `\\.\C:\x` are C:\x, in any case.
   const fold = (dir: string) =>
-    platform === "win32" ? p.resolve(dir).toLowerCase() : p.resolve(dir);
+    platform === "win32"
+      ? p.resolve(dir.replace(/^[\\/]{2}[?.][\\/](?=[a-z]:)/i, "")).toLowerCase()
+      : p.resolve(dir);
   const inside = (dir: string, root: string) =>
     dir === root || dir.startsWith(root.endsWith(p.sep) ? root : root + p.sep);
   // Lexically, and (on this machine's own paths) after following symlinks.

@@ -14,7 +14,7 @@ import path from "path";
  */
 export function awsWorkdir(
   env: NodeJS.ProcessEnv = process.env,
-  deps: { cwd?: string; home?: string; inDocker?: boolean } = {}
+  deps: { cwd?: string; home?: string; tmp?: string; inDocker?: boolean } = {}
 ): { workdir: string | null; error?: string } {
   const configured = env.LOCALSTACK_AWS_WORKDIR?.trim();
   if (configured) {
@@ -26,19 +26,58 @@ export function awsWorkdir(
       };
     }
     const real = realpath(dir);
-    if (real === path.parse(real).root || real === realpath(deps.home ?? os.homedir())) {
+    if (tooWide(real, deps)) {
       return {
         workdir: null,
-        error: `LOCALSTACK_AWS_WORKDIR (${real}) must not be / or your home directory: it would expose ~/.aws and every other file to the AWS client.`,
+        error: `LOCALSTACK_AWS_WORKDIR (${real}) must not be / or hold your home directory or the temp directory (${deps.tmp ?? os.tmpdir()}): it would expose ~/.aws, or the AWS client's private home, to its commands. Use a project directory.`,
       };
     }
     return { workdir: real };
   }
   if (deps.inDocker ?? fs.existsSync("/.dockerenv")) return { workdir: null };
   const cwd = realpath(deps.cwd ?? process.cwd());
-  const home = realpath(deps.home ?? os.homedir());
-  if (cwd === path.parse(cwd).root || cwd === home) return { workdir: null };
-  return { workdir: cwd };
+  return { workdir: tooWide(cwd, deps) ? null : cwd };
+}
+
+/**
+ * Whether `dir` is a root, or holds the home directory or the temp directory, where the AWS
+ * client's private home lies (child-env.ts): a recursive s3 download would write into it.
+ */
+function tooWide(dir: string, deps: { home?: string; tmp?: string }): boolean {
+  return (
+    dir === path.parse(dir).root ||
+    holds(dir, deps.home ?? os.homedir()) ||
+    holds(dir, deps.tmp ?? os.tmpdir()) ||
+    // Above macOS's data volume, home and tmp lie one level deeper: /System/Volumes/Data/Users.
+    holds(dir, "/System/Volumes/Data") ||
+    isInside("/.vol", dir)
+  );
+}
+
+/**
+ * Whether `target` is `dir` or inside it, by file identity, not spelling: on macOS,
+ * /System/Volumes/Data/Users is /Users. For each tail of `target` (`joe`, `Users/joe`, …),
+ * `dir`/tail being `target` itself means `dir` is the directory above it (or, for no tail, it).
+ */
+function holds(dir: string, target: string): boolean {
+  const real = realpath(target);
+  if (isInside(real, dir)) return true;
+  const id = stat(real);
+  if (!id) return false;
+  const parts = real.slice(path.parse(real).root.length).split(path.sep).filter(Boolean);
+  return parts.concat("").some((_, i) => {
+    const other = stat(path.join(dir, ...parts.slice(i)));
+    return other?.dev === id.dev && other.ino === id.ino;
+  });
+}
+
+/** `p`'s stats, or undefined when it cannot be read (missing, no permission, a symlink loop). */
+function stat(p: string): fs.Stats | undefined {
+  try {
+    return fs.statSync(p, { throwIfNoEntry: false });
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -268,11 +307,11 @@ function expandHome(value: string, home = os.homedir()): string {
 function isName(p: string, transfer: boolean, homes: string[]): boolean {
   const { root } = path.parse(p);
   const first = p.slice(root.length).split(/[\\/]/)[0];
-  if (first !== "" && !fs.existsSync(path.join(root, first))) return true;
+  if (first !== "" && !present(path.join(root, first))) return true;
   if (transfer) return false;
   const real = realpathOfLongestExisting(p);
   if (homes.some((home) => isInside(real, realpath(home)))) return false;
-  return !fs.existsSync(p) && !fs.existsSync(path.dirname(p));
+  return !present(p) && !present(path.dirname(p));
 }
 
 function isDirectory(p: string): boolean {
@@ -285,17 +324,46 @@ function isDirectory(p: string): boolean {
 
 function realpath(p: string): string {
   try {
-    return fs.realpathSync(p);
+    // native: the spelling the file system stores (case on macOS, long names on Windows).
+    return fs.realpathSync.native(p);
   } catch {
     return path.resolve(p);
   }
 }
 
-/** The real path of `p`, following symlinks in the part of it that exists. */
+function isSymlink(p: string): boolean {
+  try {
+    return fs.lstatSync(p, { throwIfNoEntry: false })?.isSymbolicLink() ?? false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether `p` exists, a symlink whose target is missing included. A path that cannot be read
+ * (no permission, a file as a directory) counts as existing: it is then judged as a path.
+ */
+function present(p: string): boolean {
+  try {
+    return fs.lstatSync(p, { throwIfNoEntry: false }) !== undefined;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * The real path of `p`, following symlinks in the part of it that exists. Throws at a symlink
+ * whose target is missing: the CLI would create that target, wherever it is.
+ */
 function realpathOfLongestExisting(p: string): string {
   let existing = p;
   const rest: string[] = [];
   while (!fs.existsSync(existing)) {
+    if (isSymlink(existing)) {
+      throw new Error(
+        `The local path '${p}' is not allowed: it goes through ${existing}, a symlink whose target does not exist, so the AWS client would create a file wherever the symlink points.`
+      );
+    }
     const parent = path.dirname(existing);
     if (parent === existing) break;
     rest.unshift(path.basename(existing));

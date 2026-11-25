@@ -26,7 +26,21 @@ test("safePath drops entries inside a directory the AWS client writes to", () =>
     safePath("/w/node_modules/.bin:/w:/usr/bin:/w2/bin:/p/home/bin", "linux", ["/w", "/p/home"])
   ).toBe("/usr/bin:/w2/bin");
   expect(safePath("c:\\W\\node_modules\\.bin;C:\\bin", "win32", ["C:\\w"])).toBe("C:\\bin");
+  // Device-path spellings of the same directory.
+  expect(safePath("\\\\?\\C:\\w\\bin;\\\\.\\c:\\W;C:\\bin", "win32", ["C:\\w"])).toBe("C:\\bin");
 });
+
+(process.platform === "darwin" ? test : test.skip)(
+  "safePath drops a writable directory spelled in another case (macOS)",
+  () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(require("os").tmpdir(), "safepath-")));
+    fs.mkdirSync(path.join(root, "work", "bin"), { recursive: true });
+    expect(safePath(`${root}/WORK/bin:/usr/bin`, "darwin", [path.join(root, "work")])).toBe(
+      "/usr/bin"
+    );
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+);
 
 test("safePath follows symlinks to a writable directory", () => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(require("os").tmpdir(), "safepath-")));
@@ -65,6 +79,12 @@ describe("privateDirs", () => {
 describe("programPath", () => {
   test("elsewhere than Windows, the bare name: only PATH is searched", () => {
     expect(programPath("lstk", { PATH: "/usr/bin" }, "linux")).toBe("lstk");
+  });
+
+  test("null when no PATH entry is left: an empty PATH means the working directory", () => {
+    expect(programPath("lstk", { PATH: ".::bin" }, "linux")).toBeNull();
+    expect(programPath("lstk", {}, "linux")).toBeNull();
+    expect(programPath("lstk", { Path: ".;" }, "win32")).toBeNull();
   });
 
   (process.platform === "win32" ? test : test.skip)(

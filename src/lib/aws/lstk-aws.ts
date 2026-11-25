@@ -26,16 +26,21 @@ let dependenciesFound = false;
  * The program to spawn for `name`, given the child's `env`, whose PATH holds no directory the AWS
  * client writes to (child-env.ts). On Windows, a bare name is looked up in the child's working
  * directory before PATH, where the AWS client can write lstk.exe: it gets the full path from
- * PATH, or null when there is none. Elsewhere only PATH is searched.
+ * PATH, or null when there is none. Elsewhere only PATH is searched. With no PATH entry left, it
+ * is null: an empty PATH means the working directory to some programs.
  */
 export function programPath(
   name: string,
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform
 ): string | null {
-  if (platform !== "win32") return name;
   const key = Object.keys(env).find((k) => k.toUpperCase() === "PATH");
-  for (const dir of safePath((key && env[key]) || "", platform).split(";")) {
+  const dirs = safePath((key && env[key]) || "", platform)
+    .split(platform === "win32" ? ";" : ":")
+    .filter(Boolean);
+  if (dirs.length === 0) return null;
+  if (platform !== "win32") return name;
+  for (const dir of dirs) {
     for (const ext of [".exe", ".com"]) {
       const candidate = path.win32.join(dir, name + ext);
       if (fs.statSync(candidate, { throwIfNoEntry: false })?.isFile()) return candidate;
