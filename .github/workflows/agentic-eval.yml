@@ -73,14 +73,10 @@ jobs:
       - name: Pull the LocalStack image
         run: docker pull localstack/localstack-pro:dev
 
-      # The AWS CLI the scenarios' deploy and trigger scripts run, at the version pinned in
-      # evals/agentic/tools/Dockerfile, ahead of the runner image's own on the PATH.
-      # TODO: use the host-tools action's AWS CLI once https://github.com/localstack/localstack-mcp-server/pull/137 lands.
-      - name: Install the AWS CLI
-        run: |
-          docker build --output "type=local,dest=$RUNNER_TEMP/awscli" evals/agentic/tools
-          echo "$RUNNER_TEMP/awscli/aws-cli/bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/awscli/aws-cli/bin/aws" --version
+      # The AWS CLI (the server image's version), which the scenarios' scripts run, and lstk, which the server's
+      # localstack-aws-client runs it through.
+      - name: Install the AWS CLI and lstk
+        uses: ./.github/actions/host-tools
 
       # Without secrets: the build runs code from node_modules.
       - name: Build the MCP server

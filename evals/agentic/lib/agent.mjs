@@ -64,6 +64,8 @@ export function writeMcpConfig(workdir, { repoRoot, port, containerName }) {
           LOCALSTACK_HOSTNAME: "localhost",
           LOCALSTACK_PORT: String(port),
           MCP_ANALYTICS_DISABLED: "1",
+          // localstack-aws-client reads and writes local files only in the project, as the agent's own tools do
+          LOCALSTACK_AWS_WORKDIR: workdir,
           // The server's Docker-based tools prefer a running `localstack-main` or `localstack-aws`, which may be the
           // user's own emulator: name the eval's container so they never reach another one.
           ...(containerName ? { MAIN_CONTAINER_NAME: containerName } : {}),

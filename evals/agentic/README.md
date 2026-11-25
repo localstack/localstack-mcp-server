@@ -44,10 +44,9 @@ from the stack outputs, so the workload always exercises the role and resources 
 
 ## Run it
 
-Needs Docker, the AWS CLI, Claude Code (`claude`) and `LOCALSTACK_AUTH_TOKEN`. CI installs Claude Code at the
-version pinned in `tools/package-lock.json` (`npm ci --prefix evals/agentic/tools`), and the AWS CLI at the version
-in `tools/Dockerfile`; Dependabot updates both. (TODO: take the AWS CLI from the `host-tools` action once
-[#137](https://github.com/localstack/localstack-mcp-server/pull/137) lands.)
+Needs Docker, the AWS CLI (v2.37.7 or newer), lstk, Claude Code (`claude`) and `LOCALSTACK_AUTH_TOKEN`. CI installs
+Claude Code at the version pinned in `tools/package-lock.json` (`npm ci --prefix evals/agentic/tools`), and the AWS
+CLI and lstk with the `host-tools` action, at the server image's versions; Dependabot updates them.
 
 ```bash
 yarn eval:agentic                      # all scenarios
@@ -123,11 +122,8 @@ Results are uploaded as an artifact, which GitHub does not mask, so the runner k
 - Every result file is redacted before it is written. A secret found in the agent's output fails the run; rotate
   it, since the model provider saw it. The workflow checks the results again and skips the upload if it finds one.
 
-Known gap: the agent can reach the LocalStack token through `localstack-aws-client`. The AWS CLI reads `file://`
-arguments, so a command such as `ssm put-parameter --value file:///proc/self/environ` stores the container's
-environment, token included, where the agent can read it back. The redaction above catches the token in the
-results, but only after the model provider has seen it. The fix is in the server: reject `file://`, `fileb://` and
-`/proc` paths in the AWS CLI command sanitizer (or remove `localstack-aws-client` from the agent's allowed tools here).
+`localstack-aws-client` reads and writes local files only in the project (`LOCALSTACK_AWS_WORKDIR`), and the AWS CLI
+it runs gets neither the LocalStack token nor the agent's environment.
 
 ## Add a scenario
 

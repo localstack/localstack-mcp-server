@@ -68,9 +68,6 @@ updates:
   - package-ecosystem: docker
     directories:
       - /
-      # TODO: remove with evals/agentic/tools/Dockerfile once
-      # https://github.com/localstack/localstack-mcp-server/pull/137 lands
-      - /evals/agentic/tools
     schedule:
       interval: weekly
     cooldown:
