@@ -49,6 +49,8 @@ jobs:
       LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       EVAL_MODEL: ${{ inputs.model }}
+      # The nightly image, as in every workflow here; the management tool's start launches it.
+      LOCALSTACK_IMAGE_NAME: localstack/localstack-pro:dev
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -75,7 +77,7 @@ jobs:
       # Pulled up front so a start inside a case doesn't time out on the download.
       - name: Pull the LocalStack images
         run: |
-          docker pull localstack/localstack-pro:latest
+          docker pull "$LOCALSTACK_IMAGE_NAME"
           docker pull localstack/snowflake:latest
 
       - name: Run the eval dataset

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { LocalStackLogRetriever, type LogEntry } from "../lib/logs/log-retriever";
-import { ProFeature } from "../lib/localstack/license-checker";
+import { ProFeature, checkProFeature } from "../lib/localstack/license-checker";
 import { httpClient, HttpError } from "../core/http-client";
 import { IAM_CONFIG_ENDPOINT } from "../core/config";
 import {
@@ -34,7 +34,7 @@ export const schema = {
 export const metadata: ToolMetadata = {
   name: "localstack-iam-policy-analyzer",
   description:
-    "Configures LocalStack's IAM enforcement and analyzes logs to automatically generate missing IAM policies.",
+    "Configures LocalStack's IAM enforcement and analyzes logs to generate missing IAM policies. For IAM, localstack-app-inspector is recommended instead (list-iam-denials, explain-iam, get-auto-derived-iam-policies, get-iam-mode, set-iam-mode): it reads LocalStack's structured IAM data and shows the policies that decided a request, including another account's, and LocalStack's suggested fix.",
   annotations: {
     title: "LocalStack IAM Policy Analyzer",
     readOnlyHint: false,
@@ -55,38 +55,79 @@ export default async function localstackIamPolicyAnalyzer({
   mode,
 }: InferSchema<typeof schema>) {
   return withToolAnalytics("localstack-iam-policy-analyzer", { action, mode }, async () => {
-    const preflightError = await runPreflights([
-      requireAuthToken(),
-      requireLocalStackRunning(),
-      requireProFeature(ProFeature.IAM_ENFORCEMENT),
-    ]);
-    if (preflightError) return preflightError;
+    const response = await runAction(action, mode);
+    // No pointer on errors, so an agent is never sent back and forth; the App Inspector-based actions only when licensed
+    // Some failures are markdown with a failure title rather than isError; a status with an unknown state is not one
+    const first = (response as { content?: Array<{ text?: string }> }).content?.[0]?.text ?? "";
+    const failure =
+      /^\s*(❌|⚠️) \*\*(Failed to|Policy Analysis Failed|LocalStack IAM Configuration Not Available)/u;
+    if ((response as { isError?: boolean }).isError || failure.test(first)) return response;
+    if (action === "analyze-policies") {
+      const license = await checkProFeature(ProFeature.APP_INSPECTOR);
+      if (!license.isSupported) return response;
+    }
+    return withRecommendation(action, response);
+  });
+}
 
-    switch (action) {
-      case "get-status":
-        return await handleGetStatus();
-      case "set-mode":
-        if (!mode) {
-          return ResponseBuilder.error(
-            "Missing Required Parameter",
-            `The 'mode' parameter is required when using 'set-mode' action.
+/** The IAM tool action recommended for the job of each action */
+export const RECOMMENDED_ALTERNATIVES: Record<string, string> = {
+  "get-status": "`localstack-app-inspector` with action `get-iam-mode`",
+  "set-mode": "`localstack-app-inspector` with action `set-iam-mode`",
+  "analyze-policies":
+    "`localstack-app-inspector` with actions `list-iam-denials` and `explain-iam` (why a request was denied and LocalStack's suggested fix), or `get-auto-derived-iam-policies` (least-privilege policies derived from a run)",
+};
+
+/**
+ * Recommends the app-inspector action for the same job after every response. Whether to deprecate this tool is a
+ * pending product decision; until then it works unchanged and only recommends.
+ */
+export function withRecommendation<T extends { content: Array<{ type: string; text: string }> }>(
+  action: string,
+  response: T
+): T {
+  const alternative = RECOMMENDED_ALTERNATIVES[action] ?? "`localstack-app-inspector`";
+  const notice = `\n\n---\n💡 **Recommended:** ${alternative}, which reads LocalStack's structured IAM data instead of its log.`;
+  const [first, ...rest] = response.content;
+  if (!first) return response;
+  return { ...response, content: [{ ...first, text: first.text + notice }, ...rest] };
+}
+
+async function runAction(
+  action: InferSchema<typeof schema>["action"],
+  mode: InferSchema<typeof schema>["mode"]
+) {
+  const preflightError = await runPreflights([
+    requireAuthToken(),
+    requireLocalStackRunning(),
+    requireProFeature(ProFeature.IAM_ENFORCEMENT),
+  ]);
+  if (preflightError) return preflightError;
+
+  switch (action) {
+    case "get-status":
+      return await handleGetStatus();
+    case "set-mode":
+      if (!mode) {
+        return ResponseBuilder.error(
+          "Missing Required Parameter",
+          `The 'mode' parameter is required when using 'set-mode' action.
 
 Valid modes:
 - **ENFORCED**: Strict IAM enforcement (blocks unauthorized actions)
 - **SOFT_MODE**: Log IAM violations without blocking
 - **DISABLED**: Turn off IAM enforcement completely`
-          );
-        }
-        return await handleSetMode(mode);
-      case "analyze-policies":
-        return await handleAnalyzePolicies();
-      default:
-        return ResponseBuilder.error(
-          "Unknown action",
-          `Unknown action: ${action}. Supported actions: get-status, set-mode, analyze-policies`
         );
-    }
-  });
+      }
+      return await handleSetMode(mode);
+    case "analyze-policies":
+      return await handleAnalyzePolicies();
+    default:
+      return ResponseBuilder.error(
+        "Unknown action",
+        `Unknown action: ${action}. Supported actions: get-status, set-mode, analyze-policies`
+      );
+  }
 }
 
 async function handleGetStatus() {

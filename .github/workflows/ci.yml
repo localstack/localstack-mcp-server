@@ -69,6 +69,9 @@ jobs:
     runs-on: ubuntu-26.04
     env:
       LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+      # The nightly image, as in every workflow here: the IAM features under test are on LocalStack's main branch
+      # before a release has them. The management tool's start and the port tests launch it.
+      LOCALSTACK_IMAGE_NAME: localstack/localstack-pro:dev
 
     steps:
       # GitHub gives pull requests from forks no secrets. Fail loud rather than skip, so a
@@ -95,7 +98,7 @@ jobs:
 
       # Pulled up front so the start stays within the management tool's 120s.
       - name: Pull the LocalStack image
-        run: docker pull localstack/localstack-pro:latest
+        run: docker pull "$LOCALSTACK_IMAGE_NAME"
 
       - name: Run the tool tests
         run: yarn test:mcp:tools

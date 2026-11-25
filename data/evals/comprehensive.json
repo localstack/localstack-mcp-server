@@ -113,7 +113,7 @@
     },
     {
       "id": "scenario-iam-soft-mode",
-      "description": "localstack-iam-policy-analyzer: switch IAM enforcement to soft mode from a symptom, not the mode's name.",
+      "description": "localstack-app-inspector: switch IAM enforcement to soft mode from a symptom, not the mode's name.",
       "mode": "mcp_host",
       "scenario": "My Lambda function keeps failing with AccessDenied errors in my local AWS emulator. Instead of blocking those calls, let them through and only log which permissions are missing. Then check which mode is active.",
       "mcpHostConfig": {
@@ -125,16 +125,16 @@
         "toolsTriggered": {
           "calls": [
             {
-              "name": "localstack-iam-policy-analyzer",
-              "arguments": { "action": "set-mode", "mode": "SOFT_MODE" },
+              "name": "localstack-app-inspector",
+              "arguments": { "action": "set-iam-mode", "mode": "SOFT_MODE" },
               "required": true
             }
           ],
           "order": "any"
         },
         "matchesPattern": [
-          "\"output\":\"(?:[^\"\\\\]|\\\\.)*IAM enforcement mode has been set to `SOFT_MODE`",
-          "\"output\":\"(?:[^\"\\\\]|\\\\.)*\\*\\*Current Mode:\\*\\* `SOFT_MODE`"
+          "\"output\":\"(?:[^\"\\\\]|\\\\.)*## IAM Enforcement Updated",
+          "\"output\":\"(?:[^\"\\\\]|\\\\.)*\\*\\*Mode:\\*\\* `SOFT_MODE`"
         ]
       }
     },
@@ -199,6 +199,54 @@
           "order": "any"
         },
         "matchesPattern": ["\"output\":\"(?:[^\"\\\\]|\\\\.)*## Traces"]
+      }
+    },
+    {
+      "id": "scenario-iam-explain-denial",
+      "description": "localstack-app-inspector: find IAM denials from an AccessDenied symptom.",
+      "mode": "mcp_host",
+      "scenario": "A call in my local AWS emulator failed with AccessDenied. Which requests were denied, and what does LocalStack suggest to fix the permissions?",
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
+      "expect": {
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-app-inspector",
+              "arguments": { "action": "list-iam-denials" },
+              "required": true
+            }
+          ],
+          "order": "any"
+        },
+        "matchesPattern": ["\"output\":\"(?:[^\"\\\\]|\\\\.)*## IAM Denials"]
+      }
+    },
+    {
+      "id": "scenario-auto-derived-iam-policies",
+      "description": "localstack-app-inspector: least-privilege policies auto-derived from requests.",
+      "mode": "mcp_host",
+      "scenario": "Which IAM permissions did my workload actually use in the local emulator? I want least-privilege policies to put into my infrastructure code.",
+      "mcpHostConfig": {
+        "provider": "openrouter",
+        "model": "google/gemini-2.5-flash",
+        "temperature": 0
+      },
+      "expect": {
+        "toolsTriggered": {
+          "calls": [
+            {
+              "name": "localstack-app-inspector",
+              "arguments": { "action": "get-auto-derived-iam-policies" },
+              "required": true
+            }
+          ],
+          "order": "any"
+        },
+        "matchesPattern": ["\"output\":\"(?:[^\"\\\\]|\\\\.)*## Auto-derived IAM Policies"]
       }
     },
     {

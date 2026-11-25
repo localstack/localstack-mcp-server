@@ -1,9 +1,12 @@
-import { LOCALSTACK_BASE_URL } from "../../core/config";
+import {
+  IAM_CONFIG_ENDPOINT,
+  IAM_POLICY_SUMMARY_ENDPOINT,
+  LOCALSTACK_BASE_URL,
+} from "../../core/config";
 import { httpClient, HttpError } from "../../core/http-client";
 
 export type ApiResult<T> =
-  | { success: true; data: T }
-  | { success: false; message: string; statusCode?: number };
+  { success: true; data: T } | { success: false; message: string; statusCode?: number };
 
 export interface AwsConfig {
   aws_access_key_id?: string;
@@ -366,26 +369,7 @@ export class AppInspectorApiClient {
     method: "GET" | "PUT" | "DELETE",
     body?: unknown
   ): Promise<ApiResult<T>> {
-    try {
-      const data = await httpClient.request<T>(`/_localstack/appinspector${endpoint}`, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: body ? JSON.stringify(body) : undefined,
-      });
-      return { success: true, data };
-    } catch (error) {
-      if (error instanceof HttpError) {
-        return {
-          success: false,
-          message: error.body || error.message,
-          statusCode: error.status,
-        };
-      }
-      return {
-        success: false,
-        message: `Failed to communicate with LocalStack App Inspector API: ${error instanceof Error ? error.message : "Unknown error"}`,
-      };
-    }
+    return requestApi<T>(`/_localstack/appinspector${endpoint}`, method, body);
   }
 
   getStatus() {
@@ -453,5 +437,70 @@ export class AppInspectorApiClient {
       `/v1/traces/${encodeURIComponent(traceId)}/spans/${encodeURIComponent(spanId)}/events/iam${this.buildQueryString(query)}`,
       "GET"
     );
+  }
+
+  /** The full documents of a policy an IAM event names, by its key in the event's `policies` */
+  getEventPolicy(eventId: string, policyKey: string) {
+    return this.makeRequest<AppInspectorPolicyDocumentsResponse>(
+      `/v1/events/${encodeURIComponent(eventId)}/policies/${encodeURIComponent(policyKey)}`,
+      "GET"
+    );
+  }
+}
+
+export type IamEnforcementMode = "ENFORCED" | "SOFT_MODE" | "ENGINE_ONLY" | "DISABLED";
+
+export interface IamConfigResponse {
+  state: string;
+  [key: string]: unknown;
+}
+
+export interface AppInspectorPolicyDocumentsResponse {
+  documents: Array<{ document: unknown; hash?: string }>;
+}
+
+/** IAM enforcement settings and the policy summary LocalStack derives from evaluated requests */
+export class IamApiClient {
+  getConfig() {
+    return requestApi<IamConfigResponse>(IAM_CONFIG_ENDPOINT, "GET");
+  }
+
+  setMode(mode: IamEnforcementMode) {
+    return requestApi<unknown>(IAM_CONFIG_ENDPOINT, "POST", { state: mode });
+  }
+
+  getPolicySummary() {
+    return requestApi<unknown>(IAM_POLICY_SUMMARY_ENDPOINT, "GET");
+  }
+
+  clearPolicySummary() {
+    return requestApi<unknown>(IAM_POLICY_SUMMARY_ENDPOINT, "DELETE");
+  }
+}
+
+async function requestApi<T>(
+  endpoint: string,
+  method: "GET" | "PUT" | "POST" | "DELETE",
+  body?: unknown
+): Promise<ApiResult<T>> {
+  try {
+    const data = await httpClient.request<T>(endpoint, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return { success: true, data };
+  } catch (error) {
+    if (error instanceof HttpError) {
+      return {
+        success: false,
+        message: error.body || error.message,
+        statusCode: error.status,
+      };
+    }
+    return {
+      success: false,
+      message: `Failed to communicate with the LocalStack API: ${error instanceof Error ? error.message : "Unknown error"}`,
+    };
   }
 }
