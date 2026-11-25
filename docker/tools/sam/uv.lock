@@ -39,20 +39,20 @@ wheels = [
 
 [[package]]
 name = "aws-lambda-builders"
-version = "1.68.0"
+version = "1.70.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "setuptools" },
     { name = "wheel" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0d/f5/747988e9df154282690d9fdb5d2c69f017d71cf3b5c59bce554d6791c804/aws_lambda_builders-1.68.0.tar.gz", hash = "sha256:89b23de84ac51b917b331b39eb0f52954f60305af2f5cdf63deec051b063e679", size = 125007, upload-time = "2026-10-26T16:53:12.302Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7f/ea/2da90c1b61df96ae061f9fbb0e7f850c47ddec1f7f6c10a0465430b8bbde/aws_lambda_builders-1.70.0.tar.gz", hash = "sha256:ab5f4ac5dbfc851961c5e58378deb9dab701ecf9615c2897202d47be814fa4c0", size = 133522, upload-time = "2026-11-17T17:53:12.098Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/81/87/46da8c9810b6a007ee2002bae5555242a7623beaff5685064248e2406884/aws_lambda_builders-1.68.0-py3-none-any.whl", hash = "sha256:b3fda238575ccf3736e5729f06865a72615f0267dafeec81c9fe4c4d882c291f", size = 165759, upload-time = "2026-10-26T16:53:11.081Z" },
+    { url = "https://files.pythonhosted.org/packages/db/da/63bd90c2be5d768606955ab9c9089ba322f508473670175982f3a4a7b278/aws_lambda_builders-1.70.0-py3-none-any.whl", hash = "sha256:4ac96f419fb0d24d60681fb9e48f7b35382382cd9340361022d81b8bfab9d9c0", size = 174394, upload-time = "2026-11-17T17:53:10.577Z" },
 ]
 
 [[package]]
 name = "aws-sam-cli"
-version = "1.172.1"
+version = "1.173.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aws-lambda-builders" },
@@ -80,14 +80,14 @@ dependencies = [
     { name = "tzlocal" },
     { name = "watchdog" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3e/de/0dbaf8ad33f527fcfa03602e8c4d428f94ae2b9c9c806bb30b4a65c4d11f/aws_sam_cli-1.172.1.tar.gz", hash = "sha256:621988d1ce586dde0edd2531cd7d9e797a48f1d6336700a2e5d0a5d7f136e63b", size = 7989530, upload-time = "2026-11-11T02:53:49.294Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/70/bf/64a7de1d1ad2807367fcb531893a3447a4dd26fb24f73d566ceb9803134a/aws_sam_cli-1.173.0.tar.gz", hash = "sha256:971bab3910b37d0fe1f97205df0e79d635bc2749e367771fec6067be719a3a64", size = 7995795, upload-time = "2026-11-18T03:21:30.885Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/52/66/7f04e330cc16f3042b8d2b61104ce13be7cf497d59da7cdaf9e9580774e6/aws_sam_cli-1.172.1-py3-none-any.whl", hash = "sha256:3b873978a03384a0a004070d45ac4b50bcdeeb80b335c872264a9f347ba7d63e", size = 8347043, upload-time = "2026-11-11T02:53:47.378Z" },
+    { url = "https://files.pythonhosted.org/packages/f8/53/f567fef21e229a8acaa08c9f4d3f344d210443122a6cd8c5e3ef1d52e165/aws_sam_cli-1.173.0-py3-none-any.whl", hash = "sha256:9415d90abb668e0d46d64084f63ea35b712f44699e4578cbd9029122db3cb95e", size = 8352794, upload-time = "2026-11-18T03:21:28.543Z" },
 ]
 
 [[package]]
 name = "aws-sam-translator"
-version = "1.116.0"
+version = "1.117.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "boto3" },
@@ -95,9 +95,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bd/af/f68d87f0d17b0b87edf2ba061fb4f1529e80964ac818435631d08eba5e2e/aws_sam_translator-1.116.0.tar.gz", hash = "sha256:6d19629a94c68f81967ee5c58311a4bcf7cc419dbd1a1db5e341fd4e79623a42", size = 393646, upload-time = "2026-10-30T21:39:49.74Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/df/d7/022b2a74bf4c0ef1b2f5b04ffc862690f177e0a158295ba165e1552062d6/aws_sam_translator-1.117.0.tar.gz", hash = "sha256:4b5a295b5177acf4267374fea8d6c362756304f2d060b8726aaaaa22a97efc05", size = 395695, upload-time = "2026-11-17T00:11:38.89Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/70/b4/0b182e36c6551f08e1e2a9d9a2c01132d643eff6c590848113988b1255be/aws_sam_translator-1.116.0-py3-none-any.whl", hash = "sha256:3f7cbf1c288fca605f5f97b716d67655600677048740386d2dac451457c6b02a", size = 460954, upload-time = "2026-10-30T21:39:48.188Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/6d/378c71f7acdf75da0a0e726bbfd6fbab0c5945be6db75161a79793606dbc/aws_sam_translator-1.117.0-py3-none-any.whl", hash = "sha256:b45a178426aa04101ca66a5dfa0c42297195f7a7bb3c49d29a498571bc2576a0", size = 463262, upload-time = "2026-11-17T00:11:37.353Z" },
 ]
 
 [[package]]
@@ -505,7 +505,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "aws-sam-cli", specifier = "==1.172.1" }]
+requires-dist = [{ name = "aws-sam-cli", specifier = "==1.173.0" }]
 
 [[package]]
 name = "itsdangerous"
