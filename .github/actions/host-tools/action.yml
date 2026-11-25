@@ -1,7 +1,8 @@
 name: Host tools
 description: >-
   Puts the Docker image's tools on the PATH for jobs that run the MCP server on the host:
-  always Terraform and uv (from the Dockerfile's host-tools stage) and lstk (docker/tools/npm), and
+  always Terraform, uv and the AWS CLI (from the Dockerfile's host-tools stage) and lstk
+  (docker/tools/npm), and
   optionally the Snowflake CLI from docker/tools/snowflake. Versions change only in those files.
 inputs:
   snowflake:
@@ -11,17 +12,23 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Copy Terraform and uv out of the Dockerfile
+    # The AWS CLI comes first on the PATH, ahead of the one the runner image ships.
+    - name: Copy Terraform, uv and the AWS CLI out of the Dockerfile
       shell: bash
       run: |
         docker build --target host-tools --output "type=local,dest=$RUNNER_TEMP/host-tools" .
         echo "$RUNNER_TEMP/host-tools" >> "$GITHUB_PATH"
+        echo "$RUNNER_TEMP/host-tools/aws-cli/bin" >> "$GITHUB_PATH"
 
+    # Outside the checkout: the MCP server runs in it, so it is the AWS client's working
+    # directory, and the client runs no program from a PATH entry inside it.
     - name: Install lstk
       shell: bash
       run: |
-        npm ci --prefix docker/tools/npm --omit=dev --ignore-scripts --no-audit --no-fund
-        echo "$GITHUB_WORKSPACE/docker/tools/npm/node_modules/.bin" >> "$GITHUB_PATH"
+        mkdir -p "$RUNNER_TEMP/npm-tools"
+        cp docker/tools/npm/package.json docker/tools/npm/package-lock.json "$RUNNER_TEMP/npm-tools/"
+        npm ci --prefix "$RUNNER_TEMP/npm-tools" --omit=dev --ignore-scripts --no-audit --no-fund
+        echo "$RUNNER_TEMP/npm-tools/node_modules/.bin" >> "$GITHUB_PATH"
 
     - name: Install the Snowflake CLI
       if: inputs.snowflake == 'true'

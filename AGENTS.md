@@ -201,8 +201,9 @@ lstk wraps the cloud CLIs and IaC tools
   shows how to install it (as the deployer does with `LSTK_INSTALL_MESSAGE` in `src/lib/deployment/`). It never
   recommends the legacy CLI.
 - **Say what ran.** The tool response names the command that ran (`lstk aws …`), so a user can reproduce it.
-- **Keep the guards.** Moving a tool to lstk does not remove its safety checks: the AWS CLI sanitizer, and the Azure
-  tool's profile isolation, egress guard and command policy (`src/lib/azure/`).
+- **Keep the guards.** Moving a tool to lstk does not remove its safety checks: the AWS client's child environment,
+  egress guard, sanitizer and local-path rule (`src/lib/aws/`), and the Azure tool's profile isolation, egress guard
+  and command policy (`src/lib/azure/`).
 - **Docker image.** The image must bundle lstk and everything its commands call (the AWS CLI, Terraform, CDK, SAM, and
   the Azure CLI once the Azure tool moves).
 - **Snowflake is exempt.** The Snowflake tool uses the `snow` CLI until lstk wraps it.
@@ -384,12 +385,9 @@ under [Follow-ups](#follow-ups) until it lands.
 | Where | Deviation | Target |
 |-------|-----------|--------|
 | `src/lib/localstack/container-spec.logic.ts`, `src/lib/docker/docker.client.ts` | The container spec differs from lstk's in several ways, among them the name (`localstack-main` for every emulator), labels, volume directory, ports and environment, so emulator state does not carry over and only AWS containers are found in both directions. Compare with lstk's `internal/config/containers.go` and `internal/container/start.go` for the current differences. Interoperability rests on the server detecting lstk's AWS container name and on lstk's fallback, which matches a known LocalStack image serving the gateway on lstk's default container port; it breaks for other images, a gateway moved off that port inside the container, and the other emulators. | Converge on lstk's container spec; decide later whether to adopt its names. Until then, keep lstk's AWS name detected (rule 1). |
-| `src/tools/localstack-aws-client.ts`, `src/lib/aws/awslocal.ts` | Runs `awslocal` inside the container via `docker exec`, pointed at the gateway's container-side address. | `lstk aws`, no fallback (rule 2). |
-| `src/tools/localstack-deployer.ts`, `src/prompts/infrastructure-tester.ts` | The deployer runs `awslocal cloudformation` through `docker exec` (the same helper) for CloudFormation deploys and deletes, and the prompt tells the agent to use `awslocal`. | `lstk aws cloudformation` (rule 2); the prompt names lstk. |
 | `src/tools/` | Many tools skip parts of "Writing a tool": hand-built `❌` responses instead of `ResponseBuilder` (`withToolAnalytics` flags them as errors only by their prefix), handlers without `runPreflights`, and parsing (such as ARN splitting) in the tool file instead of a `*.logic.ts` module (rule 5). | Follow "Writing a tool". |
 | `src/core/localstack-env.ts` | Passes the server's target to `lstk terraform` / `cdk` / `sam` as `AWS_ENDPOINT_URL`, but keeps an `AWS_ENDPOINT_URL` already in the user's environment, and a `LSTK_ENDPOINT_URL` there overrides both: either sends the command to a different emulator. | Depends on the [open question](#open-questions) on passing the target to lstk. |
 | `src/tools/localstack-azure-client.ts` | Configures the host `az` itself. | `lstk az`, keeping the existing guards (rule 2). |
-| `Dockerfile` | Bundles lstk, Terraform, CDK and SAM, but not the AWS CLI. | Bundle the AWS CLI for `lstk aws` (rule 2). This is a larger image change: ask the user first ("Docker image size"). |
 | `src/core/analytics.ts` | Sends data that can hold secrets (REVIEW §0): free-form arguments such as the cloud CLIs' `command` (for example `--secret-string …`), and error text. `looksSensitiveValue` only catches a value that is a whole key or token. The allowlist also sends arguments that hold user data: names, paths, queries and filters. | Only fields that can never hold secrets or user data ("Writing a tool"): for example the command's service and operation instead of the command, an error code instead of the message. |
 | `.github/workflows/*.yml` | Actions are pinned to version tags, not commit SHAs. | SHA pins with a version comment ("Dependencies"). |
 | `.github/workflows/ci.yml`, `docker.yml` | No `permissions:` block, so jobs get the repository's default token permissions. | `permissions: contents: read` at the top, widened per job only where needed (REVIEW §0). |
@@ -408,7 +406,7 @@ under [Follow-ups](#follow-ups) until it lands.
 | `src/lib/iam/iam-policy.logic.ts` | Synthesizes IAM policies from denials, for the analyzer (rule 5). | Remove with the analyzer if it is deprecated; the IAM actions present LocalStack's suggestions and auto-derived policies instead. |
 | `src/lib/logs/log-retriever.ts`, `src/tools/localstack-logs-analysis.ts` | Regex-classifies log lines (service, operation, status, IAM), which the logs tool's `summary`, `errors` and `requests` modes present. | Raw and filtered lines only (rule 3); App Inspector for failed requests. |
 | `src/lib/localstack/extensions.logic.ts` | Runs a private Python module inside the container (the same one the legacy CLI runs), and names that private module and the container's internal paths in public code (rule 4). | The extensions HTTP API: `GET /_localstack/extensions/list`, `POST …/install`, `POST …/uninstall` (newline-delimited JSON progress events; LocalStack restarts itself afterwards). See [Gaps in LocalStack](#gaps-in-localstack). |
-| `README.md`, `docs/` | Describe the analyzer's log search and policy generation, the aws-client's `awslocal`, and the logs tool's classification as features, and refer to the legacy "LocalStack CLI" for the volume path. | Update with the code; name lstk (rule 1). |
+| `README.md`, `docs/` | Describe the analyzer's log search and policy generation, and the logs tool's classification as features, and refer to the legacy "LocalStack CLI" for the volume path. | Update with the code; name lstk (rule 1). |
 
 ## Open questions
 

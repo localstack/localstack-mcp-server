@@ -1,4 +1,9 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  createServer,
+  request as httpRequest,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import { connect, type AddressInfo, type Socket } from "node:net";
 import type { Duplex } from "node:stream";
 import { isLocalHost } from "./config";
@@ -26,6 +31,17 @@ export interface EgressGuard {
 export interface EgressGuardOptions {
   /** Tests: opens the connection to an allowed target; `host` is always 127.0.0.1 or ::1. */
   connect?: (port: number, host: string) => Socket;
+  /** Which CONNECT targets may be tunnelled to loopback (default: isLocalHost). */
+  tunnels?: (hostname: string) => boolean;
+  /**
+   * The AWS client's plain-HTTP emulator: a request whose URL `allows` is relayed to `to` with
+   * its Host header kept, so LocalStack still sees virtual-host names. Without it plain HTTP is
+   * always refused.
+   */
+  relayHttp?: {
+    allows: (hostname: string, port: number) => boolean;
+    to: { host: string; port: number };
+  };
 }
 
 /** Answers a raw socket and ends it; reading on lets the answer arrive before the close. */
@@ -61,7 +77,7 @@ export async function startEgressGuard(options: EgressGuardOptions = {}): Promis
       if (!url || !/:\d+$/.test(target) || url.href !== `${url.origin}/`) {
         return reply(client, "400 Bad Request");
       }
-      if (!isLocalHost(url.hostname)) {
+      if (!(options.tunnels ?? isLocalHost)(url.hostname)) {
         refused.add(url.hostname);
         return reply(client, `403 blocked by the egress guard: ${url.hostname}`);
       }
@@ -90,13 +106,40 @@ export async function startEgressGuard(options: EgressGuardOptions = {}): Promis
     }
   };
 
-  /** Plain HTTP is never relayed: the emulator's endpoints are https. */
+  const relay = (req: IncomingMessage, res: ServerResponse, url: URL) => {
+    const to = options.relayHttp!.to;
+    const headers = { ...req.headers };
+    delete headers["proxy-connection"];
+    delete headers["proxy-authorization"];
+    const upstream = httpRequest({
+      host: to.host,
+      port: to.port,
+      method: req.method,
+      path: `${url.pathname}${url.search}`,
+      headers,
+    });
+    upstream.on("error", () => {
+      if (!res.headersSent) res.writeHead(502, "Bad Gateway", { "Content-Length": 0 });
+      res.destroy();
+    });
+    upstream.on("response", (answer) => {
+      answer.on("error", () => res.destroy());
+      res.writeHead(answer.statusCode ?? 502, answer.statusMessage, answer.rawHeaders);
+      answer.pipe(res);
+    });
+    req.pipe(upstream);
+  };
+
+  /** Plain HTTP is relayed only to the AWS client's emulator (relayHttp); Azure's is https. */
   const refusePlainHttp = (req: IncomingMessage, res: ServerResponse) => {
     req.on("error", () => undefined);
     res.on("error", () => undefined);
     try {
       const raw = req.url ?? "";
       const url = /^http:\/\//i.test(raw) && URL.canParse(raw) ? new URL(raw) : undefined;
+      if (url && options.relayHttp?.allows(url.hostname, Number(url.port || 80))) {
+        return relay(req, res, url);
+      }
       if (url) refused.add(`http://${url.host}`);
       const reason = url ? `blocked by the egress guard: http://${url.host}` : "Bad Request";
       res.writeHead(url ? 403 : 400, reason, { "Content-Length": 0, Connection: "close" });

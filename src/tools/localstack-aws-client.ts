@@ -3,9 +3,8 @@ import { type ToolMetadata, type InferSchema } from "xmcp";
 import { runPreflights, requireLocalStackRunning, requireAuthToken } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { withToolAnalytics } from "../core/analytics";
-import { DockerApiClient } from "../lib/docker/docker.client";
 import { sanitizeAwsCliCommand, splitAwsCliArgs } from "../lib/aws/aws-cli-sanitizer";
-import { execAwslocal } from "../lib/aws/awslocal";
+import { checkLstkAwsDependencies, lstkAwsErrorText, runLstkAws } from "../lib/aws/lstk-aws";
 
 // Define the schema for tool parameters
 export const schema = {
@@ -14,7 +13,7 @@ export const schema = {
     .trim()
     .min(1, { message: "The command string cannot be empty." })
     .describe(
-      "The AWS CLI command to execute (e.g., 's3 ls', 'dynamodb list-tables'). Do not include 'awslocal' or 'aws'."
+      "The AWS CLI command to execute (e.g., 's3 ls', 'dynamodb list-tables'). Do not include 'lstk', 'aws' or 'awslocal'."
     ),
 };
 
@@ -22,11 +21,20 @@ export const schema = {
 export const metadata: ToolMetadata = {
   name: "localstack-aws-client",
   description:
-    "Executes an AWS CLI command against the running LocalStack container using the 'awslocal' wrapper.",
+    "Executes an AWS CLI command against the running LocalStack for AWS emulator, through the official AWS CLI v2 and 'lstk aws', which set the endpoint, credentials and region. Requests only ever reach LocalStack. Local files (s3 cp, file://, --body, an outfile) must be relative paths or inside the tool's working directory.",
   annotations: {
     title: "LocalStack AWS Client",
   },
 };
+
+/** `text` as a code block, fenced with more backticks than it holds in a row. */
+function fence(text: string): string {
+  // A loop, not Math.max(...runs): a long --debug log holds more runs than a call takes arguments.
+  let longest = 2;
+  for (const [run] of text.matchAll(/`+/g)) longest = Math.max(longest, run.length);
+  const ticks = "`".repeat(longest + 1);
+  return `${ticks}\n${text}\n${ticks}`;
+}
 
 export default async function localstackAwsClient({ command }: InferSchema<typeof schema>) {
   return withToolAnalytics("localstack-aws-client", { command }, async () => {
@@ -34,20 +42,25 @@ export default async function localstackAwsClient({ command }: InferSchema<typeo
     if (preflightError) return preflightError;
 
     try {
-      const dockerClient = new DockerApiClient();
-      const containerId = await dockerClient.findLocalStackContainer();
+      const args = splitAwsCliArgs(sanitizeAwsCliCommand(command));
 
-      const sanitized = sanitizeAwsCliCommand(command);
+      const missing = await checkLstkAwsDependencies();
+      if (missing) return ResponseBuilder.error("Dependency Not Available", missing);
 
-      const args = splitAwsCliArgs(sanitized);
-      const result = await execAwslocal(dockerClient, containerId, args);
+      const result = await runLstkAws(args, { checkLocalPaths: true });
 
-      if (result.exitCode === 0) {
-        return ResponseBuilder.markdown(result.stdout || "");
+      if (result.exitCode === 0 && result.blocked.length === 0) {
+        // Warnings (and --debug's log) go to stderr, also when the command succeeds.
+        const stderr = result.stderr.trim();
+        return ResponseBuilder.markdown(
+          stderr
+            ? `${result.stdout.trimEnd()}\n\n**stderr:**\n\n${fence(stderr)}`.trim()
+            : result.stdout
+        );
       }
 
       // Coverage / unimplemented service hints
-      const stderr = result.stderr || "";
+      const stderr = lstkAwsErrorText(result);
       const actionMatch = stderr.match(
         /The API action '([^']+)' for service '([^']+)' is either not available in your current license plan or has not yet been emulated by LocalStack/i
       );
@@ -70,7 +83,7 @@ export default async function localstackAwsClient({ command }: InferSchema<typeo
         );
       }
 
-      return ResponseBuilder.error("Command Failed", result.stderr || "Unknown error");
+      return ResponseBuilder.error("Command Failed", stderr);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return ResponseBuilder.error("Execution Error", message);
