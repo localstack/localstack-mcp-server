@@ -209,57 +209,67 @@ describe("localstack-aws-client", () => {
     });
     afterAll(() => fs.rmSync(downloads, { recursive: true, force: true }));
 
-    const extraWith = (elicit: jest.Mock) => ({ elicit }) as any;
-    const accept = (scope: string) =>
-      jest.fn().mockResolvedValue({ action: "accept", content: { scope } });
+    // The client's side of a multi round-trip call: the first call, then a retry with the answer.
+    const firstCall = (command: string) =>
+      localstackAwsClient({ command }, { requestState: () => undefined } as any) as Promise<any>;
+    const retry = (command: string, requestState: string, answer: unknown) =>
+      localstackAwsClient({ command }, {
+        requestState: () => requestState,
+        inputResponses: { allow_path: answer },
+      } as any) as Promise<any>;
+    const accept = (scope: string) => ({ action: "accept", content: { scope } });
 
-    test("runs once the user allows it, after asking about the resolved path", async () => {
+    test("asks about the resolved path first, and runs once the user allows it", async () => {
       fakeCli(ok("upload: done\n"));
-      const elicit = accept("once");
+      const command = `s3 cp ${file} s3://b/report.pdf`;
 
-      const result = await localstackAwsClient(
-        { command: `s3 cp ${file} s3://b/report.pdf` },
-        extraWith(elicit)
-      );
+      const asked = await firstCall(command);
+      expect(asked.resultType).toBe("input_required");
+      expect(asked.inputRequests.allow_path.params.message).toContain(file);
+      expect(lstkAwsCalls()).toHaveLength(0);
 
+      const result = await retry(command, asked.requestState, accept("once"));
       expect(isError(result)).toBeFalsy();
-      expect(elicit).toHaveBeenCalledTimes(1);
-      expect(elicit.mock.calls[0][0].message).toContain(file);
       expect(lstkAwsCalls()).toHaveLength(1);
     });
 
     test("asks again next time when allowed once, not when the folder is allowed", async () => {
       fakeCli(ok("upload: done\n"));
-      const once = accept("once");
-      await localstackAwsClient({ command: `s3 cp ${file} s3://b/a` }, extraWith(once));
-      await localstackAwsClient({ command: `s3 cp ${file} s3://b/a` }, extraWith(once));
-      expect(once).toHaveBeenCalledTimes(2);
+      const command = `s3 cp ${file} s3://b/a`;
+      const once = await firstCall(command);
+      await retry(command, once.requestState, accept("once"));
+      expect((await firstCall(command)).resultType).toBe("input_required");
 
-      const folder = accept("folder");
-      await localstackAwsClient({ command: `s3 cp ${file} s3://b/a` }, extraWith(folder));
-      await localstackAwsClient({ command: `s3 cp ${file} s3://b/a` }, extraWith(folder));
-      expect(folder).toHaveBeenCalledTimes(1);
+      const folder = await firstCall(command);
+      await retry(command, folder.requestState, accept("folder"));
+      // Runs without asking: the retry allowed once, the retry allowing the folder, and this.
+      expect(isError(await firstCall(command))).toBeFalsy();
+      expect(lstkAwsCalls()).toHaveLength(3);
     });
 
     test.each([
-      ["the user declines", jest.fn().mockResolvedValue({ action: "decline" }), "did not allow"],
-      ["the user cancels", jest.fn().mockResolvedValue({ action: "cancel" }), "did not allow"],
-      [
-        "the client cannot ask",
-        jest.fn().mockRejectedValue(new Error("Client does not support elicitation")),
-        "does not support elicitation",
-      ],
-    ])("is refused, with nothing run, when %s", async (_label, elicit, reason) => {
+      ["declines", { action: "decline" }],
+      ["cancels", { action: "cancel" }],
+    ])("is refused, with nothing run, when the user %s", async (_label, answer) => {
       fakeCli(ok());
+      const command = `s3 cp ${file} s3://b/report.pdf`;
 
-      const result = await localstackAwsClient(
-        { command: `s3 cp ${file} s3://b/report.pdf` },
-        extraWith(elicit)
-      );
+      const asked = await firstCall(command);
+      const result = await retry(command, asked.requestState, answer);
 
       expect(isError(result)).toBe(true);
       expect(text(result)).toContain("Local Path Not Allowed");
-      expect(text(result)).toContain(reason);
+      expect(text(result)).toContain(`did not allow the AWS client to use ${file}`);
+      expect(lstkAwsCalls()).toHaveLength(0);
+    });
+
+    test("an answer sent with another command's state allows nothing", async () => {
+      fakeCli(ok());
+      const asked = await firstCall(`s3 cp ${file} s3://b/a`);
+
+      const result = await retry(`s3 cp ${file} s3://b/other`, asked.requestState, accept("once"));
+
+      expect(result.resultType).toBe("input_required");
       expect(lstkAwsCalls()).toHaveLength(0);
     });
 
@@ -268,20 +278,16 @@ describe("localstack-aws-client", () => {
 
       const result = await localstackAwsClient({ command: `s3 cp ${file} s3://b/report.pdf` });
 
-      expect(text(result)).toContain("could not ask you");
+      expect(text(result)).toContain("Local Path Not Allowed");
       expect(lstkAwsCalls()).toHaveLength(0);
     });
 
     test("never asks about ~, which is the CLI's private home, not the user's", async () => {
       fakeCli(ok());
-      const elicit = accept("once");
 
-      const result = await localstackAwsClient(
-        { command: "s3 cp ~/Downloads/report.pdf s3://b/report.pdf" },
-        extraWith(elicit)
-      );
+      const result = await firstCall("s3 cp ~/Downloads/report.pdf s3://b/report.pdf");
 
-      expect(elicit).not.toHaveBeenCalled();
+      expect(result.resultType).toBeUndefined();
       expect(text(result)).toContain("write the absolute path");
       expect(lstkAwsCalls()).toHaveLength(0);
     });

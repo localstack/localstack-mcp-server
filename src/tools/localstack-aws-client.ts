@@ -11,7 +11,7 @@ import {
   type LstkAwsResult,
 } from "../lib/aws/lstk-aws";
 import { awsWorkdir, OutsideWorkdirError } from "../lib/aws/local-paths";
-import { allowedFolders, askToAllow } from "../lib/aws/path-consent";
+import { allowedFolders, askToAllow, readConsent } from "../lib/aws/path-consent";
 
 // How many paths outside the working directory one command may ask the user about.
 const MAX_CONSENT_QUESTIONS = 5;
@@ -60,25 +60,32 @@ export default async function localstackAwsClient(
       const missing = await checkLstkAwsDependencies();
       if (missing) return ResponseBuilder.error("Dependency Not Available", missing);
 
-      // A path outside the working directory: ask the user to allow it, then check again.
-      const allowedPaths = allowedFolders();
-      let result: LstkAwsResult | undefined;
-      for (let asked = 0; !result; asked++) {
-        try {
-          result = await runLstkAws(args, { checkLocalPaths: true, allowedPaths });
-        } catch (err) {
-          if (!(err instanceof OutsideWorkdirError) || asked >= MAX_CONSENT_QUESTIONS) throw err;
-          const answer = await askToAllow(err, {
-            command,
-            workdir: awsWorkdir().workdir,
-            // The SDK's default 60 s is short for a person reading the question.
-            elicit: extra && ((request) => extra.elicit(request, { timeout: 10 * 60_000 })),
-          });
-          if ("refusal" in answer) {
-            return ResponseBuilder.error("Local Path Not Allowed", answer.refusal);
-          }
-          allowedPaths.push(answer.allow);
+      // A path outside the working directory: ask the user to allow it. The client calls the
+      // tool again with the answer, and the paths allowed so far in the signed state.
+      const consent = await readConsent(command, extra);
+      if ("declined" in consent) {
+        return ResponseBuilder.error(
+          "Local Path Not Allowed",
+          `You did not allow the AWS client to use ${consent.declined}, outside its working directory.`
+        );
+      }
+      let result: LstkAwsResult;
+      try {
+        result = await runLstkAws(args, {
+          checkLocalPaths: true,
+          allowedPaths: [...allowedFolders(), ...consent.allowed],
+        });
+      } catch (err) {
+        if (!(err instanceof OutsideWorkdirError)) throw err;
+        if (!extra || consent.rounds >= MAX_CONSENT_QUESTIONS) {
+          return ResponseBuilder.error("Local Path Not Allowed", err.message);
         }
+        return askToAllow(err, {
+          command,
+          workdir: awsWorkdir().workdir,
+          allowed: consent.allowed,
+          rounds: consent.rounds,
+        });
       }
 
       if (result.exitCode === 0 && result.blocked.length === 0) {
