@@ -900,7 +900,7 @@ export interface GeneratedPolicy {
 }
 
 const DERIVED_INTRO =
-  "These policies are a suggestion derived from the requests LocalStack saw since the last reset, not verified policies. Requests that did not run are not covered. They cover every identity that made requests, including the one that deployed the stack: use the entries of the workload's roles and resources. For an IAM role, statements with a `Principal` belong in its trust policy (`AssumeRolePolicyDocument`), the others in its permission policies. To start a fresh window: `reset-auto-derived-iam-policies`, then re-run the workload.";
+  "These policies are a suggestion derived from the requests LocalStack saw since they were last cleared, not verified policies. Requests that did not run are not covered. They cover every identity that made requests, including the one that deployed the stack: use the entries of the workload's roles and resources. For an IAM role, statements with a `Principal` belong in its trust policy (`AssumeRolePolicyDocument`), the others in its permission policies. To start a fresh window: `clear-auto-derived-iam-policies`, then re-run the workload.";
 
 /** `get-auto-derived-iam-policies`: a list of ARNs without `arn`, one policy verbatim with it */
 export function renderDerivedPolicies(

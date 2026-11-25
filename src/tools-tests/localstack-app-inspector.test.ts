@@ -234,7 +234,7 @@ describe("license gates", () => {
     route("GET", "/_aws/iam/policies/summary", { body: [] });
     expect((await call({ action: "get-auto-derived-iam-policies" })).isError).toBeUndefined();
     licensePlugins = ["localstack.platform.plugin/appinspector"];
-    const result = await manage({ action: "reset-auto-derived-iam-policies" });
+    const result = await manage({ action: "clear-auto-derived-iam-policies" });
     expect(result.isError).toBe(true);
     expect(text(result)).toContain("iam-stream");
   });
@@ -646,7 +646,7 @@ describe("derived IAM policies", () => {
 
   test("reset sends DELETE and names the next steps", async () => {
     route("DELETE", "/_aws/iam/policies/summary", { status: 204 });
-    const result = await manage({ action: "reset-auto-derived-iam-policies" });
+    const result = await manage({ action: "clear-auto-derived-iam-policies" });
     expect(result.isError).toBeUndefined();
     expect(sent).toEqual([
       { method: "DELETE", path: "/_aws/iam/policies/summary", query: {}, body: undefined },

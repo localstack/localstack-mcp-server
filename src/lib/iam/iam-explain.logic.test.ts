@@ -594,7 +594,7 @@ describe("renderDerivedPolicies", () => {
     expect(text).toContain("| " + ROLE + " | identity |");
     expect(text).not.toContain("sqs:SendMessage");
     expect(text).toContain("with `arn`");
-    expect(text).toContain("reset-auto-derived-iam-policies");
+    expect(text).toContain("clear-auto-derived-iam-policies");
   });
 
   it("with an ARN returns that policy verbatim", () => {

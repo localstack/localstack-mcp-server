@@ -473,7 +473,7 @@ export class IamApiClient {
     return requestApi<unknown>(IAM_POLICY_SUMMARY_ENDPOINT, "GET");
   }
 
-  resetPolicySummary() {
+  clearPolicySummary() {
     return requestApi<unknown>(IAM_POLICY_SUMMARY_ENDPOINT, "DELETE");
   }
 }

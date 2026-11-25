@@ -63,15 +63,15 @@ export const schema = {
       "explain-iam",
       "get-iam-policy",
       "get-auto-derived-iam-policies",
-      "reset-auto-derived-iam-policies",
+      "clear-auto-derived-iam-policies",
       "get-iam-mode",
       "set-iam-mode",
     ])
     .describe(
       "The App Inspector action to perform. Debugging flow: get-status, set-status to enabled if needed, run the AWS workload, list-traces, list-spans for a trace, then list-events for a span. " +
         "IAM flow (AccessDenied, permission errors, a request into another account): list-iam-denials, then explain-iam with an event_id for the policies that decided and LocalStack's suggested fix; fix the project's IaC, redeploy, re-run the workload, then list-iam-denials with newer_than (from the first call's footer) for new denials only. get-iam-policy fetches a policy an event stored truncated. get-iam-mode / set-iam-mode read and set the IAM mode (set-iam-mode reports the previous mode and how to restore it). " +
-        "Least-privilege policies: reset-auto-derived-iam-policies (clears the auto-derived policies of every principal in this LocalStack; cannot be undone), run the workload, then get-auto-derived-iam-policies (without arn: the ARNs; with arn: that policy). " +
-        "Actions that change LocalStack: set-status, delete-traces, delete-spans, set-iam-mode, reset-auto-derived-iam-policies; all others only read."
+        "Least-privilege policies: clear-auto-derived-iam-policies (clears the auto-derived policies of every principal in this LocalStack; cannot be undone), run the workload, then get-auto-derived-iam-policies (without arn: the ARNs; with arn: that policy). " +
+        "Actions that change LocalStack: set-status, delete-traces, delete-spans, set-iam-mode, clear-auto-derived-iam-policies; all others only read."
     ),
   status: z
     .enum(["enabled", "disabled"])
@@ -262,8 +262,8 @@ export default async function localstackAppInspector(raw: AppInspectorArgs) {
           return await handleGetEventPolicy(client, params);
         case "get-auto-derived-iam-policies":
           return await handleGetDerivedPolicies(params);
-        case "reset-auto-derived-iam-policies":
-          return await handleResetDerivedPolicies();
+        case "clear-auto-derived-iam-policies":
+          return await handleClearDerivedPolicies();
         case "get-iam-mode":
           return await handleGetEnforcement();
         case "set-iam-mode":
@@ -281,7 +281,7 @@ const IAM_ACTION_PARAMS: Record<string, Array<keyof AppInspectorArgs>> = {
   "explain-iam": ["event_id", "span_id", "detail", "limit", "pagination_token"],
   "get-iam-policy": ["event_id", "policy_key"],
   "get-auto-derived-iam-policies": ["arn"],
-  "reset-auto-derived-iam-policies": [],
+  "clear-auto-derived-iam-policies": [],
   "get-iam-mode": [],
   "set-iam-mode": ["mode"],
 };
@@ -297,7 +297,7 @@ function requiredFeature(action: AppInspectorArgs["action"]): ProFeature {
     case "set-iam-mode":
       return ProFeature.IAM_ENFORCEMENT;
     case "get-auto-derived-iam-policies":
-    case "reset-auto-derived-iam-policies":
+    case "clear-auto-derived-iam-policies":
       return ProFeature.IAM_STREAM;
     default:
       return ProFeature.APP_INSPECTOR;
@@ -755,8 +755,8 @@ async function handleSetEnforcement(params: AppInspectorArgs) {
   );
 }
 
-async function handleResetDerivedPolicies() {
-  const result = await new IamApiClient().resetPolicySummary();
+async function handleClearDerivedPolicies() {
+  const result = await new IamApiClient().clearPolicySummary();
   if (!result.success) {
     if (result.statusCode === 404) {
       return ResponseBuilder.error(
@@ -770,7 +770,7 @@ async function handleResetDerivedPolicies() {
     );
   }
   return ResponseBuilder.markdown(
-    "## Auto-derived IAM Policies Reset\n\nCleared the auto-derived policies of every principal in this LocalStack. This cannot be undone; they come back only by re-running the workload.\n\n**Next step:** re-run the workload, then `get-auto-derived-iam-policies`."
+    "## Auto-derived IAM Policies Cleared\n\nCleared the auto-derived policies of every principal in this LocalStack. This cannot be undone; they come back only by re-running the workload.\n\n**Next step:** re-run the workload, then `get-auto-derived-iam-policies`."
   );
 }
 

@@ -148,7 +148,7 @@ test.describe("tools against a running LocalStack", () => {
       // DISABLED (the mode the previous test leaves) turns the IAM engine off, so nothing would be recorded.
       // SOFT_MODE records denials without blocking any request.
       await call(mcp, tool, { action: "set-iam-mode", mode: "SOFT_MODE" });
-      await call(mcp, tool, { action: "reset-auto-derived-iam-policies" });
+      await call(mcp, tool, { action: "clear-auto-derived-iam-policies" });
       expect(await call(mcp, tool, { action: "get-auto-derived-iam-policies" })).toContain(
         "No policies derived yet"
       );

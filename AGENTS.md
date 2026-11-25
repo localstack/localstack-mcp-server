@@ -302,7 +302,7 @@ what is missing instead of returning an empty answer.
    - App Inspector does not record requests to STS, IAM and CloudWatch Logs, nor `sqs:GetQueueUrl`,
      `sqs:GetQueueAttributes` and `cloudwatch:PutMetricData`, so their denials (a role's trust policy on
      `sts:AssumeRole`) never appear. Every denial list says so.
-2. **Which policies does the workload need.** `get-auto-derived-iam-policies`, `reset-auto-derived-iam-policies`. Source: the IAM
+2. **Which policies does the workload need.** `get-auto-derived-iam-policies`, `clear-auto-derived-iam-policies`. Source: the IAM
    policy summary (`GET`/`DELETE /_aws/iam/policies/summary`; the actions check the license's `iam-stream`
    product first, and a 404 means the feature is not licensed or not available). It is global to the emulator: there is no per-trace summary
    (see [Gaps in LocalStack](#gaps-in-localstack)). Each entry is one policy for one ARN: `resource`,
@@ -312,7 +312,7 @@ what is missing instead of returning an empty answer.
      services or action count yet (see [Gaps in LocalStack](#gaps-in-localstack)); do not derive them from the ARN
      or the policy
    - with `arn`, that policy JSON exactly as sent: a role's trust statement and its permissions stay in one policy
-   - always labelled as a suggestion, derived from the requests seen since the last reset, not as a verified policy
+   - always labelled as a suggestion, derived from the requests seen since they were last cleared, not as a verified policy
 3. **How do the deployed policies differ from what the workload needs.** For each ARN in the summary: the
    permissions to add, and the granted permissions the run never used. This compares policy documents, so
    LocalStack computes it (rule 5). LocalStack does not offer it yet (see [Gaps in LocalStack](#gaps-in-localstack)),
@@ -341,8 +341,8 @@ row once it ships.
 |------|--------|---------|
 | Document the extensions API (`GET /_localstack/extensions/list`, `POST …/install`, `POST …/uninstall`) in the OpenAPI spec and the docs | The LocalStack web app's Extension Manager depends on it; neither the spec nor the docs name it. lstk has no commands for LocalStack extensions. | `localstack-extensions` (allowed under the rule 4 exception) |
 | Document the IAM evaluation event payload (the `payload` attribute of App Inspector's IAM events: the decisions, the `policies` map and the `suggestion`) in the App Inspector spec | The spec types the attribute as a string; its fields are not documented anywhere public. The App Inspector UI depends on them. Until they are documented, describe them in this repository's code as types and tests written from observed responses, not from LocalStack's code; this file names them only as far as the design needs. | `explain-iam` (allowed under the rule 4 exception) |
-| Document the IAM policy summary and stream (`GET`/`DELETE /_aws/iam/policies/summary`, `GET /_aws/iam/policies/stream`) | App Inspector's Policies view and the web app's IAM Policy Stream depend on them; the spec documents only `/_aws/iam/config` and `/_aws/iam/check-actions-allowed`. | `get-auto-derived-iam-policies`, `reset-auto-derived-iam-policies` (allowed under the rule 4 exception) |
-| Filter the IAM policy summary by trace (or time range), so a run's policies don't mix with earlier requests | Not implemented: the summary is global and only resettable. | `get-auto-derived-iam-policies` |
+| Document the IAM policy summary and stream (`GET`/`DELETE /_aws/iam/policies/summary`, `GET /_aws/iam/policies/stream`) | App Inspector's Policies view and the web app's IAM Policy Stream depend on them; the spec documents only `/_aws/iam/config` and `/_aws/iam/check-actions-allowed`. | `get-auto-derived-iam-policies`, `clear-auto-derived-iam-policies` (allowed under the rule 4 exception) |
+| Filter the IAM policy summary by trace (or time range), so a run's policies don't mix with earlier requests | Not implemented: the summary is global and can only be cleared. | `get-auto-derived-iam-policies` |
 | Say on the App Inspector events page when IAM events are hidden by the license (as spans do with `iam_errors_suppressed`) | Not implemented: the events routes return an empty list, so a tool has to probe one span. | `list-iam-denials`, `explain-iam` |
 | Compare suggested policies with deployed ones: permissions to add and permissions granted but unused, per ARN | Not implemented. | IAM job 3 |
 | Document App Inspector's status route (`GET`/`PUT /_localstack/appinspector/status`) in its OpenAPI spec | Not in `/_localstack/appinspector/v1/openapi.yaml`. lstk's `inspect` command uses it too. | `get-status`, `set-status` (allowed under the rule 4 exception) |
