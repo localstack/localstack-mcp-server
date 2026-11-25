@@ -26,7 +26,7 @@ RUN yarn build
 FROM hashicorp/terraform:1.17.2 AS terraform
 
 # uv installs the Python CLIs below; it is mounted at build time and not part of the image.
-FROM ghcr.io/astral-sh/uv:0.13.9 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.10 AS uv
 
 # Terraform and uv for CI jobs that run on the host, at the image's versions
 # (.github/actions/host-tools): docker build --target host-tools --output type=local,dest=DIR .

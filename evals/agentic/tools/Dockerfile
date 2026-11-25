@@ -3,7 +3,7 @@
 #
 # TODO: once https://github.com/localstack/localstack-mcp-server/pull/137 lands, take the AWS CLI from the
 # .github/actions/host-tools action (the server image's version) and remove this file and its Dependabot entry.
-FROM amazon/aws-cli:2.39.3 AS awscli
+FROM amazon/aws-cli:2.41.0 AS awscli
 
 FROM scratch
 COPY --from=awscli /usr/local/aws-cli/v2/current/ /aws-cli/
