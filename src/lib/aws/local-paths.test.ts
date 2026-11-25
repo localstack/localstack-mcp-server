@@ -1,7 +1,12 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { assertLocalPathsAllowed, awsWorkdir, confineTransfers } from "./local-paths";
+import {
+  assertLocalPathsAllowed,
+  awsWorkdir,
+  confineTransfers,
+  OutsideWorkdirError,
+} from "./local-paths";
 
 describe("awsWorkdir", () => {
   test("is LOCALSTACK_AWS_WORKDIR when it is a directory, else an error", () => {
@@ -77,6 +82,58 @@ describe("assertLocalPathsAllowed", () => {
     expect(() => allowed("ssm get-parameter --name /etc/hosts/x")).toThrow(/outside/);
     // Inside the workdir: the CLI itself fails on it.
     expect(() => allowed("s3api get-object --bucket b --key k in.txt/x")).not.toThrow();
+  });
+
+  describe("paths the user may allow", () => {
+    const thrown = (fn: () => void) => {
+      try {
+        fn();
+      } catch (e) {
+        return e;
+      }
+      return undefined;
+    };
+    const withAllowed = (cmd: string, allowed: string[]) =>
+      assertLocalPathsAllowed(cmd.split(" "), workdir, {
+        home,
+        cwd: path.join(outside, "tmp"),
+        privateHome: path.join(outside, "home"),
+        platform: "linux",
+        allowed,
+      });
+
+    test("a path outside the workdir names its real path, and passes once allowed", () => {
+      const error = thrown(() => allowed(`s3 cp ${outside}/key.pem s3://b/k`));
+      expect(error).toBeInstanceOf(OutsideWorkdirError);
+      expect((error as OutsideWorkdirError).path).toBe(path.join(outside, "key.pem"));
+      // Through a symlink in the workdir: the path the CLI opens.
+      expect((thrown(() => allowed("s3 cp escape/key.pem s3://b/k")) as any).path).toBe(
+        path.join(outside, "key.pem")
+      );
+      expect(() => withAllowed(`s3 cp ${outside}/key.pem s3://b/k`, [outside])).not.toThrow();
+      expect(() =>
+        withAllowed(`s3 cp ${outside}/key.pem s3://b/k`, [path.join(outside, "key.pem")])
+      ).not.toThrow();
+    });
+
+    test.each([
+      ["the private home", (o: string) => `s3 cp s3://b/k ${o}/home/.aws/cli/alias`],
+      ["/", () => "s3 sync / s3://b"],
+      ["another user's home", () => "s3 cp ~bob/x s3://b/k"],
+      ["~, the CLI's own home", () => "s3 cp ~/x s3://b/k"],
+      ["a network share", () => "s3 cp //server/share/x s3://b/k"],
+    ])("%s is never offered to the user", (_label, cmd) => {
+      const error = thrown(() => withAllowed(cmd(outside), [outside]));
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(OutsideWorkdirError);
+    });
+
+    test(".git stays refused inside an allowed folder", () => {
+      fs.mkdirSync(path.join(outside, "repo", ".git"), { recursive: true });
+      expect(() =>
+        withAllowed(`s3 cp s3://b/k ${outside}/repo/.git/config`, [path.join(outside, "repo")])
+      ).toThrow(/\.git and \.lstk/);
+    });
   });
 
   test("refuses a path through a symlink whose target is missing", () => {

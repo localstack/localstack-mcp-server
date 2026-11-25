@@ -6,7 +6,11 @@ import localstackAwsClient from "../tools/localstack-aws-client";
 import { runCommand } from "../core/command-runner";
 import { getGatewayHealth } from "../lib/localstack/localstack.utils";
 import { resetLstkAwsDependencyCheck } from "../lib/aws/lstk-aws";
+import { resetPathConsent } from "../lib/aws/path-consent";
 import { fakeCli, failed, isError, lstkAwsCalls, ok, text } from "./lstk-aws-fakes";
+import fs from "fs";
+import os from "os";
+import path from "path";
 
 const mockCapture = jest.fn();
 jest.mock("posthog-node", () => ({
@@ -33,6 +37,7 @@ describe("localstack-aws-client", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     resetLstkAwsDependencyCheck();
+    resetPathConsent();
     process.env = { ...saved, LOCALSTACK_AUTH_TOKEN: "ls-test-token" };
     delete process.env.MCP_ANALYTICS_DISABLED;
     delete process.env.AWS_ENDPOINT_URL;
@@ -192,5 +197,93 @@ describe("localstack-aws-client", () => {
     expect(JSON.stringify(result)).not.toContain(secret);
     expect(mockCapture).toHaveBeenCalled();
     expect(JSON.stringify(mockCapture.mock.calls)).not.toContain(secret);
+  });
+
+  describe("a local path outside the working directory", () => {
+    let downloads: string;
+    let file: string;
+    beforeAll(() => {
+      downloads = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "downloads-")));
+      file = path.join(downloads, "report.pdf");
+      fs.writeFileSync(file, "pdf");
+    });
+    afterAll(() => fs.rmSync(downloads, { recursive: true, force: true }));
+
+    const extraWith = (elicit: jest.Mock) => ({ elicit }) as any;
+    const accept = (scope: string) =>
+      jest.fn().mockResolvedValue({ action: "accept", content: { scope } });
+
+    test("runs once the user allows it, after asking about the resolved path", async () => {
+      fakeCli(ok("upload: done\n"));
+      const elicit = accept("once");
+
+      const result = await localstackAwsClient(
+        { command: `s3 cp ${file} s3://b/report.pdf` },
+        extraWith(elicit)
+      );
+
+      expect(isError(result)).toBeFalsy();
+      expect(elicit).toHaveBeenCalledTimes(1);
+      expect(elicit.mock.calls[0][0].message).toContain(file);
+      expect(lstkAwsCalls()).toHaveLength(1);
+    });
+
+    test("asks again next time when allowed once, not when the folder is allowed", async () => {
+      fakeCli(ok("upload: done\n"));
+      const once = accept("once");
+      await localstackAwsClient({ command: `s3 cp ${file} s3://b/a` }, extraWith(once));
+      await localstackAwsClient({ command: `s3 cp ${file} s3://b/a` }, extraWith(once));
+      expect(once).toHaveBeenCalledTimes(2);
+
+      const folder = accept("folder");
+      await localstackAwsClient({ command: `s3 cp ${file} s3://b/a` }, extraWith(folder));
+      await localstackAwsClient({ command: `s3 cp ${file} s3://b/a` }, extraWith(folder));
+      expect(folder).toHaveBeenCalledTimes(1);
+    });
+
+    test.each([
+      ["the user declines", jest.fn().mockResolvedValue({ action: "decline" }), "did not allow"],
+      ["the user cancels", jest.fn().mockResolvedValue({ action: "cancel" }), "did not allow"],
+      [
+        "the client cannot ask",
+        jest.fn().mockRejectedValue(new Error("Client does not support elicitation")),
+        "does not support elicitation",
+      ],
+    ])("is refused, with nothing run, when %s", async (_label, elicit, reason) => {
+      fakeCli(ok());
+
+      const result = await localstackAwsClient(
+        { command: `s3 cp ${file} s3://b/report.pdf` },
+        extraWith(elicit)
+      );
+
+      expect(isError(result)).toBe(true);
+      expect(text(result)).toContain("Local Path Not Allowed");
+      expect(text(result)).toContain(reason);
+      expect(lstkAwsCalls()).toHaveLength(0);
+    });
+
+    test("is refused without asking when the server has no client to ask", async () => {
+      fakeCli(ok());
+
+      const result = await localstackAwsClient({ command: `s3 cp ${file} s3://b/report.pdf` });
+
+      expect(text(result)).toContain("could not ask you");
+      expect(lstkAwsCalls()).toHaveLength(0);
+    });
+
+    test("never asks about ~, which is the CLI's private home, not the user's", async () => {
+      fakeCli(ok());
+      const elicit = accept("once");
+
+      const result = await localstackAwsClient(
+        { command: "s3 cp ~/Downloads/report.pdf s3://b/report.pdf" },
+        extraWith(elicit)
+      );
+
+      expect(elicit).not.toHaveBeenCalled();
+      expect(text(result)).toContain("write the absolute path");
+      expect(lstkAwsCalls()).toHaveLength(0);
+    });
   });
 });

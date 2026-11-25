@@ -54,6 +54,11 @@ function tooWide(dir: string, deps: { home?: string; tmp?: string }): boolean {
   );
 }
 
+/** Whether the user may not allow `dir` as a whole: a root, or it holds the home or temp directory. */
+export function isTooWideToAllow(dir: string): boolean {
+  return tooWide(realpath(dir), {});
+}
+
 /**
  * Whether `target` is `dir` or inside it, by file identity, not spelling: on macOS,
  * /System/Volumes/Data/Users is /Users. For each tail of `target` (`joe`, `Users/joe`, …),
@@ -101,6 +106,9 @@ function stat(p: string): fs.Stats | undefined {
  *   `$states` in a definition), which can only expand to a path inside a directory named `{`.
  *   `$5` is no variable name. A file:// path never may.
  * - The CLI's `~` is the private home, so a `~` value is checked against both homes.
+ * - `deps.allowed`: paths outside the workdir the user allowed (localstack-aws-client asks with
+ *   MCP elicitation). An otherwise valid path outside them and the workdir throws
+ *   OutsideWorkdirError, which names the path to ask about; every other refusal is final.
  * - `deps.privateHome` is never allowed: an alias written there would run shell commands.
  * - Nothing inside `.git` or `.lstk`: git and lstk run what their config there tells them to.
  */
@@ -112,6 +120,7 @@ export function assertLocalPathsAllowed(
     cwd?: string;
     privateHome?: string;
     platform?: NodeJS.Platform;
+    allowed?: string[];
   } = {}
 ): void {
   const base = workdir ?? deps.cwd;
@@ -141,14 +150,26 @@ export function assertLocalPathsAllowed(
       return;
     }
     const root = isAbsolute ? workdir : (base as string);
+    // `~user/x` is another user's home to the CLI; the server would check another path.
+    if (/^~[^\\/]/.test(value)) throw outside(written, workdir);
     const real = realpathOfLongestExisting(target);
-    if (root === null || /^~[^\\/]/.test(value) || !isInside(real, realpath(root))) {
-      throw outside(written, workdir);
-    }
     if (deps.privateHome && isInside(real, realpath(deps.privateHome))) {
       throw outside(written, workdir);
     }
-    const inner = path.relative(realpath(root), real).split(path.sep);
+    const inRoot = [root, ...(deps.allowed ?? [])]
+      .filter((r): r is string => r !== null)
+      .map((r) => realpath(r))
+      .find((r) => isInside(real, r));
+    if (inRoot === undefined) {
+      // `~` is the private home to the CLI, and `~user` another user's: the user could not tell
+      // which file they allow. A root, or a directory holding the home or temp directory (which
+      // holds the private home), is too wide to allow.
+      if (value.startsWith("~") || tooWide(real, deps)) {
+        throw outside(written, workdir, value.startsWith("~"));
+      }
+      throw new OutsideWorkdirError(outside(written, workdir).message, real);
+    }
+    const inner = path.relative(inRoot, real).split(path.sep);
     if (inner.some(isProtectedName)) {
       throw new Error(
         `The local path '${written}' is not allowed: files in .git and .lstk configure programs that run on your machine.`
@@ -285,12 +306,30 @@ function isProtectedName(name: string): boolean {
 
 const isInside = (p: string, dir: string) => p === dir || p.startsWith(dir + path.sep);
 
-function outside(value: string, workdir: string | null): Error {
+/**
+ * A path outside the workdir that the user may still allow: `path` is its real path, as the CLI
+ * will open it.
+ */
+export class OutsideWorkdirError extends Error {
+  constructor(
+    message: string,
+    readonly path: string
+  ) {
+    super(message);
+    this.name = "OutsideWorkdirError";
+  }
+}
+
+function outside(value: string, workdir: string | null, tilde = false): Error {
   const where =
     workdir === null
       ? `The local path '${value}' is not allowed: the AWS client has no working directory here. Set LOCALSTACK_AWS_WORKDIR to the directory that holds your files, or use a relative path.`
       : `The local path '${value}' is outside the AWS client's working directory (${workdir}). Use a path inside it, or set LOCALSTACK_AWS_WORKDIR.`;
-  return new Error(where);
+  // The CLI runs with a private home, so its `~` is not the user's.
+  const hint = tilde
+    ? " To the AWS CLI, ~ is a private home directory, not yours: write the absolute path."
+    : "";
+  return new Error(where + hint);
 }
 
 function expandHome(value: string, home = os.homedir()): string {
