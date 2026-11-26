@@ -84,6 +84,18 @@ describe("path consent", () => {
     expect(allowedFolders()).toEqual([]);
   });
 
+  test("a folder answer covers the folder the prompt named, even if the path changed", async () => {
+    const sub = path.join(dir, "gone");
+    fs.mkdirSync(sub);
+    const { requestState } = (await ask(sub)) as any;
+    fs.rmdirSync(sub);
+    expect(await retry(requestState, answer("accept", "folder"))).toEqual({
+      allowed: [sub],
+      rounds: 1,
+    });
+    expect(allowedFolders()).toEqual([sub]);
+  });
+
   test.each([
     ["declines", answer("decline")],
     ["cancels", answer("cancel")],

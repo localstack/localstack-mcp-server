@@ -5,6 +5,7 @@ import {
   assertLocalPathsAllowed,
   awsWorkdir,
   confineTransfers,
+  isTooWideToAllow,
   OutsideWorkdirError,
 } from "./local-paths";
 
@@ -24,6 +25,29 @@ describe("awsWorkdir", () => {
     for (const dir of [tmp, path.dirname(tmp)]) {
       expect(awsWorkdir({ LOCALSTACK_AWS_WORKDIR: dir }).error).toContain("temp directory");
       expect(awsWorkdir({}, { cwd: dir, inDocker: false })).toEqual({ workdir: null });
+    }
+  });
+
+  (fs.existsSync("/private/var") ? test : test.skip)(
+    "refuses /private, which holds the temp directory under its other name (macOS)",
+    () => {
+      expect(fs.realpathSync(os.tmpdir()).startsWith("/private/")).toBe(true);
+      expect(awsWorkdir({ LOCALSTACK_AWS_WORKDIR: "/private" }).error).toContain("temp directory");
+      expect(isTooWideToAllow("/private")).toBe(true);
+    }
+  );
+
+  test("refuses the real directory that holds a home reached through a symlink", () => {
+    const hp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "aws-homelink-")));
+    try {
+      fs.mkdirSync(path.join(hp, "data", "joe"), { recursive: true });
+      fs.symlinkSync(path.join(hp, "data", "joe"), path.join(hp, "joe"));
+      const home = path.join(hp, "joe");
+      expect(
+        awsWorkdir({ LOCALSTACK_AWS_WORKDIR: path.join(hp, "data") }, { home }).error
+      ).toContain("hold your home directory");
+    } finally {
+      fs.rmSync(hp, { recursive: true, force: true });
     }
   });
 
@@ -133,6 +157,256 @@ describe("assertLocalPathsAllowed", () => {
       expect(() =>
         withAllowed(`s3 cp s3://b/k ${outside}/repo/.git/config`, [path.join(outside, "repo")])
       ).toThrow(/\.git and \.lstk/);
+    });
+
+    (fs.existsSync("/.vol") && process.platform === "darwin" ? test : test.skip)(
+      "a /.vol path, which opens a file by number, is never offered to the user",
+      () => {
+        fs.mkdirSync(path.join(outside, "repo", ".git"), { recursive: true });
+        const id = fs.statSync(path.join(outside, "repo", ".git"));
+        for (const p of [`/.vol/${id.dev}/${id.ino}/config`, `/.VOL/${id.dev}/${id.ino}/config`]) {
+          const error = thrown(() => withAllowed(`s3 cp s3://b/k ${p}`, ["/.vol"]));
+          expect(error).toBeInstanceOf(Error);
+          expect(error).not.toBeInstanceOf(OutsideWorkdirError);
+        }
+        expect(isTooWideToAllow(`/.vol/${id.dev}/${id.ino}`)).toBe(true);
+      }
+    );
+
+    test(".git is never offered to the user", () => {
+      fs.mkdirSync(path.join(outside, "repo", ".git"), { recursive: true });
+      const error = thrown(() => withAllowed(`s3 cp s3://b/k ${outside}/repo/.git/config`, []));
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(OutsideWorkdirError);
+    });
+
+    test.each([
+      ["the file itself", (o: string) => path.join(o, "repo", ".git", "config")],
+      ["the .git folder", (o: string) => path.join(o, "repo", ".git")],
+    ])(".git stays refused when the user allowed %s", (_label, allowedPath) => {
+      fs.mkdirSync(path.join(outside, "repo", ".git"), { recursive: true });
+      expect(() =>
+        withAllowed(`s3 cp s3://b/k ${outside}/repo/.git/config`, [allowedPath(outside)])
+      ).toThrow(/\.git and \.lstk/);
+    });
+
+    test("a folder that holds the private home is never offered, nor passes once allowed", () => {
+      fs.mkdirSync(path.join(outside, "home"), { recursive: true });
+      const cmd = `s3 cp s3://b/ ${outside} --recursive`;
+      const error = thrown(() => withAllowed(cmd, []));
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(OutsideWorkdirError);
+      expect(() => withAllowed(cmd, [outside])).toThrow(
+        /outside the AWS client's working directory/
+      );
+    });
+
+    (fs.existsSync("/System/Volumes/Data/private") ? test : test.skip)(
+      "the private home stays refused under another name (macOS firmlinks)",
+      () => {
+        fs.mkdirSync(path.join(outside, "home", ".aws"), { recursive: true });
+        const alias = `/System/Volumes/Data${outside}/home/.aws/cli/alias`;
+        const error = thrown(() => withAllowed(`s3 cp s3://b/k ${alias}`, []));
+        expect(error).toBeInstanceOf(Error);
+        expect(error).not.toBeInstanceOf(OutsideWorkdirError);
+      }
+    );
+  });
+
+  test("refuses '..' after a symlink, which the OS applies where the symlink points", () => {
+    // escape -> outside: escape/../in.txt opens in.txt next to outside, not in the workdir.
+    for (const cmd of [
+      "s3api get-object --bucket b --key k escape/../in.txt",
+      "s3api put-object --bucket b --key k --body escape/../in.txt",
+      "lambda invoke --function-name f --payload file://escape/../in.txt out.json",
+      `s3api get-object --bucket b --key k ${workdir}/escape/../in.txt`,
+    ]) {
+      expect(() => allowed(cmd)).toThrow(/goes through the symlink/);
+    }
+    // Also where path.resolve would make it a name: /.git/config does not exist.
+    fs.mkdirSync(path.join(outside, "a", "b", "c"), { recursive: true });
+    fs.symlinkSync(path.join(outside, "a", "b", "c"), path.join(outside, "lnk"));
+    const up = "/..".repeat(outside.split(path.sep).length);
+    expect(() => allowed(`ssm get-parameter --name ${outside}/lnk${up}/.git/config`)).toThrow(
+      /goes through the symlink/
+    );
+    // Without a symlink before it, '..' is resolved as the OS does.
+    expect(() => allowed("s3api get-object --bucket b --key k out/../in.txt")).not.toThrow();
+  });
+
+  (fs.existsSync("/System/Volumes/Data/private") ? test : test.skip)(
+    "a workdir named on the data volume holds its files (macOS firmlinks)",
+    () => {
+      const dir = `/System/Volumes/Data${workdir}`;
+      const { workdir: resolved } = awsWorkdir({ LOCALSTACK_AWS_WORKDIR: dir });
+      expect(resolved).toBe(workdir);
+      for (const wd of [dir, resolved]) {
+        expect(() => allowed("s3api get-object --bucket b --key k out.txt", wd)).not.toThrow();
+        expect(() => allowed(`s3 cp s3://b/k ${dir}/x.txt`, wd)).not.toThrow();
+      }
+    }
+  );
+
+  test("a workdir inside a folder named .lstk or .git works", () => {
+    const dir = path.join(outside, ".lstk", "proj");
+    fs.mkdirSync(dir, { recursive: true });
+    expect(() => allowed("sqs list-queues", dir)).not.toThrow();
+    expect(() => allowed("s3 cp s3://b/k out.txt", dir)).not.toThrow();
+    expect(() => allowed("s3 cp s3://b/k sub/.git/config", dir)).toThrow(/\.git and \.lstk/);
+  });
+
+  describe("the user's git and lstk configuration", () => {
+    let userHome: string;
+    beforeAll(() => {
+      userHome = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "aws-userhome-")));
+      fs.mkdirSync(path.join(userHome, ".config", "git"), { recursive: true });
+      fs.writeFileSync(path.join(userHome, ".gitconfig"), "");
+      fs.mkdirSync(path.join(userHome, "Library", "Application Support"), { recursive: true });
+      fs.mkdirSync(path.join(userHome, "xdg"));
+      fs.mkdirSync(path.join(userHome, "docs"));
+    });
+    afterAll(() => fs.rmSync(userHome, { recursive: true, force: true }));
+
+    const check = (cmd: string, platform: NodeJS.Platform = "linux", env: object = {}) =>
+      assertLocalPathsAllowed(cmd.split(" "), workdir, {
+        home: userHome,
+        cwd: path.join(outside, "tmp"),
+        privateHome: path.join(outside, "home"),
+        platform,
+        env: env as NodeJS.ProcessEnv,
+        // Even with the whole user home allowed.
+        allowed: [userHome],
+      });
+
+    test.each([
+      ["~/.gitconfig", (h: string) => `s3 cp s3://b/k ${h}/.gitconfig`],
+      ["~/.config/git/config", (h: string) => `s3 cp s3://b/k ${h}/.config/git/config`],
+      ["~/.config/lstk/config.toml", (h: string) => `s3 cp s3://b/k ${h}/.config/lstk/config.toml`],
+      ["a folder that holds them", (h: string) => `s3 cp s3://b/ ${h}/.config --recursive`],
+      ["their content", (h: string) => `s3 cp ${h}/.gitconfig s3://b/k`],
+    ])("refuses %s, whatever the user allowed", (_label, cmd) => {
+      expect(() => check(cmd(userHome))).toThrow(/git and lstk read their configuration/);
+    });
+
+    test("refuses lstk's macOS config directory, and another case on macOS and Windows", () => {
+      expect(() =>
+        assertLocalPathsAllowed(
+          ["s3", "cp", "s3://b/k", `${userHome}/Library/Application Support/lstk/config.toml`],
+          workdir,
+          { home: userHome, platform: "darwin", env: {}, allowed: [userHome] }
+        )
+      ).toThrow(/configuration/);
+      expect(() => check(`s3 cp s3://b/k ${userHome}/.config/GIT/config`, "darwin")).toThrow(
+        /configuration/
+      );
+      expect(() => check(`s3 cp s3://b/k ${userHome}/.GitConfig`, "darwin")).toThrow(
+        /configuration/
+      );
+    });
+
+    test("refuses XDG_CONFIG_HOME's git and lstk, and GIT_CONFIG_GLOBAL", () => {
+      const env = {
+        XDG_CONFIG_HOME: path.join(userHome, "xdg"),
+        GIT_CONFIG_GLOBAL: path.join(userHome, "docs", "my.gitconfig"),
+      };
+      for (const p of ["xdg/git/config", "xdg/lstk/config.toml", "docs/my.gitconfig"]) {
+        expect(() => check(`s3 cp s3://b/k ${userHome}/${p}`, "linux", env)).toThrow(
+          /configuration/
+        );
+      }
+    });
+
+    test("refuses the names a case-insensitive file system opens them by", () => {
+      // APFS opens lſtk as lstk; Windows drops trailing dots and opens streams (.gitconfig:x).
+      expect(() =>
+        check(`s3 cp s3://b/k ${userHome}/.config/l\u017ftk/config.toml`, "darwin")
+      ).toThrow(/configuration/);
+      expect(() => check(`s3 cp s3://b/k ${userHome}/.config/lstk./config.toml`, "win32")).toThrow(
+        /configuration/
+      );
+      expect(() => check(`s3 cp s3://b/k ${userHome}/.gitconfig:stream`, "win32")).toThrow(
+        /configuration/
+      );
+    });
+
+    test("refuses the missing target of a config symlink", () => {
+      const link = path.join(userHome, "docs", "link.gitconfig");
+      fs.symlinkSync(path.join(userHome, "dotfiles", "gitconfig"), link);
+      const env = { GIT_CONFIG_GLOBAL: link };
+      expect(() =>
+        check(`s3api get-object --bucket b --key k ${userHome}/dotfiles/gitconfig`, "linux", env)
+      ).toThrow(/configuration/);
+    });
+
+    test("follows a chain of dangling symlinks, also above the config path", () => {
+      const ext = fs.mkdtempSync(path.join(os.tmpdir(), "aws-ext-"));
+      const chainHome = fs.mkdtempSync(path.join(os.tmpdir(), "aws-chainhome-"));
+      try {
+        // ~/.config -> ext/dotcfg (missing); ext/hop -> ext/final (missing).
+        fs.symlinkSync(path.join(ext, "dotcfg"), path.join(chainHome, ".config"));
+        fs.symlinkSync(path.join(ext, "final"), path.join(ext, "hop"));
+        const env = { GIT_CONFIG_GLOBAL: path.join(ext, "hop", "gitconfig") };
+        for (const p of ["dotcfg/git/config", "final/gitconfig"]) {
+          expect(() =>
+            assertLocalPathsAllowed(["s3", "cp", "s3://b/k", path.join(ext, p)], workdir, {
+              home: chainHome,
+              platform: "linux",
+              env,
+              allowed: [fs.realpathSync(ext)],
+            })
+          ).toThrow(/configuration/);
+        }
+      } finally {
+        fs.rmSync(ext, { recursive: true, force: true });
+        fs.rmSync(chainHome, { recursive: true, force: true });
+      }
+    });
+
+    (fs.existsSync("/System/Volumes/Data/private") ? test : test.skip)(
+      "refuses a missing config under its data-volume name (macOS firmlinks)",
+      () => {
+        for (const p of [".config/git/config", "Library/Application Support/lstk/config.toml"]) {
+          expect(() =>
+            assertLocalPathsAllowed(
+              ["s3", "cp", "s3://b/k", `/System/Volumes/Data${userHome}/${p}`],
+              workdir,
+              { home: userHome, platform: "darwin", env: {}, allowed: [userHome] }
+            )
+          ).toThrow(/configuration/);
+        }
+        // A folder that holds a missing config, named on the data volume.
+        expect(() =>
+          assertLocalPathsAllowed(
+            ["s3", "sync", "s3://b/", `/System/Volumes/Data${userHome}/Library`],
+            workdir,
+            { home: userHome, platform: "darwin", env: {}, allowed: [userHome] }
+          )
+        ).toThrow(/configuration/);
+      }
+    );
+
+    test("resolves a dangling link's relative target against the link's real directory", () => {
+      const h = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "aws-stowhome-")));
+      try {
+        // As GNU stow writes them: ~/.config -> dotfiles/config, and in it git -> ../../gitstuff/git.
+        fs.mkdirSync(path.join(h, "dotfiles", "config"), { recursive: true });
+        fs.symlinkSync(path.join(h, "dotfiles", "config"), path.join(h, ".config"));
+        fs.symlinkSync("../../gitstuff/git", path.join(h, "dotfiles", "config", "git"));
+        expect(() =>
+          assertLocalPathsAllowed(
+            ["s3", "cp", "s3://b/k", path.join(h, "gitstuff", "git", "config")],
+            workdir,
+            { home: h, platform: "linux", env: {}, allowed: [h] }
+          )
+        ).toThrow(/configuration/);
+      } finally {
+        fs.rmSync(h, { recursive: true, force: true });
+      }
+    });
+
+    test("allows other files the user allowed", () => {
+      expect(() => check(`s3 cp s3://b/k ${userHome}/docs/report.pdf`)).not.toThrow();
+      expect(() => check(`s3 cp s3://b/k ${userHome}/.config/other.json`)).not.toThrow();
     });
   });
 
@@ -393,7 +667,8 @@ describe("assertLocalPathsAllowed", () => {
     .flatMap((alias) => [alias, `*/${alias}`, `${alias}/*`, `*/${alias}/*`])
     .flatMap((p) => ["--exclude", p]);
 
-  test.each(["s3://b/.git", "s3://b/p/.lstk/", "s3://b/.l\u017ftk"])(
+  // On Windows, the CLI writes a key's backslash as a path separator.
+  test.each(["s3://b/.git", "s3://b/p/.lstk/", "s3://b/.l\u017ftk", "s3://b/.git\\config"])(
     "refuses a transfer of a .git or .lstk object: %s",
     (source) => {
       expect(() => confineTransfers(["s3", "cp", source, "."], workdir)).toThrow(

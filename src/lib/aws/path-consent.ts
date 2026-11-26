@@ -33,6 +33,8 @@ interface ConsentState {
   allowed: string[];
   /** The path the last round asked about. */
   asking: string;
+  /** The folder its "allow the folder" answer covers, as the prompt named it; none if not offered. */
+  folder?: string;
   rounds: number;
 }
 
@@ -58,19 +60,35 @@ export function consentFolder(p: string): string {
   return fs.statSync(p, { throwIfNoEntry: false })?.isDirectory() ? p : path.dirname(p);
 }
 
+/** The folder an "allow the folder" answer for `p` may cover, or undefined when it is too wide. */
+function folderScope(p: string): string | undefined {
+  const folder = consentFolder(p);
+  return isTooWideToAllow(folder) ? undefined : folder;
+}
+
 /** The form for `error`'s path. The path is the server's resolved one, never the agent's text. */
 export function consentRequest(
   error: OutsideWorkdirError,
   command: string,
   workdir: string | null
 ) {
-  const folder = consentFolder(error.path);
-  const scopes = isTooWideToAllow(folder)
-    ? [["once", "Allow this path for this command only"]]
-    : [
-        ["once", "Allow this path for this command only"],
-        ["folder", `Allow everything in ${folder} until the MCP server stops`],
-      ];
+  return buildRequest(error, command, workdir, folderScope(error.path));
+}
+
+/** The form, offering `folder` for the session, or only this path when there is none. */
+function buildRequest(
+  error: OutsideWorkdirError,
+  command: string,
+  workdir: string | null,
+  folder: string | undefined
+) {
+  const scopes =
+    folder === undefined
+      ? [["once", "Allow this path for this command only"]]
+      : [
+          ["once", "Allow this path for this command only"],
+          ["folder", `Allow everything in ${folder} until the MCP server stops`],
+        ];
   // One line, and short: the agent wrote the command.
   const line = command.replace(/\s+/g, " ");
   const shown = line.length > 200 ? `${line.slice(0, 200)}…` : line;
@@ -118,8 +136,9 @@ export async function readConsent(
   if (state.command !== command) return { allowed: [], rounds: 0 };
   const answer = acceptedContent<{ scope?: unknown }>(extra?.inputResponses, QUESTION);
   if (!answer) return { declined: state.asking };
-  const folder = consentFolder(state.asking);
-  if (answer.scope === "folder" && !isTooWideToAllow(folder)) {
+  // The folder the prompt named: the path may have changed while the user read it.
+  const folder = state.folder;
+  if (answer.scope === "folder" && folder !== undefined && !isTooWideToAllow(folder)) {
     sessionFolders.add(folder);
     return { allowed: [...state.allowed, folder], rounds: state.rounds };
   }
@@ -135,11 +154,15 @@ export async function askToAllow(
     command: options.command,
     allowed: options.allowed,
     asking: error.path,
+    folder: folderScope(error.path),
     rounds: options.rounds + 1,
   };
   return inputRequired({
     inputRequests: {
-      [QUESTION]: inputRequired.elicit(consentRequest(error, options.command, options.workdir)),
+      // The folder the prompt names is the one the signed state carries.
+      [QUESTION]: inputRequired.elicit(
+        buildRequest(error, options.command, options.workdir, state.folder)
+      ),
     },
     requestState: await codec.mint(state),
   });
