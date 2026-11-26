@@ -1,10 +1,20 @@
 import { z } from "zod";
-import { type ToolMetadata, type InferSchema } from "xmcp";
+import { type ToolMetadata, type InferSchema, type ToolExtraArguments } from "xmcp";
 import { runPreflights, requireLocalStackRunning, requireAuthToken } from "../core/preflight";
 import { ResponseBuilder } from "../core/response-builder";
 import { withToolAnalytics } from "../core/analytics";
 import { sanitizeAwsCliCommand, splitAwsCliArgs } from "../lib/aws/aws-cli-sanitizer";
-import { checkLstkAwsDependencies, lstkAwsErrorText, runLstkAws } from "../lib/aws/lstk-aws";
+import {
+  checkLstkAwsDependencies,
+  lstkAwsErrorText,
+  runLstkAws,
+  type LstkAwsResult,
+} from "../lib/aws/lstk-aws";
+import { awsWorkdir, OutsideWorkdirError } from "../lib/aws/local-paths";
+import { allowedFolders, askToAllow, readConsent } from "../lib/aws/path-consent";
+
+// How many paths outside the working directory one command may ask the user about.
+const MAX_CONSENT_QUESTIONS = 5;
 
 // Define the schema for tool parameters
 export const schema = {
@@ -21,7 +31,7 @@ export const schema = {
 export const metadata: ToolMetadata = {
   name: "localstack-aws-client",
   description:
-    "Executes an AWS CLI command against the running LocalStack for AWS emulator, through the official AWS CLI v2 and 'lstk aws', which set the endpoint, credentials and region. Requests only ever reach LocalStack. Local files (s3 cp, file://, --body, an outfile) must be relative paths or inside the tool's working directory.",
+    "Executes an AWS CLI command against the running LocalStack for AWS emulator, through the official AWS CLI v2 and 'lstk aws', which set the endpoint, credentials and region. Requests only ever reach LocalStack. Local files (s3 cp, file://, --body, an outfile) must be relative paths or inside the tool's working directory; for an absolute path outside it, the user is asked to allow it. Write such paths out in full: ~ is not the user's home directory.",
   annotations: {
     title: "LocalStack AWS Client",
   },
@@ -36,7 +46,10 @@ function fence(text: string): string {
   return `${ticks}\n${text}\n${ticks}`;
 }
 
-export default async function localstackAwsClient({ command }: InferSchema<typeof schema>) {
+export default async function localstackAwsClient(
+  { command }: InferSchema<typeof schema>,
+  extra?: ToolExtraArguments
+) {
   return withToolAnalytics("localstack-aws-client", { command }, async () => {
     const preflightError = await runPreflights([requireAuthToken(), requireLocalStackRunning()]);
     if (preflightError) return preflightError;
@@ -47,7 +60,33 @@ export default async function localstackAwsClient({ command }: InferSchema<typeo
       const missing = await checkLstkAwsDependencies();
       if (missing) return ResponseBuilder.error("Dependency Not Available", missing);
 
-      const result = await runLstkAws(args, { checkLocalPaths: true });
+      // A path outside the working directory: ask the user to allow it. The client calls the
+      // tool again with the answer, and the paths allowed so far in the signed state.
+      const consent = await readConsent(command, extra);
+      if ("declined" in consent) {
+        return ResponseBuilder.error(
+          "Local Path Not Allowed",
+          `You did not allow the AWS client to use ${consent.declined}, outside its working directory.`
+        );
+      }
+      let result: LstkAwsResult;
+      try {
+        result = await runLstkAws(args, {
+          checkLocalPaths: true,
+          allowedPaths: [...allowedFolders(), ...consent.allowed],
+        });
+      } catch (err) {
+        if (!(err instanceof OutsideWorkdirError)) throw err;
+        if (!extra || consent.rounds >= MAX_CONSENT_QUESTIONS) {
+          return ResponseBuilder.error("Local Path Not Allowed", err.message);
+        }
+        return askToAllow(err, {
+          command,
+          workdir: awsWorkdir().workdir,
+          allowed: consent.allowed,
+          rounds: consent.rounds,
+        });
+      }
 
       if (result.exitCode === 0 && result.blocked.length === 0) {
         // Warnings (and --debug's log) go to stderr, also when the command succeeds.

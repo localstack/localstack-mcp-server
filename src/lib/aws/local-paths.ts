@@ -46,29 +46,83 @@ export function awsWorkdir(
 function tooWide(dir: string, deps: { home?: string; tmp?: string }): boolean {
   return (
     dir === path.parse(dir).root ||
-    holds(dir, deps.home ?? os.homedir()) ||
-    holds(dir, deps.tmp ?? os.tmpdir()) ||
+    within(deps.home ?? os.homedir(), dir) ||
+    within(deps.tmp ?? os.tmpdir(), dir) ||
     // Above macOS's data volume, home and tmp lie one level deeper: /System/Volumes/Data/Users.
-    holds(dir, "/System/Volumes/Data") ||
-    isInside("/.vol", dir)
+    within(DATA_VOLUME, dir) ||
+    isVolfs(dir)
   );
 }
 
+/** Whether the user may not allow `dir` as a whole: a root, or it holds the home or temp directory. */
+export function isTooWideToAllow(dir: string): boolean {
+  return tooWide(realpath(dir), {});
+}
+
 /**
- * Whether `target` is `dir` or inside it, by file identity, not spelling: on macOS,
- * /System/Volumes/Data/Users is /Users. For each tail of `target` (`joe`, `Users/joe`, …),
- * `dir`/tail being `target` itself means `dir` is the directory above it (or, for no tail, it).
+ * Whether `p` is `dir` or inside it, either possibly missing below some point, by real path and
+ * by file identity: on macOS, /var/folders is /private/var/folders.
  */
-function holds(dir: string, target: string): boolean {
-  const real = realpath(target);
-  if (isInside(real, dir)) return true;
-  const id = stat(real);
+function within(p: string, dir: string): boolean {
+  const realP = realpathOfExistingPart(p);
+  const realDir = realpathOfExistingPart(dir);
+  if (isInside(realP, realDir)) return true;
+  const id = stat(realDir);
   if (!id) return false;
-  const parts = real.slice(path.parse(real).root.length).split(path.sep).filter(Boolean);
-  return parts.concat("").some((_, i) => {
-    const other = stat(path.join(dir, ...parts.slice(i)));
-    return other?.dev === id.dev && other.ino === id.ino;
-  });
+  for (let at = realP; ; at = path.dirname(at)) {
+    const other = stat(at);
+    if (other?.dev === id.dev && other.ino === id.ino) return true;
+    if (path.dirname(at) === at) return false;
+  }
+}
+
+/**
+ * Where git and lstk read the user's configuration, which can make them run programs
+ * (core.fsmonitor, core.pager; an lstk container's image, volumes and environment). A project's
+ * own `.git` and `.lstk` are refused by name (isProtectedName). XDG_CONFIG_HOME and
+ * GIT_CONFIG_GLOBAL come from the server's environment, which an MCP host may have trimmed; files
+ * a git config includes (include.path, core.hooksPath) are asked about by path, like any other.
+ */
+function userToolConfigs(
+  home: string,
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env
+): string[] {
+  const xdg = env.XDG_CONFIG_HOME?.trim() || path.join(home, ".config");
+  return [
+    path.join(home, ".gitconfig"),
+    path.join(home, ".config", "git"),
+    path.join(xdg, "git"),
+    env.GIT_CONFIG_GLOBAL?.trim() || undefined,
+    // lstk's config search: ~/.config/lstk, then the OS config directory (Go's UserConfigDir).
+    path.join(home, ".config", "lstk"),
+    path.join(xdg, "lstk"),
+    platform === "darwin" ? path.join(home, "Library", "Application Support", "lstk") : undefined,
+    platform === "win32" && env.APPDATA ? path.join(env.APPDATA, "lstk") : undefined,
+  ]
+    .filter((p): p is string => !!p && path.isAbsolute(p))
+    .map((p) => path.resolve(p));
+}
+
+/**
+ * The first symlink that `value`, as written, goes through before a `..` (relative values start
+ * at `base`, whose own symlinks do not count), or undefined.
+ */
+function symlinkBeforeDotDot(value: string, base?: string): string | undefined {
+  const parts = value.split(/[\\/]+/);
+  let at = path.isAbsolute(value) ? path.parse(value).root : (base ?? "");
+  let link: string | undefined;
+  for (const part of parts) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      if (link) return link;
+      at = path.dirname(at);
+      continue;
+    }
+    at = path.join(at, part);
+    if (!link && isSymlink(at)) link = at;
+  }
+  return undefined;
 }
 
 /** `p`'s stats, or undefined when it cannot be read (missing, no permission, a symlink loop). */
@@ -101,8 +155,16 @@ function stat(p: string): fs.Stats | undefined {
  *   `$states` in a definition), which can only expand to a path inside a directory named `{`.
  *   `$5` is no variable name. A file:// path never may.
  * - The CLI's `~` is the private home, so a `~` value is checked against both homes.
- * - `deps.privateHome` is never allowed: an alias written there would run shell commands.
- * - Nothing inside `.git` or `.lstk`: git and lstk run what their config there tells them to.
+ * - `deps.allowed`: paths outside the workdir the user allowed (localstack-aws-client asks with
+ *   MCP elicitation). An otherwise valid path outside them and the workdir throws
+ *   OutsideWorkdirError, which names the path to ask about; every other refusal is final.
+ * - `deps.privateHome`, and a folder that holds it, are never allowed: an alias written there
+ *   would run shell commands.
+ * - Nothing named `.git` or `.lstk`, or inside one: git and lstk run what their config there
+ *   tells them to. Inside the directory the CLI runs in, only the part below it counts (it may lie
+ *   in ~/.lstk); elsewhere the whole real path.
+ * - Nothing inside, or holding, the user's git and lstk configuration (userToolConfigs).
+ * All three are refused before the user is asked, so no answer and no allowed path lets them pass.
  */
 export function assertLocalPathsAllowed(
   args: string[],
@@ -112,9 +174,16 @@ export function assertLocalPathsAllowed(
     cwd?: string;
     privateHome?: string;
     platform?: NodeJS.Platform;
+    allowed?: string[];
+    env?: NodeJS.ProcessEnv;
   } = {}
 ): void {
-  const base = workdir ?? deps.cwd;
+  // The private temp dir lies under /var on macOS, which is /private/var: `..` follows that.
+  const base = workdir ?? (deps.cwd === undefined ? undefined : realpath(deps.cwd));
+  const toolConfigs = userToolConfigs(deps.home ?? os.homedir(), deps.platform, deps.env).flatMap(
+    (c) => configPaths(c)
+  );
+  const caseless = ["darwin", "win32"].includes(deps.platform ?? process.platform);
   // `/` is a name (`iam … --path /`) except to the transfers, which would walk the whole disk.
   const words = args.map((arg) => arg.toLowerCase());
   const transfer = words[0] === "s3" && ["cp", "mv", "sync"].some((op) => words.includes(op));
@@ -128,9 +197,19 @@ export function assertLocalPathsAllowed(
     const target = isAbsolute
       ? path.resolve(expandHome(value, home))
       : path.resolve(base as string, value);
+    // macOS's /.vol/<device>/<inode> opens a file by number, which no prompt could name.
+    if (isVolfs(target)) throw outside(written, workdir);
+    // The OS follows a symlink before it applies a later `..`; path.resolve does not.
+    // Before the name exception, which judges the path as path.resolve spells it.
+    const link = symlinkBeforeDotDot(isAbsolute ? expandHome(value, home) : value, base);
+    if (link) {
+      throw new Error(
+        `The local path '${written}' is not allowed: it goes through the symlink ${link} and then '..', which leads wherever the symlink points. Write the path without '..'.`
+      );
+    }
+    const homes = [deps.home ?? os.homedir(), deps.privateHome].filter((h): h is string => !!h);
     // `~user/x` is another user's home to the CLI, and AWS names start with a single /, never
     // with a drive (D:\\x): neither is a name.
-    const homes = [deps.home ?? os.homedir(), deps.privateHome].filter((h): h is string => !!h);
     if (
       isAbsolute &&
       mayBeName &&
@@ -141,18 +220,47 @@ export function assertLocalPathsAllowed(
       return;
     }
     const root = isAbsolute ? workdir : (base as string);
+    // `~user/x` is another user's home to the CLI; the server would check another path.
+    if (/^~[^\\/]/.test(value)) throw outside(written, workdir);
     const real = realpathOfLongestExisting(target);
-    if (root === null || /^~[^\\/]/.test(value) || !isInside(real, realpath(root))) {
-      throw outside(written, workdir);
-    }
-    if (deps.privateHome && isInside(real, realpath(deps.privateHome))) {
-      throw outside(written, workdir);
-    }
-    const inner = path.relative(realpath(root), real).split(path.sep);
-    if (inner.some(isProtectedName)) {
+    // Checked before the user is asked, so that no answer can allow them: on the whole path,
+    // or inside the directory the CLI runs in, on the part below it (it may lie in ~/.lstk).
+    const realRoot = root === null ? undefined : realpath(root);
+    const below = realRoot && isInside(real, realRoot) ? path.relative(realRoot, real) : real;
+    if (below.split(path.sep).some(isProtectedName)) {
       throw new Error(
         `The local path '${written}' is not allowed: files in .git and .lstk configure programs that run on your machine.`
       );
+    }
+    // Inside the private home, or a folder that holds it (a recursive download writes home/…).
+    if (deps.privateHome && (within(real, deps.privateHome) || within(deps.privateHome, real))) {
+      throw outside(written, workdir);
+    }
+    // macOS and Windows file systems ignore case: ~/.config/GIT is ~/.config/git once created.
+    const fold = (p: string) => (caseless ? foldPath(p) : p);
+    const config = toolConfigs.find(
+      (c) =>
+        within(real, c) ||
+        within(c, real) ||
+        isInside(fold(real), fold(c)) ||
+        isInside(fold(c), fold(real))
+    );
+    if (config) {
+      throw new Error(
+        `The local path '${written}' is not allowed: git and lstk read their configuration from ${config}, which can run programs on your machine.`
+      );
+    }
+    const inRoot = [root, ...(deps.allowed ?? [])]
+      .filter((r): r is string => r !== null)
+      .some((r) => isInside(real, realpath(r)));
+    if (!inRoot) {
+      // `~` is the private home to the CLI, and `~user` another user's: the user could not tell
+      // which file they allow. A root, or a directory holding the home or temp directory (which
+      // holds the private home), is too wide to allow.
+      if (value.startsWith("~") || tooWide(real, deps)) {
+        throw outside(written, workdir, value.startsWith("~"));
+      }
+      throw new OutsideWorkdirError(outside(written, workdir).message, real);
     }
   };
   const checkAll = (value: string, mayBeName: boolean) => {
@@ -238,7 +346,7 @@ export function confineTransfers(args: string[], cwd: string): string[] {
     w !== undefined && w.length > 4 && ["--exclude", "--include"].some((f) => f.startsWith(w));
   args.forEach((arg, i) => {
     // A single object copied into a directory takes the key's name: s3 cp s3://b/.git .
-    if (/^s3:\/\//i.test(arg) && arg.slice(5).split("/").some(isProtectedName)) {
+    if (/^s3:\/\//i.test(arg) && arg.slice(5).split(/[\\/]/).some(isProtectedName)) {
       throw new Error(
         `The argument '${arg}' is not allowed: files in .git and .lstk configure programs that run on your machine.`
       );
@@ -274,23 +382,52 @@ function variableReference(
  * is_ntfs_dotgit sees it.
  */
 function isProtectedName(name: string): boolean {
-  const folded = name
+  const folded = foldName(name);
+  return folded === ".git" || folded === ".lstk" || /^(git|lstk)~\d+$/.test(folded);
+}
+
+/**
+ * A path component as a case-insensitive file system opens it: in any case, with ſ (U+017F) and
+ * K (U+212A) as s and k, and as Windows does, without a stream suffix or trailing dots or spaces.
+ */
+function foldName(name: string): string {
+  return name
     .normalize("NFC")
     .toUpperCase()
     .toLowerCase()
     .replace(/:.*$/, "")
     .replace(/[. ]+$/, "");
-  return folded === ".git" || folded === ".lstk" || /^(git|lstk)~\d+$/.test(folded);
 }
+
+/** `p` with every component folded (foldName). */
+const foldPath = (p: string) => p.split(path.sep).map(foldName).join(path.sep);
 
 const isInside = (p: string, dir: string) => p === dir || p.startsWith(dir + path.sep);
 
-function outside(value: string, workdir: string | null): Error {
+/**
+ * A path outside the workdir that the user may still allow: `path` is its real path, as the CLI
+ * will open it.
+ */
+export class OutsideWorkdirError extends Error {
+  constructor(
+    message: string,
+    readonly path: string
+  ) {
+    super(message);
+    this.name = "OutsideWorkdirError";
+  }
+}
+
+function outside(value: string, workdir: string | null, tilde = false): Error {
   const where =
     workdir === null
       ? `The local path '${value}' is not allowed: the AWS client has no working directory here. Set LOCALSTACK_AWS_WORKDIR to the directory that holds your files, or use a relative path.`
       : `The local path '${value}' is outside the AWS client's working directory (${workdir}). Use a path inside it, or set LOCALSTACK_AWS_WORKDIR.`;
-  return new Error(where);
+  // The CLI runs with a private home, so its `~` is not the user's.
+  const hint = tilde
+    ? " To the AWS CLI, ~ is a private home directory, not yours: write the absolute path."
+    : "";
+  return new Error(where + hint);
 }
 
 function expandHome(value: string, home = os.homedir()): string {
@@ -322,12 +459,25 @@ function isDirectory(p: string): boolean {
   }
 }
 
+/**
+ * The real path of `p`, in one spelling: the one the file system stores (case on macOS, long names
+ * on Windows), without macOS's data-volume prefix (withoutDataVolume).
+ */
 function realpath(p: string): string {
   try {
-    // native: the spelling the file system stores (case on macOS, long names on Windows).
-    return fs.realpathSync.native(p);
+    return withoutDataVolume(fs.realpathSync.native(p));
   } catch {
     return path.resolve(p);
+  }
+}
+
+/** Where the symlink `p` points, resolved against its directory, or nothing if `p` is none. */
+function symlinkTarget(p: string): string | undefined {
+  try {
+    // Against the link's real directory, as the OS resolves a relative target (../x).
+    return path.resolve(realpath(path.dirname(p)), fs.readlinkSync(p));
+  } catch {
+    return undefined;
   }
 }
 
@@ -369,5 +519,67 @@ function realpathOfLongestExisting(p: string): string {
     rest.unshift(path.basename(existing));
     existing = parent;
   }
+  // A path that exists but has no real path (/.vol/<device>/<inode>) can't be judged.
+  try {
+    fs.realpathSync.native(existing);
+  } catch {
+    throw new Error(`The local path '${p}' is not allowed: its real path cannot be resolved.`);
+  }
   return path.join(realpath(existing), ...rest);
+}
+
+/** The real path of the part of `p` that exists, joined with the rest; never throws. */
+function realpathOfExistingPart(p: string): string {
+  let existing = path.resolve(p);
+  const rest: string[] = [];
+  while (!fs.existsSync(existing) && path.dirname(existing) !== existing) {
+    rest.unshift(path.basename(existing));
+    existing = path.dirname(existing);
+  }
+  return path.join(realpath(existing), ...rest);
+}
+
+/** Whether `p` lies in macOS's /.vol, which opens files by device and inode number. */
+function isVolfs(p: string): boolean {
+  const [first] = p.slice(path.parse(p).root.length).split(/[\\/]/);
+  return path.parse(p).root === "/" && foldName(first ?? "") === ".vol";
+}
+
+const DATA_VOLUME = "/System/Volumes/Data";
+
+/**
+ * `real`, an existing real path, without macOS's data-volume prefix when that names the same file
+ * (a firmlink: /System/Volumes/Data/Users is /Users), so that paths, missing ones included,
+ * compare by spelling.
+ */
+function withoutDataVolume(real: string): string {
+  if (!real.startsWith(DATA_VOLUME + "/")) return real;
+  const short = real.slice(DATA_VOLUME.length);
+  const a = stat(real);
+  const b = stat(short);
+  return a && b && a.dev === b.dev && a.ino === b.ino ? short : real;
+}
+
+/**
+ * The real paths a config path may name: itself, and through a chain of symlinks whose targets
+ * are missing, each target (git or lstk would read it once it exists).
+ */
+function configPaths(p: string, hops = 8): string[] {
+  try {
+    return [realpathOfLongestExisting(p)];
+  } catch {
+    const link = danglingSymlink(p);
+    const target = link && symlinkTarget(link);
+    if (!target || hops === 0) return [p];
+    return [p, ...configPaths(path.join(target, path.relative(link as string, p)), hops - 1)];
+  }
+}
+
+/** The symlink with a missing target that `p` goes through, if any. */
+function danglingSymlink(p: string): string | undefined {
+  for (let at = p; !fs.existsSync(at); at = path.dirname(at)) {
+    if (isSymlink(at)) return at;
+    if (path.dirname(at) === at) return undefined;
+  }
+  return undefined;
 }

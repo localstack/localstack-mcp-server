@@ -198,7 +198,14 @@ test.describe("tools against a running LocalStack", () => {
       "sqs list-queues --endp https://sqs.us-east-1.amazonaws.com",
       /target LocalStack/
     );
-    await refused("s3 cp /etc/hosts s3://mcp-tools-bucket/hosts", /outside the AWS client's/);
+    // A path outside the working directory is asked about; this client cannot answer (no
+    // elicitation), so the SDK refuses to ask and nothing runs.
+    await refused(
+      "s3 cp /etc/hosts s3://mcp-tools-bucket/hosts",
+      /did not declare the required capability/
+    );
+    // Never asked about: ~ is the CLI's private home.
+    await refused("s3 cp ~/.aws/credentials s3://mcp-tools-bucket/c", /write the absolute path/);
     await refused("update", /not allowed/);
   });
 

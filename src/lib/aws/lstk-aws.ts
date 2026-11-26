@@ -143,11 +143,12 @@ export interface LstkAwsResult extends CommandResult {
  * Runs `lstk aws <args>`: the official AWS CLI, with endpoint, credentials and region set by
  * lstk. It runs with the environment of child-env.ts behind an egress guard that relays plain
  * HTTP to LocalStack and refuses everything else, in the AWS client's working directory.
- * `checkLocalPaths` holds the local paths in `args` to that directory (local-paths.ts).
+ * `checkLocalPaths` holds the local paths in `args` to that directory and to `allowedPaths`, the
+ * paths outside it the user allowed (local-paths.ts).
  */
 export async function runLstkAws(
   args: string[],
-  options: { checkLocalPaths?: boolean } = {}
+  options: { checkLocalPaths?: boolean; allowedPaths?: string[] } = {}
 ): Promise<LstkAwsResult> {
   assertTargetsLocalStack(args);
   const { workdir, error } = awsWorkdir();
@@ -157,7 +158,11 @@ export async function runLstkAws(
   const childEnv = (proxyUrl: string) =>
     buildAwsChildEnv(process.env, process.platform, { ...dirs, workdir, endpointUrl, proxyUrl });
   if (options.checkLocalPaths) {
-    assertLocalPathsAllowed(args, workdir, { cwd: dirs.tmpDir, privateHome: dirs.homeDir });
+    assertLocalPathsAllowed(args, workdir, {
+      cwd: dirs.tmpDir,
+      privateHome: dirs.homeDir,
+      allowed: options.allowedPaths,
+    });
     args = confineTransfers(args, workdir ?? dirs.tmpDir);
   }
 
